@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
 import path from "path";
 
-const DB_PATH = path.join(process.cwd(), "fleet-hub.db");
+const isNetlify = !!process.env.NETLIFY;
+const DB_PATH = isNetlify
+  ? "/tmp/fleet-hub.db"
+  : path.join(process.cwd(), "fleet-hub.db");
 
 let db: Database.Database | null = null;
 
