@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 
@@ -32,6 +33,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <div className="text-center mb-8">
+            <Image src="/logo.png" alt="1PWR" width={80} height={80} className="mx-auto mb-3" />
             <h1 className="text-3xl font-bold text-slate-900">1PWR</h1>
             <p className="text-slate-500 mt-1">Sign in to continue</p>
           </div>

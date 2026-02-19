@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -103,9 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
         )}
       >
         <div className="flex h-16 items-center gap-3 border-b border-slate-700 px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 font-bold text-white text-sm">
-            1P
-          </div>
+          <Image src="/logo.png" alt="1PWR" width={36} height={36} className="rounded-lg" />
           <div>
             <div className="font-semibold text-white text-sm">1PWR Fleet Hub</div>
             <div className="text-xs text-slate-400">Vehicle Management</div>
