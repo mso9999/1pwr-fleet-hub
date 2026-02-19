@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -53,6 +53,21 @@ function createVehicleIcon(status: string, hasTracker: boolean): L.DivIcon {
   });
 }
 
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function formatDistance(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters.toFixed(0)} m`;
+}
+
 interface FleetMapProps {
   onVehicleClick?: (id: string) => void;
 }
@@ -60,10 +75,21 @@ interface FleetMapProps {
 export default function FleetMap({ onVehicleClick }: FleetMapProps): React.ReactElement {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const siteLabelsLayerRef = useRef<L.LayerGroup | null>(null);
+  const measureLayerRef = useRef<L.LayerGroup | null>(null);
+  const tooltipLayerRef = useRef<L.LayerGroup | null>(null);
   const [vehicles, setVehicles] = useState<VehicleLocation[]>([]);
   const [sites, setSites] = useState<SiteCoords>({});
   const [filter, setFilter] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [measureMode, setMeasureMode] = useState(false);
+  const measurePointsRef = useRef<Array<{ lat: number; lng: number }>>([]);
+  const measureModeRef = useRef(false);
+
+  useEffect(() => {
+    measureModeRef.current = measureMode;
+  }, [measureMode]);
 
   useEffect(() => {
     fetch("/api/vehicles/locations")
@@ -76,58 +102,144 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
       .catch(() => setIsLoading(false));
   }, []);
 
+  const handleMeasureClick = useCallback((e: L.LeafletMouseEvent) => {
+    if (!measureModeRef.current || !measureLayerRef.current) return;
+
+    const { lat, lng } = e.latlng;
+    const points = measurePointsRef.current;
+
+    if (points.length >= 2) {
+      measureLayerRef.current.clearLayers();
+      measurePointsRef.current = [];
+    }
+
+    points.push({ lat, lng });
+    measurePointsRef.current = [...points];
+
+    const layer = measureLayerRef.current;
+
+    L.circleMarker([lat, lng], {
+      radius: 6,
+      fillColor: "#FF00FF",
+      fillOpacity: 0.9,
+      color: "#FFFFFF",
+      weight: 2,
+    }).addTo(layer);
+
+    if (points.length === 2) {
+      const [p1, p2] = points;
+      L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+        color: "#FF00FF",
+        weight: 3,
+        dashArray: "10, 5",
+      }).addTo(layer);
+
+      const dist = haversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+      const midLat = (p1.lat + p2.lat) / 2;
+      const midLng = (p1.lng + p2.lng) / 2;
+      L.marker([midLat, midLng], {
+        icon: L.divIcon({
+          html: `<div style="background:rgba(255,0,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-weight:bold;white-space:nowrap;font-size:13px;">${formatDistance(dist)}</div>`,
+          className: "measure-label",
+          iconSize: [100, 30],
+          iconAnchor: [50, 15],
+        }),
+        interactive: false,
+      }).addTo(layer);
+    }
+  }, []);
+
   useEffect(() => {
     if (!mapRef.current || isLoading) return;
 
     if (!leafletMap.current) {
-      leafletMap.current = L.map(mapRef.current, {
-        center: [-29.31, 27.48],
+      const map = L.map(mapRef.current, {
+        center: [-29.5, 27.8],
         zoom: 8,
         zoomControl: true,
       });
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 18,
-      }).addTo(leafletMap.current);
+      const osmLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+        maxZoom: 22,
+        maxNativeZoom: 18,
+      });
+
+      const satelliteLayer = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          attribution: "Tiles &copy; Esri",
+          maxZoom: 22,
+          maxNativeZoom: 17,
+        }
+      );
+
+      const topoLayer = L.tileLayer(
+        "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        {
+          attribution: "&copy; OpenTopoMap (CC-BY-SA)",
+          maxZoom: 22,
+          maxNativeZoom: 17,
+        }
+      );
+
+      osmLayer.addTo(map);
+
+      L.control.layers(
+        { "Street Map": osmLayer, Satellite: satelliteLayer, Topographic: topoLayer },
+        {},
+        { position: "topright" }
+      ).addTo(map);
+
+      markersLayerRef.current = L.layerGroup().addTo(map);
+      siteLabelsLayerRef.current = L.layerGroup().addTo(map);
+      measureLayerRef.current = L.layerGroup().addTo(map);
+      tooltipLayerRef.current = L.layerGroup().addTo(map);
+
+      map.on("click", handleMeasureClick);
+
+      leafletMap.current = map;
     }
 
-    const map = leafletMap.current;
+    const markers = markersLayerRef.current!;
+    const siteLabels = siteLabelsLayerRef.current!;
+    const tooltips = tooltipLayerRef.current!;
+    markers.clearLayers();
+    siteLabels.clearLayers();
+    tooltips.clearLayers();
 
-    // Clear existing markers
-    map.eachLayer((layer) => {
-      if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
-        map.removeLayer(layer);
-      }
-    });
-
-    // Add site labels
     Object.entries(sites).forEach(([code, coords]) => {
       if (code === "OTHER") return;
       L.marker([coords.lat, coords.lng], {
         icon: L.divIcon({
-          html: `<div style="background:rgba(30,41,59,0.75);color:white;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;">${code}</div>`,
+          html: `<div style="background:rgba(30,41,59,0.8);color:white;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;">${code}</div>`,
           className: "site-label",
           iconSize: [60, 20],
           iconAnchor: [30, 10],
         }),
         interactive: false,
-      }).addTo(map);
+      }).addTo(siteLabels);
     });
 
-    // Filter vehicles
-    const filtered = filter === "all"
-      ? vehicles
-      : filter === "tracked"
-        ? vehicles.filter((v) => v.trackerImei && v.trackerStatus === "active")
-        : vehicles.filter((v) => v.status === filter);
+    const filtered =
+      filter === "all"
+        ? vehicles
+        : filter === "tracked"
+          ? vehicles.filter((v) => v.trackerImei && v.trackerStatus === "active")
+          : vehicles.filter((v) => v.status === filter);
 
-    // Add vehicle markers
     filtered.forEach((v) => {
       const hasTracker = !!(v.trackerImei && v.trackerStatus === "active");
       const marker = L.marker([v.lat, v.lng], {
         icon: createVehicleIcon(v.status, hasTracker),
-      }).addTo(map);
+      }).addTo(markers);
+
+      marker.bindTooltip(v.code, {
+        direction: "top",
+        offset: [0, -16],
+        className: "fleet-tooltip",
+        opacity: 0.95,
+      });
 
       const trackerBadge = hasTracker
         ? `<span style="background:#10b981;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">GPS</span>`
@@ -150,16 +262,12 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
       });
     });
 
-    // Fit bounds if vehicles exist
     if (filtered.length > 0) {
       const bounds = L.latLngBounds(filtered.map((v) => [v.lat, v.lng] as [number, number]));
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      leafletMap.current!.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
     }
+  }, [vehicles, sites, filter, isLoading, onVehicleClick, handleMeasureClick]);
 
-    return () => {};
-  }, [vehicles, sites, filter, isLoading, onVehicleClick]);
-
-  // Cleanup map on unmount
   useEffect(() => {
     return () => {
       if (leafletMap.current) {
@@ -167,6 +275,17 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
         leafletMap.current = null;
       }
     };
+  }, []);
+
+  const toggleMeasure = useCallback(() => {
+    setMeasureMode((prev) => {
+      const next = !prev;
+      if (!next && measureLayerRef.current) {
+        measureLayerRef.current.clearLayers();
+        measurePointsRef.current = [];
+      }
+      return next;
+    });
   }, []);
 
   const statusCounts = vehicles.reduce((acc, v) => {
@@ -178,7 +297,25 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
 
   return (
     <div className="flex flex-col h-full">
-      {/* Filter bar */}
+      <style jsx global>{`
+        .fleet-tooltip {
+          background: rgba(15, 23, 42, 0.9) !important;
+          color: white !important;
+          border: none !important;
+          border-radius: 6px !important;
+          padding: 3px 8px !important;
+          font-size: 12px !important;
+          font-weight: 600 !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+        }
+        .fleet-tooltip::before {
+          border-top-color: rgba(15, 23, 42, 0.9) !important;
+        }
+        .fleet-marker { background: none !important; border: none !important; }
+        .site-label { background: none !important; border: none !important; }
+        .measure-label { background: none !important; border: none !important; }
+      `}</style>
+
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <button
           onClick={() => setFilter("all")}
@@ -208,9 +345,24 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
             {status.replace(/-/g, " ")} ({count})
           </button>
         ))}
+
+        <div className="ml-auto">
+          <button
+            onClick={toggleMeasure}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              measureMode
+                ? "bg-fuchsia-600 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20l7-7m0 0l3-3m-3 3l-3-3m3 3l3 3M20 4l-7 7" />
+            </svg>
+            {measureMode ? "Measuring… (click 2 points)" : "Measure"}
+          </button>
+        </div>
       </div>
 
-      {/* Legend */}
       <div className="flex flex-wrap items-center gap-4 mb-3 text-xs text-slate-500">
         {Object.entries(STATUS_COLORS).map(([status, color]) => (
           <span key={status} className="flex items-center gap-1">
@@ -224,7 +376,6 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
         </span>
       </div>
 
-      {/* Map */}
       <div ref={mapRef} className="flex-1 rounded-xl border border-slate-200 shadow-sm" style={{ minHeight: 500 }} />
     </div>
   );

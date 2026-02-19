@@ -2,18 +2,18 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 const SITE_COORDINATES: Record<string, { lat: number; lng: number }> = {
-  HQ:    { lat: -29.3107, lng: 27.4785 },
-  MAK:   { lat: -29.4498, lng: 28.0538 },
-  MAS:   { lat: -29.3700, lng: 27.5500 },
-  SEB:   { lat: -29.8387, lng: 28.0678 },
-  MAT:   { lat: -29.3950, lng: 27.6850 },
-  LEB:   { lat: -29.5994, lng: 28.0958 },
-  SEH:   { lat: -29.8842, lng: 29.0683 },
-  QN:    { lat: -30.1164, lng: 28.6828 },
-  TY:    { lat: -29.1477, lng: 27.7452 },
-  BFN:   { lat: -29.1217, lng: 26.2140 },
-  JHB:   { lat: -26.2041, lng: 28.0473 },
-  OTHER: { lat: -29.3107, lng: 27.4785 },
+  HQ:    { lat: -29.3387, lng: 27.4618 },
+  MAK:   { lat: -29.1929, lng: 27.5681 },
+  MAS:   { lat: -29.3902, lng: 27.5603 },
+  SEB:   { lat: -30.2921, lng: 27.8153 },
+  MAT:   { lat: -29.6181, lng: 27.5653 },
+  LEB:   { lat: -30.1793, lng: 27.9874 },
+  SEH:   { lat: -29.9080, lng: 29.1169 },
+  QN:    { lat: -29.9657, lng: 28.7381 },
+  TY:    { lat: -29.1520, lng: 27.7428 },
+  BFN:   { lat: -29.1164, lng: 26.2155 },
+  JHB:   { lat: -26.2050, lng: 28.0497 },
+  OTHER: { lat: -29.3387, lng: 27.4618 },
 };
 
 interface VehicleRow {
