@@ -1,10 +1,15 @@
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 
-const isNetlify = !!process.env.NETLIFY;
-const DB_PATH = isNetlify
-  ? "/tmp/fleet-hub.db"
-  : path.join(process.cwd(), "fleet-hub.db");
+const DB_DIR = process.env.DB_PATH
+  ? path.dirname(process.env.DB_PATH)
+  : process.cwd();
+const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), "fleet-hub.db");
+
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
 
 let db: Database.Database | null = null;
 
