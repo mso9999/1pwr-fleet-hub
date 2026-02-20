@@ -208,19 +208,6 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
     siteLabels.clearLayers();
     tooltips.clearLayers();
 
-    Object.entries(sites).forEach(([code, coords]) => {
-      if (code === "OTHER") return;
-      L.marker([coords.lat, coords.lng], {
-        icon: L.divIcon({
-          html: `<div style="background:rgba(30,41,59,0.8);color:white;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;">${code}</div>`,
-          className: "site-label",
-          iconSize: [60, 20],
-          iconAnchor: [30, 10],
-        }),
-        interactive: false,
-      }).addTo(siteLabels);
-    });
-
     const filtered =
       filter === "all"
         ? vehicles
