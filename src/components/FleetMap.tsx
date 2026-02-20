@@ -17,6 +17,10 @@ interface VehicleLocation {
   trackerProvider: string;
   lat: number;
   lng: number;
+  gpsLive: boolean;
+  gpsTimestamp: number | null;
+  gpsSpeed: number | null;
+  gpsMileage: number | null;
 }
 
 interface SiteCoords {
@@ -33,9 +37,13 @@ const STATUS_COLORS: Record<string, string> = {
   "written-off": "#6b7280",
 };
 
-function getMarkerSvg(status: string, hasTracker: boolean): string {
+function getMarkerSvg(status: string, hasTracker: boolean, isLive: boolean): string {
   const color = STATUS_COLORS[status] || "#6b7280";
-  const ring = hasTracker ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#10b981" stroke-width="2"/>` : "";
+  const ring = isLive
+    ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#3b82f6" stroke-width="2.5"><animate attributeName="r" values="11;13;11" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/></circle>`
+    : hasTracker
+      ? `<circle cx="12" cy="12" r="11" fill="none" stroke="#10b981" stroke-width="2"/>`
+      : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
     <circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2"/>
     ${ring}
@@ -43,9 +51,9 @@ function getMarkerSvg(status: string, hasTracker: boolean): string {
   </svg>`;
 }
 
-function createVehicleIcon(status: string, hasTracker: boolean): L.DivIcon {
+function createVehicleIcon(status: string, hasTracker: boolean, isLive: boolean): L.DivIcon {
   return L.divIcon({
-    html: getMarkerSvg(status, hasTracker),
+    html: getMarkerSvg(status, hasTracker, isLive),
     className: "fleet-marker",
     iconSize: [28, 28],
     iconAnchor: [14, 14],
@@ -211,35 +219,50 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
     const filtered =
       filter === "all"
         ? vehicles
-        : filter === "tracked"
-          ? vehicles.filter((v) => v.trackerImei && v.trackerStatus === "active")
-          : vehicles.filter((v) => v.status === filter);
+        : filter === "live-gps"
+          ? vehicles.filter((v) => v.gpsLive)
+          : filter === "tracked"
+            ? vehicles.filter((v) => v.trackerImei && v.trackerStatus === "active")
+            : vehicles.filter((v) => v.status === filter);
 
     filtered.forEach((v) => {
       const hasTracker = !!(v.trackerImei && v.trackerStatus === "active");
       const marker = L.marker([v.lat, v.lng], {
-        icon: createVehicleIcon(v.status, hasTracker),
+        icon: createVehicleIcon(v.status, hasTracker, v.gpsLive),
       }).addTo(markers);
 
-      marker.bindTooltip(v.code, {
+      const tooltipLabel = v.gpsLive ? `${v.code} 📡` : v.code;
+      marker.bindTooltip(tooltipLabel, {
         direction: "top",
         offset: [0, -16],
         className: "fleet-tooltip",
         opacity: 0.95,
       });
 
-      const trackerBadge = hasTracker
-        ? `<span style="background:#10b981;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">GPS</span>`
-        : `<span style="background:#6b7280;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">No GPS</span>`;
+      const gpsBadge = v.gpsLive
+        ? `<span style="background:#3b82f6;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">LIVE GPS</span>`
+        : hasTracker
+          ? `<span style="background:#10b981;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">GPS (offline)</span>`
+          : `<span style="background:#6b7280;color:white;padding:1px 6px;border-radius:9px;font-size:10px;">No GPS</span>`;
+
+      const gpsTime = v.gpsTimestamp
+        ? new Date(v.gpsTimestamp * 1000).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg", dateStyle: "short", timeStyle: "short" })
+        : null;
+      const gpsInfo = v.gpsLive
+        ? `<div style="font-size:11px;color:#3b82f6;margin-top:4px;">📡 Last: ${gpsTime}${v.gpsSpeed !== null ? ` · ${v.gpsSpeed} km/h` : ""}</div>`
+        : v.gpsTimestamp
+          ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">Last GPS: ${gpsTime}</div>`
+          : "";
 
       marker.bindPopup(`
         <div style="min-width:180px;font-family:system-ui;">
           <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${v.code}</div>
           <div style="color:#64748b;font-size:12px;margin-bottom:6px;">${v.make} ${v.model}</div>
           <div style="font-size:12px;margin-bottom:2px;"><b>Plate:</b> ${v.licensePlate || "—"}</div>
-          <div style="font-size:12px;margin-bottom:2px;"><b>Location:</b> ${v.currentLocation}</div>
+          <div style="font-size:12px;margin-bottom:2px;"><b>Location:</b> ${v.currentLocation}${v.gpsLive ? " (live)" : ""}</div>
           <div style="font-size:12px;margin-bottom:2px;"><b>Status:</b> ${v.status}</div>
-          <div style="font-size:12px;margin-bottom:4px;">${trackerBadge}</div>
+          <div style="font-size:12px;margin-bottom:4px;">${gpsBadge}</div>
+          ${gpsInfo}
           ${v.trackerImei ? `<div style="font-size:11px;color:#94a3b8;">IMEI: ${v.trackerImei}</div>` : ""}
         </div>
       `);
@@ -281,6 +304,7 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
   }, {} as Record<string, number>);
 
   const trackedCount = vehicles.filter((v) => v.trackerImei && v.trackerStatus === "active").length;
+  const liveGpsCount = vehicles.filter((v) => v.gpsLive).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -311,6 +335,14 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
           }`}
         >
           All ({vehicles.length})
+        </button>
+        <button
+          onClick={() => setFilter("live-gps")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            filter === "live-gps" ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+          }`}
+        >
+          Live GPS ({liveGpsCount})
         </button>
         <button
           onClick={() => setFilter("tracked")}
@@ -357,6 +389,10 @@ export default function FleetMap({ onVehicleClick }: FleetMapProps): React.React
             {status.replace(/-/g, " ")}
           </span>
         ))}
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500 bg-transparent animate-pulse" />
+          Live GPS
+        </span>
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-emerald-500 bg-transparent" />
           GPS tracked
