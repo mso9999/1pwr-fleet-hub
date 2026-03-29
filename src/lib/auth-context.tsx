@@ -65,49 +65,58 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   }
 
   useEffect(() => {
+    const PROFILE_MS = 12_000;
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
-      if (fbUser) {
-        try {
-          const userDoc = await getDoc(doc(firestore, "users", fbUser.uid));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            const fleetUser: FleetUser = {
-              id: fbUser.uid,
-              firebaseUid: fbUser.uid,
-              email: data.email || fbUser.email || "",
-              firstName: data.firstName || "",
-              lastName: data.lastName || "",
-              name: `${data.firstName || ""} ${data.lastName || ""}`.trim() || data.email || "",
-              role: data.role || "REQ",
-              department: data.department || "",
-              organizationId: data.organization
-                ? data.organization.toLowerCase().replace(/\s+/g, "_")
-                : "1pwr_lesotho",
-              permissionLevel: data.permissionLevel || 5,
-              isActive: data.isActive !== false,
-            };
-            setUser(fleetUser);
-            if (fleetUser.organizationId) {
-              persistOrg(fleetUser.organizationId);
-            }
+      if (!fbUser) {
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
 
-            // Also sync this user to our local API
-            fetch("/api/users/sync", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(fleetUser),
-            }).catch(() => {});
-          } else {
-            setUser(null);
+      try {
+        const userDoc = await Promise.race([
+          getDoc(doc(firestore, "users", fbUser.uid)),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error("profile-timeout")), PROFILE_MS);
+          }),
+        ]);
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          const fleetUser: FleetUser = {
+            id: fbUser.uid,
+            firebaseUid: fbUser.uid,
+            email: data.email || fbUser.email || "",
+            firstName: data.firstName || "",
+            lastName: data.lastName || "",
+            name: `${data.firstName || ""} ${data.lastName || ""}`.trim() || data.email || "",
+            role: data.role || "REQ",
+            department: data.department || "",
+            organizationId: data.organization
+              ? data.organization.toLowerCase().replace(/\s+/g, "_")
+              : "1pwr_lesotho",
+            permissionLevel: data.permissionLevel || 5,
+            isActive: data.isActive !== false,
+          };
+          setUser(fleetUser);
+          if (fleetUser.organizationId) {
+            persistOrg(fleetUser.organizationId);
           }
-        } catch {
+
+          fetch("/api/users/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(fleetUser),
+          }).catch(() => {});
+        } else {
           setUser(null);
         }
-      } else {
+      } catch {
         setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
     return () => unsubscribe();
