@@ -1,3 +1,5 @@
+import type { BodyMark } from "@/lib/inspection-body-diagram";
+
 // ── Organizations ──
 export interface Organization {
   id: string;
@@ -139,6 +141,7 @@ export interface InspectionItem {
   item: string;
   rating: InspectionRating;
   note: string;
+  bodyMarks?: BodyMark[];
 }
 
 export interface Inspection {

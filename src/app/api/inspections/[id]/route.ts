@@ -1,21 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { parseBodyMarks, type BodyMark } from "@/lib/inspection-body-diagram";
+import { failEvidenceMessage } from "@/lib/inspection-validation";
 
-function parseItems(raw: unknown): Array<{ category: string; item: string; rating: string; note: string }> | null {
+type ParsedRow = {
+  category: string;
+  item: string;
+  rating: string;
+  note: string;
+  bodyMarks?: BodyMark[];
+};
+
+function parseItems(raw: unknown): ParsedRow[] | null {
   if (!Array.isArray(raw)) return null;
-  const out: Array<{ category: string; item: string; rating: string; note: string }> = [];
+  const out: ParsedRow[] = [];
   for (const row of raw) {
     if (!row || typeof row !== "object") return null;
     const o = row as Record<string, unknown>;
     if (typeof o.category !== "string" || typeof o.item !== "string") return null;
     const rating = typeof o.rating === "string" ? o.rating : "pass";
     if (!["pass", "caution", "fail"].includes(rating)) return null;
-    out.push({
+    const base: ParsedRow = {
       category: o.category,
       item: o.item,
       rating,
       note: typeof o.note === "string" ? o.note : "",
-    });
+    };
+    if (o.bodyMarks !== undefined) {
+      const bm = parseBodyMarks(o.bodyMarks);
+      if (bm === undefined) return null;
+      if (bm.length > 0) base.bodyMarks = bm;
+    }
+    out.push(base);
   }
   return out;
 }
@@ -80,6 +96,11 @@ export async function PATCH(
     if (!Array.isArray(finalItems) || finalItems.length === 0) {
       return NextResponse.json({ error: "Stored items empty; send items in body to repair" }, { status: 400 });
     }
+  }
+
+  const evidenceErr = failEvidenceMessage(finalItems, {});
+  if (evidenceErr) {
+    return NextResponse.json({ error: evidenceErr }, { status: 400 });
   }
 
   const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId : (existing.vehicle_id as string);

@@ -35,7 +35,7 @@ Internal fleet operations app: vehicles, work orders, inspections (including che
 | API routes | `src/app/api/` |
 | SQLite schema / DB helper | `src/lib/db.ts` |
 | Auth | `src/lib/auth-context.tsx`, `src/lib/firebase.ts` |
-| Inspections UI + edit | `src/app/inspections/`, `src/components/InspectionEditForm.tsx` |
+| Inspections UI + edit | `src/app/inspections/`, `src/components/InspectionEditForm.tsx`, `VehicleBodyDiagram.tsx` |
 | In-app user guide | `src/app/guide/` (`/guide`, `/guide/inspections`, …) |
 | Navigation shell | `src/components/AppShell.tsx` |
 

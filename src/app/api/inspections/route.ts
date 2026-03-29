@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
+import { failEvidenceMessage } from "@/lib/inspection-validation";
 
 export function GET(request: NextRequest): NextResponse {
   const db = getDb();
@@ -39,6 +40,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const now = new Date().toISOString();
 
   const items = body.items || [];
+  const evidenceErr = failEvidenceMessage(items, {});
+  if (evidenceErr) {
+    return NextResponse.json({ error: evidenceErr }, { status: 400 });
+  }
   const hasFailure = items.some((item: { rating: string }) => item.rating === "fail");
   const overallPass = !hasFailure;
 

@@ -11,6 +11,10 @@ import type { InspectionRating } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { DriverProficiencyChecklistForm } from "@/components/DriverProficiencyChecklistForm";
 import { InspectionEditForm, type InspectionEditRow } from "@/components/InspectionEditForm";
+import { VehicleBodyDiagram } from "@/components/VehicleBodyDiagram";
+import { isBodyPlanRow, type BodyMark } from "@/lib/inspection-body-diagram";
+import { failEvidenceMessage } from "@/lib/inspection-validation";
+import { uploadInspectionFailPhotos } from "@/lib/upload-inspection-fail-photos";
 
 type InspectionRow = InspectionEditRow;
 
@@ -26,7 +30,7 @@ const PRE_DEPARTURE_ITEMS = [
   { category: "Exterior", item: "Tires condition & pressure" },
   { category: "Exterior", item: "Lights (headlights, brake, indicators)" },
   { category: "Exterior", item: "Mirrors (side, rear)" },
-  { category: "Exterior", item: "Body damage (new dents, cracks)" },
+  { category: "Exterior", item: "Body / panels (Mark damage with X)" },
   { category: "Exterior", item: "Windshield condition" },
   { category: "Exterior", item: "License plates visible" },
   { category: "Fluids", item: "Engine oil level" },
@@ -243,12 +247,19 @@ function InspectionCard({
               <div key={category} className="mb-3">
                 <div className="text-xs font-bold text-zinc-500 uppercase mb-1">{category}</div>
                 {items.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between py-1 px-2 rounded text-sm hover:bg-zinc-50">
-                    <span>{item.item}</span>
-                    <div className="flex items-center gap-2">
-                      {item.note && <span className="text-xs text-zinc-400">{item.note}</span>}
-                      <RatingDot rating={item.rating} />
+                  <div key={idx} className="space-y-2 py-1">
+                    <div className="flex items-center justify-between px-2 rounded text-sm hover:bg-zinc-50">
+                      <span>{item.item}</span>
+                      <div className="flex items-center gap-2">
+                        {item.note && <span className="text-xs text-zinc-400">{item.note}</span>}
+                        <RatingDot rating={item.rating} />
+                      </div>
                     </div>
+                    {item.bodyMarks && item.bodyMarks.length > 0 && (
+                      <div className="px-2 pb-2">
+                        <VehicleBodyDiagram marks={item.bodyMarks} onChange={() => {}} readOnly className="max-w-md" />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -267,8 +278,16 @@ function RatingDot({ rating }: { rating: InspectionRating }): React.ReactElement
   );
 }
 
-function groupByCategory(items: Array<{ category: string; item: string; rating: InspectionRating; note: string }>): Array<[string, typeof items]> {
-  const map = new Map<string, typeof items>();
+type ItemWithMarks = {
+  category: string;
+  item: string;
+  rating: InspectionRating;
+  note: string;
+  bodyMarks?: BodyMark[];
+};
+
+function groupByCategory(items: ItemWithMarks[]): Array<[string, ItemWithMarks[]]> {
+  const map = new Map<string, ItemWithMarks[]>();
   for (const item of items) {
     const existing = map.get(item.category) || [];
     existing.push(item);
@@ -283,11 +302,23 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   onComplete: () => void;
   onCancel: () => void;
 }): React.ReactElement {
+  const { user } = useAuth();
   const [inspType, setInspType] = useState<"pre-departure" | "detailed" | "driver-proficiency-2025">("pre-departure");
   const templateItems = inspType === "pre-departure" ? PRE_DEPARTURE_ITEMS : inspType === "detailed" ? DETAILED_ITEMS : [];
   const [ratings, setRatings] = useState<Record<number, InspectionRating>>({});
   const [notes, setNotes] = useState<Record<number, string>>({});
+  const [bodyMarksByIdx, setBodyMarksByIdx] = useState<Record<number, BodyMark[]>>({});
+  const [pendingFailPhotos, setPendingFailPhotos] = useState<Record<number, File[]>>({});
+  const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function resetDraft(): void {
+    setRatings({});
+    setNotes({});
+    setBodyMarksByIdx({});
+    setPendingFailPhotos({});
+    setFormError("");
+  }
 
   if (inspType === "driver-proficiency-2025") {
     return (
@@ -305,8 +336,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
               type="button"
               onClick={() => {
                 setInspType(value);
-                setRatings({});
-                setNotes({});
+                resetDraft();
               }}
               className={`rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] ${
                 inspType === value ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
@@ -328,20 +358,38 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
 
   function setRating(idx: number, rating: InspectionRating): void {
     setRatings((prev) => ({ ...prev, [idx]: rating }));
+    if (rating !== "fail") {
+      setPendingFailPhotos((p) => {
+        const next = { ...p };
+        delete next[idx];
+        return next;
+      });
+    }
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    setIsSubmitting(true);
+    setFormError("");
     const fd = new FormData(e.currentTarget);
 
-    const items = templateItems.map((tmpl, idx) => ({
-      category: tmpl.category,
-      item: tmpl.item,
-      rating: ratings[idx] || "pass",
-      note: notes[idx] || "",
-    }));
+    const items: ItemWithMarks[] = templateItems.map((tmpl, idx) => {
+      const bm = bodyMarksByIdx[idx];
+      const base = {
+        category: tmpl.category,
+        item: tmpl.item,
+        rating: ratings[idx] || "pass",
+        note: notes[idx] || "",
+      };
+      return bm?.length ? { ...base, bodyMarks: bm } : base;
+    });
 
+    const err = failEvidenceMessage(items, pendingFailPhotos);
+    if (err) {
+      setFormError(err);
+      return;
+    }
+
+    setIsSubmitting(true);
     const body = {
       organizationId,
       vehicleId: fd.get("vehicleId"),
@@ -355,17 +403,32 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.ok) onComplete();
-    else setIsSubmitting(false);
+    if (!res.ok) {
+      setIsSubmitting(false);
+      return;
+    }
+    const data = (await res.json()) as { id: string };
+    await uploadInspectionFailPhotos(
+      data.id,
+      items,
+      pendingFailPhotos,
+      user?.id ?? "",
+      user?.name || user?.email || ""
+    );
+    setIsSubmitting(false);
+    onComplete();
   }
 
   return (
     <Card className="border-emerald-200">
       <CardHeader>
         <CardTitle>New inspection</CardTitle>
+        <p className="text-sm text-zinc-500 font-normal">
+          Any <strong>Fail</strong> needs a line note, a photo, or a note on a body-plan mark. Use the plan view on the Body line to place Xs.
+        </p>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -379,8 +442,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
                 type="button"
                 onClick={() => {
                   setInspType(value);
-                  setRatings({});
-                  setNotes({});
+                  resetDraft();
                 }}
                 className={`rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] ${
                   inspType === value ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
@@ -400,6 +462,12 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
             </Select>
             <Input name="inspectorName" label="Inspector name *" required placeholder="Your name" />
           </div>
+
+          {formError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+              {formError}
+            </div>
+          )}
 
           <div className="border rounded-lg overflow-hidden">
             <div className="bg-zinc-100 px-4 py-2 text-xs font-bold text-zinc-600 uppercase grid grid-cols-[1fr_auto_auto_auto_140px] gap-2 items-center">
@@ -445,6 +513,33 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
                       className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-xs"
                     />
                   </div>
+                  {rating === "fail" && (
+                    <div className="px-4 py-2 border-t border-red-100 bg-red-50/60 space-y-1">
+                      <label className="text-xs font-medium text-red-900 block">Fail — add photo(s) (optional if note or mark note above)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        capture="environment"
+                        className="block w-full text-xs text-zinc-700"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          setPendingFailPhotos((p) => ({ ...p, [idx]: files }));
+                        }}
+                      />
+                      {(pendingFailPhotos[idx]?.length ?? 0) > 0 && (
+                        <p className="text-xs text-red-800">{pendingFailPhotos[idx]!.length} file(s) will upload after save</p>
+                      )}
+                    </div>
+                  )}
+                  {isBodyPlanRow(tmpl.category, tmpl.item) && (
+                    <div className="px-2 sm:px-4 py-3 border-t border-zinc-200 bg-slate-50/90">
+                      <VehicleBodyDiagram
+                        marks={bodyMarksByIdx[idx] || []}
+                        onChange={(marks) => setBodyMarksByIdx((prev) => ({ ...prev, [idx]: marks }))}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -96,12 +96,19 @@ const STEPS = [
             safety failure. Add a short note if helpful.
           </li>
           <li>
-            <strong className="text-red-700">Fail (✗)</strong> — item failed or is unsafe. Always add a note when possible
-            (what you saw, location, severity).
+            <strong className="text-red-700">Fail (✗)</strong> — item failed or is unsafe. The app will not let you submit
+            until you add a <strong>line note</strong>, at least one <strong>photo</strong> for that row, or a{" "}
+            <strong>note on a body-plan mark</strong> (see below).
           </li>
         </ul>
         <p>
           Use the <strong>Note</strong> field on the row for free text (e.g. “Left rear tire low ~1.8 bar”).
+        </p>
+        <p className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-slate-800">
+          <strong>Body plan (top view):</strong> on the line <strong>Body / panels (Mark damage with X)</strong> (quick and
+          detailed checklists) and on <strong>Body — (Mark damage with X)</strong> (2025 checklist), a{" "}
+          <strong>plan-view drawing</strong> appears. Tap the vehicle diagram to place <strong>X</strong> marks; add a short
+          description for each mark. Saved inspections show this diagram when you expand a card.
         </p>
         <p className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-amber-900">
           <strong>Automatic work order:</strong> when you <strong>submit a new</strong> inspection, any line marked{" "}
