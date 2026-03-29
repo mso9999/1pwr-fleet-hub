@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/daily-update", label: "Daily Update", icon: "document" },
   { href: "/reports", label: "Reports", icon: "chart" },
   { href: "/inspections", label: "Inspections", icon: "clipboard" },
+  { href: "/guide", label: "User guide", icon: "book" },
   { href: "/report-issue", label: "Report Issue", icon: "alert" },
   { href: "/admin", label: "Admin", icon: "settings" },
 ];
@@ -100,6 +101,12 @@ function NavIcon({ icon, className }: { icon: string; className?: string }): Rea
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       );
+    case "book":
+      return (
+        <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      );
     default:
       return <span className={c} />;
   }
@@ -143,7 +150,10 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
             {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/" &&
+                  (item.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(item.href)));
               return (
                 <li key={item.href}>
                   <Link
@@ -205,9 +215,20 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
             </svg>
           </button>
           <h1 className="text-lg font-semibold text-zinc-900">
-            {NAV_ITEMS.find(
-              (i) => i.href === pathname || (i.href !== "/" && pathname.startsWith(i.href))
-            )?.label || "Dashboard"}
+            {pathname.startsWith("/guide/inspections")
+              ? "User guide · Inspections"
+              : pathname.startsWith("/guide/getting-started")
+                ? "User guide · Getting started"
+                : pathname.startsWith("/guide/daily-workflows")
+                  ? "User guide · Daily workflows"
+                  : pathname.startsWith("/guide")
+                    ? "User guide"
+                    : NAV_ITEMS.find(
+                        (i) =>
+                          i.href === pathname ||
+                          (i.href !== "/" &&
+                            (i.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(i.href)))
+                      )?.label || "Dashboard"}
           </h1>
         </header>
 

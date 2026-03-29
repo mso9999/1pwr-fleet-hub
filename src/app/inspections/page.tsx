@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -93,7 +94,12 @@ export default function InspectionsPage(): React.ReactElement {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-zinc-500">{inspections.length} saved checklists (max 500 listed)</p>
-          <p className="text-xs text-zinc-400 mt-0.5">Create, view, edit, or delete. Export CSV under Reports.</p>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Create, view, edit, or delete. Export CSV under Reports.{" "}
+            <Link href="/guide/inspections" className="text-blue-600 hover:underline font-medium">
+              How to fill out a checklist
+            </Link>
+          </p>
         </div>
         <Button
           onClick={() => {
