@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { AppShell } from "@/components/AppShell";
+import { AppVersionConsole } from "@/components/AppVersionConsole";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
+      <AppVersionConsole />
       <ServiceWorkerRegister />
       <AuthGate>{children}</AuthGate>
     </AuthProvider>
