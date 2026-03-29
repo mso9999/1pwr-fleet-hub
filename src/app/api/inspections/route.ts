@@ -21,7 +21,7 @@ export function GET(request: NextRequest): NextResponse {
     params.push(vehicleId);
   }
 
-  query += " ORDER BY i.created_at DESC LIMIT 100";
+  query += " ORDER BY i.created_at DESC LIMIT 500";
 
   const inspections = db.prepare(query).all(...params);
   return NextResponse.json(
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const overallPass = !hasFailure;
 
   db.prepare(`
-    INSERT INTO inspections (id, organization_id, vehicle_id, inspector_id, inspector_name, type, items, overall_pass, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO inspections (id, organization_id, vehicle_id, inspector_id, inspector_name, type, items, overall_pass, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     body.organizationId || "1pwr_lesotho",
@@ -54,6 +54,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.type || "pre-departure",
     JSON.stringify(items),
     overallPass ? 1 : 0,
+    now,
     now
   );
 

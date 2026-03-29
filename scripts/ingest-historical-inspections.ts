@@ -152,8 +152,8 @@ function main(): void {
   console.log(`Vehicle codes in DB: ${Array.from(vehicleIdByCode.keys()).join(", ")}`);
 
   const insertInspection = db.prepare(`
-    INSERT INTO inspections (id, organization_id, vehicle_id, inspector_id, inspector_name, type, items, overall_pass, created_at)
-    VALUES (lower(hex(randomblob(16))), '1pwr_lesotho', ?, '', ?, ?, ?, 0, ?)
+    INSERT INTO inspections (id, organization_id, vehicle_id, inspector_id, inspector_name, type, items, overall_pass, created_at, updated_at)
+    VALUES (lower(hex(randomblob(16))), '1pwr_lesotho', ?, '', ?, ?, ?, 0, ?, ?)
   `);
 
   let inserted = 0;
@@ -175,13 +175,8 @@ function main(): void {
     }));
 
     try {
-      insertInspection.run(
-        vehicleId,
-        insp.inspectorName,
-        insp.type,
-        JSON.stringify(items),
-        `${insp.inspectionDate}T00:00:00.000Z`
-      );
+      const ts = `${insp.inspectionDate}T00:00:00.000Z`;
+      insertInspection.run(vehicleId, insp.inspectorName, insp.type, JSON.stringify(items), ts, ts);
       inserted++;
       console.log(`  INSERT: ${insp.vehicleCode} (${insp.vehicleDesc}) — ${items.length} findings`);
     } catch (err) {

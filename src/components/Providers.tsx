@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { AppShell } from "@/components/AppShell";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -36,6 +37,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
+      <ServiceWorkerRegister />
       <AuthGate>{children}</AuthGate>
     </AuthProvider>
   );

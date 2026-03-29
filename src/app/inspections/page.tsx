@@ -8,19 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { InspectionRating } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { DriverProficiencyChecklistForm } from "@/components/DriverProficiencyChecklistForm";
+import { InspectionEditForm, type InspectionEditRow } from "@/components/InspectionEditForm";
 
-interface InspectionRow {
-  id: string;
-  vehicle_id: string;
-  vehicle_code: string;
-  vehicle_make: string;
-  vehicle_model: string;
-  inspector_name: string;
-  type: string;
-  items: Array<{ category: string; item: string; rating: InspectionRating; note: string }>;
-  overall_pass: number;
-  created_at: string;
-}
+type InspectionRow = InspectionEditRow;
 
 interface VehicleOption {
   id: string;
@@ -83,6 +74,7 @@ export default function InspectionsPage(): React.ReactElement {
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<InspectionRow | null>(null);
 
   const loadInspections = useCallback(() => {
     fetch(`/api/inspections?org=${organizationId}`)
@@ -98,16 +90,37 @@ export default function InspectionsPage(): React.ReactElement {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-zinc-500">{inspections.length} inspections</p>
-        <Button onClick={() => setShowForm(!showForm)} size="lg">
-          + New Inspection
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-zinc-500">{inspections.length} saved checklists (max 500 listed)</p>
+          <p className="text-xs text-zinc-400 mt-0.5">Create, view, edit, or delete. Export CSV under Reports.</p>
+        </div>
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setShowForm(!showForm);
+          }}
+          size="lg"
+          className="touch-manipulation min-h-[48px]"
+        >
+          + New inspection
         </Button>
       </div>
 
-      {showForm && (
+      {editing && (
+        <InspectionEditForm
+          inspection={editing}
+          vehicles={vehicles}
+          organizationId={organizationId}
+          onSaved={() => { setEditing(null); loadInspections(); }}
+          onCancel={() => setEditing(null)}
+        />
+      )}
+
+      {showForm && !editing && (
         <InspectionForm
           vehicles={vehicles}
+          organizationId={organizationId}
           onComplete={() => { setShowForm(false); loadInspections(); }}
           onCancel={() => setShowForm(false)}
         />
@@ -120,7 +133,16 @@ export default function InspectionsPage(): React.ReactElement {
       ) : (
         <div className="space-y-3">
           {inspections.map((insp) => (
-            <InspectionCard key={insp.id} inspection={insp} />
+            <InspectionCard
+              key={insp.id}
+              inspection={insp}
+              organizationId={organizationId}
+              onEdit={(row) => {
+                setShowForm(false);
+                setEditing(row);
+              }}
+              onDeleted={() => loadInspections()}
+            />
           ))}
         </div>
       )}
@@ -128,29 +150,83 @@ export default function InspectionsPage(): React.ReactElement {
   );
 }
 
-function InspectionCard({ inspection }: { inspection: InspectionRow }): React.ReactElement {
+function InspectionCard({
+  inspection,
+  organizationId,
+  onEdit,
+  onDeleted,
+}: {
+  inspection: InspectionRow;
+  organizationId: string;
+  onEdit: (row: InspectionRow) => void;
+  onDeleted: () => void;
+}): React.ReactElement {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const failCount = inspection.items.filter((i) => i.rating === "fail").length;
   const cautionCount = inspection.items.filter((i) => i.rating === "caution").length;
 
+  async function handleDelete(): Promise<void> {
+    if (!window.confirm("Delete this inspection permanently? This cannot be undone.")) return;
+    setIsDeleting(true);
+    const res = await fetch(`/api/inspections/${inspection.id}?org=${encodeURIComponent(organizationId)}`, {
+      method: "DELETE",
+    });
+    setIsDeleting(false);
+    if (res.ok) onDeleted();
+  }
+
   return (
     <Card className={!inspection.overall_pass ? "border-red-200" : ""}>
-      <div className="p-4 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Badge variant="secondary" className="text-base font-bold">{inspection.vehicle_code}</Badge>
-            <div>
-              <div className="font-medium capitalize">{inspection.type.replace("-", " ")} Inspection</div>
+      <div className="p-4">
+        <div
+          className="flex items-center justify-between gap-2 cursor-pointer"
+          onClick={() => setIsExpanded(!isExpanded)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setIsExpanded(!isExpanded);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <Badge variant="secondary" className="text-base font-bold shrink-0">{inspection.vehicle_code}</Badge>
+            <div className="min-w-0">
+              <div className="font-medium capitalize">
+                {inspection.type === "driver-proficiency-2025"
+                  ? "1PWR checklist (2025)"
+                  : `${inspection.type.replace(/-/g, " ")} inspection`}
+              </div>
               <div className="text-xs text-zinc-500 mt-0.5">
                 By {inspection.inspector_name || "Unknown"} · {new Date(inspection.created_at).toLocaleString()}
+                {inspection.updated_at && inspection.updated_at !== inspection.created_at && (
+                  <span> · Updated {new Date(inspection.updated_at).toLocaleString()}</span>
+                )}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {failCount > 0 && <Badge variant="destructive">{failCount} fail</Badge>}
             {cautionCount > 0 && <Badge variant="warning">{cautionCount} caution</Badge>}
             {failCount === 0 && cautionCount === 0 && <Badge variant="success">All pass</Badge>}
           </div>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-zinc-100" onClick={(e) => e.stopPropagation()}>
+          <Button type="button" size="sm" variant="outline" className="touch-manipulation" onClick={() => onEdit(inspection)}>
+            Edit
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-red-600 border-red-200 hover:bg-red-50 touch-manipulation"
+            disabled={isDeleting}
+            onClick={() => void handleDelete()}
+          >
+            {isDeleting ? "Deleting…" : "Delete"}
+          </Button>
         </div>
       </div>
 
@@ -195,16 +271,54 @@ function groupByCategory(items: Array<{ category: string; item: string; rating: 
   return Array.from(map.entries());
 }
 
-function InspectionForm({ vehicles, onComplete, onCancel }: {
+function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   vehicles: VehicleOption[];
+  organizationId: string;
   onComplete: () => void;
   onCancel: () => void;
 }): React.ReactElement {
-  const [inspType, setInspType] = useState<"pre-departure" | "detailed">("pre-departure");
-  const templateItems = inspType === "pre-departure" ? PRE_DEPARTURE_ITEMS : DETAILED_ITEMS;
+  const [inspType, setInspType] = useState<"pre-departure" | "detailed" | "driver-proficiency-2025">("pre-departure");
+  const templateItems = inspType === "pre-departure" ? PRE_DEPARTURE_ITEMS : inspType === "detailed" ? DETAILED_ITEMS : [];
   const [ratings, setRatings] = useState<Record<number, InspectionRating>>({});
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (inspType === "driver-proficiency-2025") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["pre-departure", "Pre-departure (quick)"],
+              ["detailed", "Detailed mechanical"],
+              ["driver-proficiency-2025", "1PWR checklist (2025) — full"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setInspType(value);
+                setRatings({});
+                setNotes({});
+              }}
+              className={`rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] ${
+                inspType === value ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <DriverProficiencyChecklistForm
+          vehicles={vehicles}
+          organizationId={organizationId}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      </div>
+    );
+  }
 
   function setRating(idx: number, rating: InspectionRating): void {
     setRatings((prev) => ({ ...prev, [idx]: rating }));
@@ -223,6 +337,7 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
     }));
 
     const body = {
+      organizationId,
       vehicleId: fd.get("vehicleId"),
       inspectorName: fd.get("inspectorName"),
       type: inspType,
@@ -238,15 +353,38 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
     else setIsSubmitting(false);
   }
 
-  let currentCategory = "";
-
   return (
     <Card className="border-emerald-200">
       <CardHeader>
-        <CardTitle>New Inspection</CardTitle>
+        <CardTitle>New inspection</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["pre-departure", "Pre-departure (quick)"],
+                ["detailed", "Detailed mechanical"],
+                ["driver-proficiency-2025", "1PWR checklist (2025) — full"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setInspType(value);
+                  setRatings({});
+                  setNotes({});
+                }}
+                className={`rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] ${
+                  inspType === value ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-3">
             <Select name="vehicleId" label="Vehicle *" required>
               <option value="">Select vehicle...</option>
@@ -254,19 +392,7 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
               ))}
             </Select>
-            <Input name="inspectorName" label="Inspector Name *" required placeholder="Your name" />
-            <Select
-              label="Inspection Type"
-              value={inspType}
-              onChange={(e) => {
-                setInspType(e.target.value as "pre-departure" | "detailed");
-                setRatings({});
-                setNotes({});
-              }}
-            >
-              <option value="pre-departure">Pre-Departure (Quick)</option>
-              <option value="detailed">Detailed Mechanical</option>
-            </Select>
+            <Input name="inspectorName" label="Inspector name *" required placeholder="Your name" />
           </div>
 
           <div className="border rounded-lg overflow-hidden">
@@ -278,13 +404,13 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
               <span>Note</span>
             </div>
             {templateItems.map((tmpl, idx) => {
-              const isNewCategory = tmpl.category !== currentCategory;
-              currentCategory = tmpl.category;
+              const prev = templateItems[idx - 1];
+              const showCategoryHeader = !prev || prev.category !== tmpl.category;
               const rating = ratings[idx] || "pass";
 
               return (
                 <div key={idx}>
-                  {isNewCategory && (
+                  {showCategoryHeader && (
                     <div className="bg-zinc-50 px-4 py-1.5 text-xs font-bold text-zinc-500 uppercase border-t border-zinc-200">
                       {tmpl.category}
                     </div>
@@ -296,7 +422,7 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
                         key={r}
                         type="button"
                         onClick={() => setRating(idx, r)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg transition-colors ${
+                        className={`min-h-10 min-w-10 h-10 w-10 rounded-lg flex items-center justify-center text-lg transition-colors touch-manipulation ${
                           rating === r
                             ? r === "pass" ? "bg-emerald-500 text-white" : r === "caution" ? "bg-amber-500 text-white" : "bg-red-500 text-white"
                             : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
@@ -318,11 +444,13 @@ function InspectionForm({ vehicles, onComplete, onCancel }: {
             })}
           </div>
 
-          <div className="flex gap-3">
-            <Button type="submit" disabled={isSubmitting} size="lg">
-              {isSubmitting ? "Submitting..." : "Submit Inspection"}
+          <div className="flex flex-wrap gap-3">
+            <Button type="submit" disabled={isSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
+              {isSubmitting ? "Submitting..." : "Submit inspection"}
             </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
+              Cancel
+            </Button>
           </div>
         </form>
       </CardContent>

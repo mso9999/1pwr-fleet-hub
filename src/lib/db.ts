@@ -140,7 +140,8 @@ function initializeSchema(db: Database.Database): void {
       overall_pass INTEGER NOT NULL DEFAULT 1,
       source TEXT NOT NULL DEFAULT 'manual',
       source_image_url TEXT DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS work_orders (
@@ -308,7 +309,18 @@ function initializeSchema(db: Database.Database): void {
     );
   `);
 
+  migrateInspectionsSchema(db);
   seedDefaultData(db);
+}
+
+function migrateInspectionsSchema(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(inspections)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "updated_at")) {
+    db.exec(
+      "ALTER TABLE inspections ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+    );
+    db.prepare("UPDATE inspections SET updated_at = created_at WHERE IFNULL(TRIM(updated_at), '') = ''").run();
+  }
 }
 
 function seedDefaultData(db: Database.Database): void {

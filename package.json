@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "validate-migration": "tsx scripts/validate-phase0-migration.ts",
+    "ingest-maintenance": "tsx scripts/ingest-maintenance-history.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

@@ -13,15 +13,16 @@ import * as XLSX from "xlsx";
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { getFleetDataDir, getDefaultWhatsAppPath, getDbPath } from "./migration-paths";
 
-const BASE_DIR = "/Users/mattmso/Dropbox/AI Projects/1PWR FLEET";
-const DB_PATH = path.join(process.cwd(), "fleet-hub.db");
+const BASE_DIR = getFleetDataDir();
+const DB_PATH = getDbPath();
 const isDryRun = process.argv.includes("--dry-run");
 
 const MAINT_LOG_PATH = path.join(BASE_DIR, "Fleet Maintenance Log book 06022026.xlsm");
 const COST_TRACKER_PATH = path.join(BASE_DIR, "Cost tracker for vehicles for 06022026.xlsx");
 const GROUNDED_PATH = path.join(BASE_DIR, "GROUNDED VEHICLES,PARTS AND PRICES.xlsx");
-const WHATSAPP_PATH = "/Users/mattmso/Dropbox/AI Projects/Email Overlord/chat transcripts/WhatsApp Chat - 1PWR LS - Fleet and Logistics.txt";
+const WHATSAPP_PATH = getDefaultWhatsAppPath();
 
 // Sheet name → fleet vehicle code mapping
 const SHEET_TO_CODE: Record<string, string> = {
