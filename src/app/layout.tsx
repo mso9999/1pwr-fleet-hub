@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "1PWR Fleet Hub",
   description: "Fleet management system for 1PWR vehicles",
-  icons: { icon: "/favicon.png" },
+  icons: { icon: "/icon" },
 };
 
 export default function RootLayout({

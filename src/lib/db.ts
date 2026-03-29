@@ -309,8 +309,19 @@ function initializeSchema(db: Database.Database): void {
     );
   `);
 
+  migrateUsersSchema(db);
   migrateInspectionsSchema(db);
   seedDefaultData(db);
+}
+
+function migrateUsersSchema(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "updated_at")) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+    );
+    db.prepare("UPDATE users SET updated_at = created_at WHERE IFNULL(TRIM(updated_at), '') = ''").run();
+  }
 }
 
 function migrateInspectionsSchema(db: Database.Database): void {
