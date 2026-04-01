@@ -21,9 +21,9 @@ export function failEvidenceMessage(
     if (row.rating !== "fail") continue;
     const lineNoteOk = row.note.trim().length > 0;
     const photoOk = (pendingPhotosByIndex[i]?.length ?? 0) > 0;
-    const diagramNoteOk = (row.bodyMarks ?? []).some((m) => (m.note || "").trim().length > 0);
-    if (!lineNoteOk && !photoOk && !diagramNoteOk) {
-      return `“${row.category} — ${row.item}”: for Fail, add a line note, upload a photo, or add a note on a damage mark on the body plan.`;
+    const hasMarks = (row.bodyMarks ?? []).length > 0;
+    if (!lineNoteOk && !photoOk && !hasMarks) {
+      return `“${row.category} — ${row.item}”: for Fail, add a line note, upload a photo, or place at least one X on the body plan.`;
     }
   }
   return null;

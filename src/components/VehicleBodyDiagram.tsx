@@ -48,10 +48,10 @@ export function VehicleBodyDiagram({ marks, onChange, readOnly, className }: Pro
     const el = svgRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-    if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
-    addMark(Math.round(xPct * 10) / 10, Math.round(yPct * 10) / 10);
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 220;
+    if (x < 0 || x > 100 || y < 0 || y > 220) return;
+    addMark(Math.round(x * 10) / 10, Math.round(y * 10) / 10);
   }
 
   return (
@@ -109,11 +109,7 @@ export function VehicleBodyDiagram({ marks, onChange, readOnly, className }: Pro
           <line x1="78" y1="70" x2="86" y2="68" stroke="#64748b" strokeWidth="0.4" />
 
           {marks.map((m, i) => (
-            <g
-              key={i}
-              transform={`translate(${m.xPct}, ${(m.yPct / 100) * 220})`}
-              style={{ pointerEvents: "none" }}
-            >
+            <g key={i} transform={`translate(${m.xPct}, ${m.yPct})`} style={{ pointerEvents: "none" }}>
               <line x1="-3" y1="-3" x2="3" y2="3" stroke="#dc2626" strokeWidth="1.2" strokeLinecap="round" />
               <line x1="3" y1="-3" x2="-3" y2="3" stroke="#dc2626" strokeWidth="1.2" strokeLinecap="round" />
             </g>

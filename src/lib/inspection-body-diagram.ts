@@ -23,7 +23,7 @@ export function parseBodyMarks(raw: unknown): BodyMark[] | undefined {
     const yPct = typeof o.yPct === "number" ? o.yPct : Number.NaN;
     const note = typeof o.note === "string" ? o.note : "";
     if (!Number.isFinite(xPct) || xPct < 0 || xPct > 100) return undefined;
-    if (!Number.isFinite(yPct) || yPct < 0 || yPct > 100) return undefined;
+    if (!Number.isFinite(yPct) || yPct < 0 || yPct > 220) return undefined;
     out.push({ xPct, yPct, note });
   }
   return out;
