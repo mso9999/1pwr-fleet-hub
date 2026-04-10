@@ -25,6 +25,7 @@ function camelToSnake(s: string): string {
 }
 
 export function GET(request: NextRequest): NextResponse {
+  try {
   const db = getDb();
   const sp = request.nextUrl.searchParams;
   const org = sp.get("org") || "1pwr_lesotho";
@@ -59,6 +60,10 @@ export function GET(request: NextRequest): NextResponse {
 
   const rows = db.prepare(query).all(...params);
   return NextResponse.json(rows);
+  } catch (err) {
+    console.error("[driver-vehicle-checks] GET error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

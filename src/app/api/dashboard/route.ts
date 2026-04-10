@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export function GET(request: NextRequest): NextResponse {
+  try {
   const db = getDb();
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const today = new Date().toISOString().slice(0, 10);
@@ -151,4 +152,8 @@ export function GET(request: NextRequest): NextResponse {
     alerts,
     recentActivity,
   });
+  } catch (err) {
+    console.error("[dashboard] GET error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 }

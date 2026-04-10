@@ -12,13 +12,21 @@ if (!fs.existsSync(DB_DIR)) {
 }
 
 let db: Database.Database | null = null;
+let schemaReady = false;
 
 export function getDb(): Database.Database {
   if (!db) {
     db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
-    initializeSchema(db);
+  }
+  if (!schemaReady) {
+    try {
+      initializeSchema(db);
+      schemaReady = true;
+    } catch (err) {
+      console.error("[db] Schema initialization failed:", err);
+    }
   }
   return db;
 }
@@ -309,14 +317,25 @@ function initializeSchema(db: Database.Database): void {
     );
   `);
 
-  migrateUsersSchema(db);
-  migrateInspectionsSchema(db);
-  migrateVehiclesPhase1(db);
-  migrateTripsPhase1(db);
-  createPhase1Tables(db);
-  migrateWorkOrdersPhase3(db);
-  migrateWorkOrderLaborPhase3(db);
-  seedDefaultData(db);
+  const steps: Array<[string, () => void]> = [
+    ["migrateUsersSchema", () => migrateUsersSchema(db)],
+    ["migrateInspectionsSchema", () => migrateInspectionsSchema(db)],
+    ["migrateVehiclesPhase1", () => migrateVehiclesPhase1(db)],
+    ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
+    ["createPhase1Tables", () => createPhase1Tables(db)],
+    ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
+    ["migrateWorkOrderLaborPhase3", () => migrateWorkOrderLaborPhase3(db)],
+    ["seedDefaultData", () => seedDefaultData(db)],
+  ];
+
+  for (const [name, fn] of steps) {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[db] Migration step "${name}" failed:`, err);
+      throw err;
+    }
+  }
 }
 
 function migrateUsersSchema(db: Database.Database): void {
