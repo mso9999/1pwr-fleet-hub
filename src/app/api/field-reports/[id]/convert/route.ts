@@ -73,5 +73,9 @@ export async function POST(
     "UPDATE field_issue_reports SET status = 'converted', work_order_id = ? WHERE id = ?"
   ).run(woId, id);
 
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("field_report", id, report.status, "converted", String(report.reported_by_name), now);
+
   return NextResponse.json({ workOrderId: woId, reportId: id, status: "converted" });
 }

@@ -23,6 +23,14 @@ export async function PATCH(
   db.prepare("UPDATE vehicles SET current_location = ?, status = 'operational', updated_at = ? WHERE id = ?")
     .run(body.arrivalLocation || "", now, trip.vehicle_id);
 
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("vehicle", trip.vehicle_id, "deployed", "operational", String(trip.driver_name || ""), now);
+
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("trip", id, "checked-out", "checked-in", String(trip.driver_name || ""), now);
+
   if (body.odoEnd) {
     db.prepare("UPDATE vehicles SET total_mileage_km = MAX(total_mileage_km, ?) WHERE id = ?")
       .run(body.odoEnd, trip.vehicle_id);

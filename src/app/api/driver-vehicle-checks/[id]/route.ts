@@ -103,6 +103,13 @@ export async function PATCH(
 
   db.prepare(`UPDATE driver_vehicle_checks SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
+  const oldPass = (existing as Record<string, unknown>).overall_pass;
+  if (body.overallPass !== undefined && body.overallPass !== oldPass) {
+    db.prepare(
+      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("driver_vehicle_check", id, oldPass ? "pass" : "fail", body.overallPass ? "pass" : "fail", body.changedBy || "", now);
+  }
+
   const updated = db.prepare(`
     SELECT dvc.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM driver_vehicle_checks dvc

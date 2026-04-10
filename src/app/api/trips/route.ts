@@ -82,8 +82,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  const vehicleBefore = db.prepare("SELECT status FROM vehicles WHERE id = ?").get(body.vehicleId) as { status: string } | undefined;
+
   db.prepare("UPDATE vehicles SET current_location = ?, status = 'deployed', updated_at = ? WHERE id = ?")
     .run(body.destination, now, body.vehicleId);
+
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("vehicle", body.vehicleId, vehicleBefore?.status || "operational", "deployed", body.driverName || "", now);
+
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("trip", id, null, "checked-out", body.driverName || "", now);
 
   const trip = db.prepare(`
     SELECT t.*, v.code as vehicle_code FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?

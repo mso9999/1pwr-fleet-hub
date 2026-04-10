@@ -29,6 +29,8 @@ export async function POST(
     return NextResponse.json({ error: `Vehicle ${vehicle.code} is not operational (status: ${vehicle.status})` }, { status: 400 });
   }
 
+  const oldStatus = existing.status as string;
+
   db.prepare(`
     UPDATE vehicle_requests
     SET assigned_vehicle_id = ?, status = 'assigned',
@@ -42,6 +44,10 @@ export async function POST(
     now,
     id
   );
+
+  db.prepare(
+    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run("vehicle_request", id, oldStatus, "assigned", body.approvedByName || "", now);
 
   const updated = db.prepare(`
     SELECT vr.*,

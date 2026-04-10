@@ -39,6 +39,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         db.prepare(
           "UPDATE scheduled_maintenance SET status = 'overdue', updated_at = ? WHERE id = ?"
         ).run(now, row.id);
+
+        db.prepare(
+          "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+        ).run("scheduled_maintenance", row.id, "upcoming", "overdue", "system (auto-check)", now);
+
         overdueCount++;
 
         const existingWo = row.work_order_id;

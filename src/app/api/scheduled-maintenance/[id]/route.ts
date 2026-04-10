@@ -63,6 +63,12 @@ export async function PATCH(
 
   db.prepare(`UPDATE scheduled_maintenance SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
+  if (body.status && body.status !== (existing as Record<string, unknown>).status) {
+    db.prepare(
+      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("scheduled_maintenance", id, (existing as Record<string, unknown>).status, body.status, body.changedBy || "", now);
+  }
+
   const updated = db.prepare(`
     SELECT sm.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM scheduled_maintenance sm

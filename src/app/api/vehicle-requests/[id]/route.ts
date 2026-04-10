@@ -65,6 +65,12 @@ export async function PATCH(
 
   db.prepare(`UPDATE vehicle_requests SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
+  if (body.status && body.status !== (existing as Record<string, unknown>).status) {
+    db.prepare(
+      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("vehicle_request", id, (existing as Record<string, unknown>).status, body.status, body.approvedByName || body.changedBy || "", now);
+  }
+
   const updated = db.prepare(`
     SELECT vr.*,
            av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
