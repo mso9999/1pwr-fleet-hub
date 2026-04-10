@@ -48,6 +48,35 @@ export async function PATCH(
     trackerModel: "tracker_model",
     trackerInstallDate: "tracker_install_date",
     trackerStatus: "tracker_status",
+    // Financial / TCO
+    purchasePrice: "purchase_price",
+    purchaseDate: "purchase_date",
+    purchaseCurrency: "purchase_currency",
+    residualValue: "residual_value",
+    insuranceMonthly: "insurance_monthly",
+    // Classification
+    fuelType: "fuel_type",
+    transmission: "transmission",
+    drivetrain: "drivetrain",
+    engineCapacityCc: "engine_capacity_cc",
+    seatingCapacity: "seating_capacity",
+    payloadCapacityKg: "payload_capacity_kg",
+    // Lifecycle
+    totalMileageKm: "total_mileage_km",
+    expectedServiceLifeKm: "expected_service_life_km",
+    expectedServiceLifeYears: "expected_service_life_years",
+    eolScore: "eol_score",
+    eolStatus: "eol_status",
+    // Maintenance intervals
+    serviceIntervalKm: "service_interval_km",
+    serviceIntervalMonths: "service_interval_months",
+    lastServiceDate: "last_service_date",
+    lastServiceKm: "last_service_km",
+    nextServiceDueDate: "next_service_due_date",
+    nextServiceDueKm: "next_service_due_km",
+    // Pool
+    pool: "pool",
+    assignedTeam: "assigned_team",
   };
 
   for (const [jsKey, dbCol] of Object.entries(allowedFields)) {

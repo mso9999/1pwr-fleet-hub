@@ -62,6 +62,46 @@ export const TRACKER_STATUS = {
 
 export type TrackerStatus = (typeof TRACKER_STATUS)[keyof typeof TRACKER_STATUS];
 
+export const FUEL_TYPE = {
+  DIESEL: "diesel",
+  PETROL: "petrol",
+  ELECTRIC: "electric",
+} as const;
+
+export type FuelType = (typeof FUEL_TYPE)[keyof typeof FUEL_TYPE];
+
+export const TRANSMISSION_TYPE = {
+  MANUAL: "manual",
+  AUTOMATIC: "automatic",
+} as const;
+
+export type TransmissionType = (typeof TRANSMISSION_TYPE)[keyof typeof TRANSMISSION_TYPE];
+
+export const DRIVETRAIN = {
+  TWO_WD: "2wd",
+  FOUR_WD: "4wd",
+  AWD: "awd",
+} as const;
+
+export type Drivetrain = (typeof DRIVETRAIN)[keyof typeof DRIVETRAIN];
+
+export const EOL_STATUS = {
+  ACTIVE: "active",
+  MONITOR: "monitor",
+  END_OF_LIFE: "end-of-life",
+} as const;
+
+export type EolStatus = (typeof EOL_STATUS)[keyof typeof EOL_STATUS];
+
+export const VEHICLE_POOL = {
+  GENERAL: "general",
+  EXECUTIVE: "executive",
+  FIELD: "field",
+  HEAVY: "heavy",
+} as const;
+
+export type VehiclePool = (typeof VEHICLE_POOL)[keyof typeof VEHICLE_POOL];
+
 export interface Vehicle {
   id: string;
   organizationId: string;
@@ -79,17 +119,65 @@ export interface Vehicle {
   photoUrl: string;
   dateInService: string;
   notes: string;
+  // Tracker
   trackerImei: string;
   trackerProvider: string;
   trackerSim: string;
   trackerModel: string;
   trackerInstallDate: string;
   trackerStatus: TrackerStatus;
+  // Financial / TCO
+  purchasePrice: number;
+  purchaseDate: string;
+  purchaseCurrency: string;
+  residualValue: number;
+  insuranceMonthly: number;
+  // Classification
+  fuelType: string;
+  transmission: string;
+  drivetrain: string;
+  engineCapacityCc: number;
+  seatingCapacity: number;
+  payloadCapacityKg: number;
+  // Lifecycle
+  totalMileageKm: number;
+  expectedServiceLifeKm: number;
+  expectedServiceLifeYears: number;
+  eolScore: number;
+  eolStatus: string;
+  // Maintenance intervals
+  serviceIntervalKm: number;
+  serviceIntervalMonths: number;
+  lastServiceDate: string;
+  lastServiceKm: number;
+  nextServiceDueDate: string;
+  nextServiceDueKm: number;
+  // Pool
+  pool: string;
+  assignedTeam: string;
+  // Timestamps
   createdAt: string;
   updatedAt: string;
 }
 
 // ── Trips ──
+export const MISSION_PRIORITY = {
+  LOW: "low",
+  NORMAL: "normal",
+  HIGH: "high",
+} as const;
+
+export type MissionPriority = (typeof MISSION_PRIORITY)[keyof typeof MISSION_PRIORITY];
+
+export const TRIP_APPROVAL_STATUS = {
+  AUTO_APPROVED: "auto-approved",
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
+export type TripApprovalStatus = (typeof TRIP_APPROVAL_STATUS)[keyof typeof TRIP_APPROVAL_STATUS];
+
 export interface Trip {
   id: string;
   organizationId: string;
@@ -112,6 +200,15 @@ export interface Trip {
   distance: number | null;
   source: string;
   stops?: TripStop[];
+  // Mission profiling extensions
+  authorizedDriverVerified: boolean;
+  approvedDrivers: string;
+  loadoutManifest: string;
+  expectedReturnAt: string | null;
+  missionPriority: string;
+  approvalStatus: string;
+  approvedBy: string;
+  amAllocationIds: string;
 }
 
 export interface TripStop {
@@ -223,6 +320,12 @@ export interface WorkOrder {
   remarks: string;
   downtimeStart: string;
   downtimeEnd: string | null;
+  // 3rd-party tracking
+  thirdPartyQuoteAmount: number;
+  thirdPartyInvoiceNumber: string;
+  thirdPartyInvoiceAmount: number;
+  thirdPartyDeliveryDate: string;
+  thirdPartyQualityNotes: string;
   createdAt: string;
   updatedAt: string;
   daysOpen?: number;
@@ -253,6 +356,8 @@ export interface WorkOrderLabor {
   ratePerHour: number;
   description: string;
   workDate: string;
+  startedAt: string | null;
+  completedAt: string | null;
   createdAt: string;
 }
 
@@ -437,6 +542,172 @@ export interface FieldIssueReport {
   workOrderId: string | null;
   createdAt: string;
   resolvedAt: string | null;
+}
+
+// ── Driver Vehicle Checks ──
+export const CHECK_DIRECTION = {
+  DEPARTING: "departing",
+  RETURNING: "returning",
+} as const;
+
+export type CheckDirection = (typeof CHECK_DIRECTION)[keyof typeof CHECK_DIRECTION];
+
+export interface DriverVehicleCheck {
+  id: string;
+  organizationId: string;
+  vehicleId: string;
+  vehicleCode?: string;
+  tripId: string | null;
+  driverId: string;
+  driverName: string;
+  mileageKm: number | null;
+  checkDate: string;
+  routeFrom: string;
+  routeTo: string;
+  direction: CheckDirection;
+  // Status items stored as individual fields (pass | fail)
+  electricsFrontLights: string;
+  electricsRearLights: string;
+  electricsIndicators: string;
+  electricsBrakeLights: string;
+  electricsHorn: string;
+  electricsWindows: string;
+  electricsCentralLocking: string;
+  electricsWipers: string;
+  electricsDashboardGauges: string;
+  electricsAcHeating: string;
+  fluidsEngineOil: string;
+  fluidsEngineCoolant: string;
+  fluidsPowerSteering: string;
+  fluidsTransmission: string;
+  fluidsFuel: string;
+  driveSteering: string;
+  driveBrakes: string;
+  driveTirePressure: string;
+  visualSpareWheelCondition: string;
+  visualDoors: string;
+  failureDescriptions: string;
+  remarks: string;
+  // Equipment (1 = yes, 0 = no)
+  equipJack: number;
+  equipSpareWheel: number;
+  equipTriangle: number;
+  equipJumpLeads: number;
+  equipFireExtinguisher: number;
+  equipPhoneCharger: number;
+  equipFirstAidKit: number;
+  equipFlashlight: number;
+  equipToolWheelSpanners: number;
+  equipToolMultimeter: number;
+  equipToolCableCutters: number;
+  equipToolPliers: number;
+  equipToolTowStraps: number;
+  equipToolInverter: number;
+  // Exceptions
+  hasExceptions: boolean;
+  exceptionItems: string;
+  exceptionApproved: boolean;
+  approvedBy: string;
+  approvedAt: string | null;
+  approvalMethod: string;
+  overallPass: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Vehicle Requests ──
+export const REQUEST_STATUS = {
+  REQUESTED: "requested",
+  APPROVED: "approved",
+  ASSIGNED: "assigned",
+  REJECTED: "rejected",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+} as const;
+
+export type RequestStatus = (typeof REQUEST_STATUS)[keyof typeof REQUEST_STATUS];
+
+export interface VehicleRequest {
+  id: string;
+  organizationId: string;
+  requestedById: string;
+  requestedByName: string;
+  requestedFor: string;
+  vehicleId: string | null;
+  assignedVehicleId: string | null;
+  assignedVehicleCode?: string;
+  purpose: string;
+  destination: string;
+  departureDate: string;
+  returnDate: string;
+  passengers: string;
+  requiredVehicleClass: string;
+  loadoutDescription: string;
+  priority: string;
+  status: RequestStatus;
+  approvedById: string;
+  approvedByName: string;
+  rejectionReason: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Scheduled Maintenance ──
+export const MAINTENANCE_STATUS = {
+  UPCOMING: "upcoming",
+  OVERDUE: "overdue",
+  COMPLETED: "completed",
+} as const;
+
+export type MaintenanceStatus = (typeof MAINTENANCE_STATUS)[keyof typeof MAINTENANCE_STATUS];
+
+export interface ScheduledMaintenance {
+  id: string;
+  organizationId: string;
+  vehicleId: string;
+  vehicleCode?: string;
+  maintenanceType: string;
+  description: string;
+  intervalKm: number;
+  intervalMonths: number;
+  lastPerformedDate: string;
+  lastPerformedKm: number;
+  nextDueDate: string;
+  nextDueKm: number;
+  status: MaintenanceStatus;
+  workOrderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Post-Deployment Checks ──
+export interface PostDeploymentCheck {
+  id: string;
+  organizationId: string;
+  vehicleId: string;
+  vehicleCode?: string;
+  tripId: string | null;
+  mechanicId: string;
+  mechanicName: string;
+  checkItems: string;
+  findings: string;
+  workOrderIds: string;
+  overallStatus: string;
+  createdAt: string;
+}
+
+// ── PR Cost Cache (read-only sync from Firestore) ──
+export interface PrCostCacheEntry {
+  id: string;
+  workOrderId: string | null;
+  vehicleCode: string;
+  prNumber: string;
+  prStatus: string;
+  approvedAmount: number;
+  currency: string;
+  description: string;
+  lastSyncedAt: string;
 }
 
 // ── Dashboard ──

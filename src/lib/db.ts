@@ -311,6 +311,11 @@ function initializeSchema(db: Database.Database): void {
 
   migrateUsersSchema(db);
   migrateInspectionsSchema(db);
+  migrateVehiclesPhase1(db);
+  migrateTripsPhase1(db);
+  createPhase1Tables(db);
+  migrateWorkOrdersPhase3(db);
+  migrateWorkOrderLaborPhase3(db);
   seedDefaultData(db);
 }
 
@@ -331,6 +336,275 @@ function migrateInspectionsSchema(db: Database.Database): void {
       "ALTER TABLE inspections ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
     );
     db.prepare("UPDATE inspections SET updated_at = created_at WHERE IFNULL(TRIM(updated_at), '') = ''").run();
+  }
+}
+
+function migrateVehiclesPhase1(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(vehicles)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    // Financial / TCO
+    ["purchase_price", "REAL DEFAULT 0"],
+    ["purchase_date", "TEXT DEFAULT ''"],
+    ["purchase_currency", "TEXT DEFAULT 'LSL'"],
+    ["residual_value", "REAL DEFAULT 0"],
+    ["insurance_monthly", "REAL DEFAULT 0"],
+    // Classification
+    ["fuel_type", "TEXT DEFAULT ''"],
+    ["transmission", "TEXT DEFAULT ''"],
+    ["drivetrain", "TEXT DEFAULT ''"],
+    ["engine_capacity_cc", "INTEGER DEFAULT 0"],
+    ["seating_capacity", "INTEGER DEFAULT 0"],
+    ["payload_capacity_kg", "REAL DEFAULT 0"],
+    // Lifecycle
+    ["total_mileage_km", "INTEGER DEFAULT 0"],
+    ["expected_service_life_km", "INTEGER DEFAULT 0"],
+    ["expected_service_life_years", "INTEGER DEFAULT 0"],
+    ["eol_score", "REAL DEFAULT 0"],
+    ["eol_status", "TEXT DEFAULT 'active'"],
+    // Maintenance intervals
+    ["service_interval_km", "INTEGER DEFAULT 10000"],
+    ["service_interval_months", "INTEGER DEFAULT 6"],
+    ["last_service_date", "TEXT DEFAULT ''"],
+    ["last_service_km", "INTEGER DEFAULT 0"],
+    ["next_service_due_date", "TEXT DEFAULT ''"],
+    ["next_service_due_km", "INTEGER DEFAULT 0"],
+    // Pool / assignment
+    ["pool", "TEXT DEFAULT 'general'"],
+    ["assigned_team", "TEXT DEFAULT ''"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE vehicles ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
+function migrateTripsPhase1(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(trips)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["authorized_driver_verified", "INTEGER DEFAULT 0"],
+    ["approved_drivers", "TEXT DEFAULT '[]'"],
+    ["loadout_manifest", "TEXT DEFAULT '[]'"],
+    ["expected_return_at", "TEXT DEFAULT NULL"],
+    ["mission_priority", "TEXT DEFAULT 'normal'"],
+    ["approval_status", "TEXT DEFAULT 'auto-approved'"],
+    ["approved_by", "TEXT DEFAULT ''"],
+    ["am_allocation_ids", "TEXT DEFAULT '[]'"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE trips ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
+function createPhase1Tables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS driver_vehicle_checks (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+      trip_id TEXT DEFAULT NULL,
+      driver_id TEXT NOT NULL DEFAULT '',
+      driver_name TEXT NOT NULL DEFAULT '',
+      mileage_km INTEGER,
+      check_date TEXT NOT NULL DEFAULT (date('now')),
+      route_from TEXT NOT NULL DEFAULT '',
+      route_to TEXT NOT NULL DEFAULT '',
+      direction TEXT NOT NULL DEFAULT 'departing',
+
+      -- Electrics (pass | fail)
+      electrics_front_lights TEXT NOT NULL DEFAULT 'pass',
+      electrics_rear_lights TEXT NOT NULL DEFAULT 'pass',
+      electrics_indicators TEXT NOT NULL DEFAULT 'pass',
+      electrics_brake_lights TEXT NOT NULL DEFAULT 'pass',
+      electrics_horn TEXT NOT NULL DEFAULT 'pass',
+      electrics_windows TEXT NOT NULL DEFAULT 'pass',
+      electrics_central_locking TEXT NOT NULL DEFAULT 'pass',
+      electrics_wipers TEXT NOT NULL DEFAULT 'pass',
+      electrics_dashboard_gauges TEXT NOT NULL DEFAULT 'pass',
+      electrics_ac_heating TEXT NOT NULL DEFAULT 'pass',
+
+      -- Fluids
+      fluids_engine_oil TEXT NOT NULL DEFAULT 'pass',
+      fluids_engine_coolant TEXT NOT NULL DEFAULT 'pass',
+      fluids_power_steering TEXT NOT NULL DEFAULT 'pass',
+      fluids_transmission TEXT NOT NULL DEFAULT 'pass',
+      fluids_fuel TEXT NOT NULL DEFAULT 'pass',
+
+      -- Driveability
+      drive_steering TEXT NOT NULL DEFAULT 'pass',
+      drive_brakes TEXT NOT NULL DEFAULT 'pass',
+      drive_tire_pressure TEXT NOT NULL DEFAULT 'pass',
+
+      -- Visual
+      visual_spare_wheel_condition TEXT NOT NULL DEFAULT 'pass',
+      visual_doors TEXT NOT NULL DEFAULT 'pass',
+
+      -- Failure descriptions (JSON keyed by field name)
+      failure_descriptions TEXT NOT NULL DEFAULT '{}',
+
+      -- Remarks
+      remarks TEXT NOT NULL DEFAULT '',
+
+      -- Equipment availability (1 = yes, 0 = no)
+      equip_jack INTEGER NOT NULL DEFAULT 1,
+      equip_spare_wheel INTEGER NOT NULL DEFAULT 1,
+      equip_triangle INTEGER NOT NULL DEFAULT 1,
+      equip_jump_leads INTEGER NOT NULL DEFAULT 1,
+      equip_fire_extinguisher INTEGER NOT NULL DEFAULT 1,
+      equip_phone_charger INTEGER NOT NULL DEFAULT 1,
+      equip_first_aid_kit INTEGER NOT NULL DEFAULT 1,
+      equip_flashlight INTEGER NOT NULL DEFAULT 1,
+      equip_tool_wheel_spanners INTEGER NOT NULL DEFAULT 1,
+      equip_tool_multimeter INTEGER NOT NULL DEFAULT 1,
+      equip_tool_cable_cutters INTEGER NOT NULL DEFAULT 1,
+      equip_tool_pliers INTEGER NOT NULL DEFAULT 1,
+      equip_tool_tow_straps INTEGER NOT NULL DEFAULT 1,
+      equip_tool_inverter INTEGER NOT NULL DEFAULT 1,
+
+      -- Exception workflow
+      has_exceptions INTEGER NOT NULL DEFAULT 0,
+      exception_items TEXT NOT NULL DEFAULT '[]',
+      exception_approved INTEGER NOT NULL DEFAULT 0,
+      approved_by TEXT DEFAULT '',
+      approved_at TEXT DEFAULT NULL,
+      approval_method TEXT DEFAULT '',
+
+      -- Overall
+      overall_pass INTEGER NOT NULL DEFAULT 1,
+
+      -- Timestamps
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dvc_vehicle ON driver_vehicle_checks(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id);
+    CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date);
+
+    CREATE TABLE IF NOT EXISTS vehicle_requests (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      requested_by_id TEXT NOT NULL DEFAULT '',
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      requested_for TEXT NOT NULL DEFAULT '',
+      vehicle_id TEXT DEFAULT NULL,
+      assigned_vehicle_id TEXT DEFAULT NULL,
+      purpose TEXT NOT NULL DEFAULT '',
+      destination TEXT NOT NULL DEFAULT '',
+      departure_date TEXT NOT NULL DEFAULT '',
+      return_date TEXT NOT NULL DEFAULT '',
+      passengers TEXT DEFAULT '',
+      required_vehicle_class TEXT DEFAULT '',
+      loadout_description TEXT DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      status TEXT NOT NULL DEFAULT 'requested',
+      approved_by_id TEXT DEFAULT '',
+      approved_by_name TEXT DEFAULT '',
+      rejection_reason TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vr_org ON vehicle_requests(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_status ON vehicle_requests(status);
+
+    CREATE TABLE IF NOT EXISTS scheduled_maintenance (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+      maintenance_type TEXT NOT NULL DEFAULT 'full-service',
+      description TEXT DEFAULT '',
+      interval_km INTEGER DEFAULT 0,
+      interval_months INTEGER DEFAULT 0,
+      last_performed_date TEXT DEFAULT '',
+      last_performed_km INTEGER DEFAULT 0,
+      next_due_date TEXT DEFAULT '',
+      next_due_km INTEGER DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'upcoming',
+      work_order_id TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sm_vehicle ON scheduled_maintenance(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_sm_status ON scheduled_maintenance(status);
+
+    CREATE TABLE IF NOT EXISTS post_deployment_checks (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+      trip_id TEXT DEFAULT NULL,
+      mechanic_id TEXT NOT NULL DEFAULT '',
+      mechanic_name TEXT NOT NULL DEFAULT '',
+      check_items TEXT NOT NULL DEFAULT '[]',
+      findings TEXT NOT NULL DEFAULT '[]',
+      work_order_ids TEXT NOT NULL DEFAULT '[]',
+      overall_status TEXT NOT NULL DEFAULT 'pass',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pdc_vehicle ON post_deployment_checks(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_pdc_trip ON post_deployment_checks(trip_id);
+
+    CREATE TABLE IF NOT EXISTS pr_cost_cache (
+      id TEXT PRIMARY KEY,
+      work_order_id TEXT DEFAULT NULL,
+      vehicle_code TEXT NOT NULL DEFAULT '',
+      pr_number TEXT NOT NULL DEFAULT '',
+      pr_status TEXT NOT NULL DEFAULT '',
+      approved_amount REAL DEFAULT 0,
+      currency TEXT DEFAULT 'LSL',
+      description TEXT DEFAULT '',
+      last_synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(pr_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prc_vehicle ON pr_cost_cache(vehicle_code);
+    CREATE INDEX IF NOT EXISTS idx_prc_wo ON pr_cost_cache(work_order_id);
+  `);
+}
+
+function migrateWorkOrdersPhase3(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(work_orders)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["third_party_quote_amount", "REAL DEFAULT 0"],
+    ["third_party_invoice_number", "TEXT DEFAULT ''"],
+    ["third_party_invoice_amount", "REAL DEFAULT 0"],
+    ["third_party_delivery_date", "TEXT DEFAULT ''"],
+    ["third_party_quality_notes", "TEXT DEFAULT ''"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE work_orders ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
+function migrateWorkOrderLaborPhase3(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(work_order_labor)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["started_at", "TEXT DEFAULT NULL"],
+    ["completed_at", "TEXT DEFAULT NULL"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE work_order_labor ADD COLUMN ${col} ${def}`);
+    }
   }
 }
 

@@ -138,6 +138,12 @@ export async function PATCH(
     partsCost: "parts_cost",
     labourCost: "labour_cost",
     thirdPartyCost: "third_party_cost",
+    // 3rd-party tracking (Phase 3)
+    thirdPartyQuoteAmount: "third_party_quote_amount",
+    thirdPartyInvoiceNumber: "third_party_invoice_number",
+    thirdPartyInvoiceAmount: "third_party_invoice_amount",
+    thirdPartyDeliveryDate: "third_party_delivery_date",
+    thirdPartyQualityNotes: "third_party_quality_notes",
   };
 
   const fields: string[] = [];

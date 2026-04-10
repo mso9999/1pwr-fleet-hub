@@ -36,8 +36,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const now = new Date().toISOString();
 
   const stmt = db.prepare(`
-    INSERT INTO vehicles (id, organization_id, code, make, model, year, license_plate, vin, engine_number, asset_class, home_location, current_location, status, photo_url, date_in_service, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO vehicles (
+      id, organization_id, code, make, model, year, license_plate, vin, engine_number,
+      asset_class, home_location, current_location, status, photo_url, date_in_service, notes,
+      purchase_price, purchase_date, purchase_currency, residual_value, insurance_monthly,
+      fuel_type, transmission, drivetrain, engine_capacity_cc, seating_capacity, payload_capacity_kg,
+      total_mileage_km, expected_service_life_km, expected_service_life_years,
+      service_interval_km, service_interval_months, pool, assigned_team,
+      created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, ?
+    )
   `);
 
   stmt.run(
@@ -57,6 +72,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.photoUrl || "",
     body.dateInService || "",
     body.notes || "",
+    body.purchasePrice || 0,
+    body.purchaseDate || "",
+    body.purchaseCurrency || "LSL",
+    body.residualValue || 0,
+    body.insuranceMonthly || 0,
+    body.fuelType || "",
+    body.transmission || "",
+    body.drivetrain || "",
+    body.engineCapacityCc || 0,
+    body.seatingCapacity || 0,
+    body.payloadCapacityKg || 0,
+    body.totalMileageKm || 0,
+    body.expectedServiceLifeKm || 0,
+    body.expectedServiceLifeYears || 0,
+    body.serviceIntervalKm || 10000,
+    body.serviceIntervalMonths || 6,
+    body.pool || "general",
+    body.assignedTeam || "",
     now,
     now
   );

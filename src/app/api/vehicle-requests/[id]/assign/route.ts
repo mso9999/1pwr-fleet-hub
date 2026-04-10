@@ -1,0 +1,55 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
+
+/**
+ * POST /api/vehicle-requests/[id]/assign
+ *
+ * Fleet lead/manager assigns a specific vehicle from the operational pool
+ * and moves the request to 'assigned' status.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  const { id } = await params;
+  const db = getDb();
+  const body = await request.json();
+  const now = new Date().toISOString();
+
+  const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (!body.vehicleId) {
+    return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
+  }
+
+  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(body.vehicleId) as Record<string, unknown> | undefined;
+  if (!vehicle) return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
+  if (vehicle.status !== "operational") {
+    return NextResponse.json({ error: `Vehicle ${vehicle.code} is not operational (status: ${vehicle.status})` }, { status: 400 });
+  }
+
+  db.prepare(`
+    UPDATE vehicle_requests
+    SET assigned_vehicle_id = ?, status = 'assigned',
+        approved_by_id = ?, approved_by_name = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    body.vehicleId,
+    body.approvedById || "",
+    body.approvedByName || "",
+    now,
+    id
+  );
+
+  const updated = db.prepare(`
+    SELECT vr.*,
+           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
+    FROM vehicle_requests vr
+    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    WHERE vr.id = ?
+  `).get(id);
+
+  return NextResponse.json(updated);
+}

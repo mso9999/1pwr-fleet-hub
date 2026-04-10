@@ -39,8 +39,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO trips (id, organization_id, vehicle_id, driver_id, driver_name, odo_start, departure_location, destination, mission_type, passengers, load_out, load_in, checkout_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO trips (
+      id, organization_id, vehicle_id, driver_id, driver_name, odo_start,
+      departure_location, destination, mission_type, passengers, load_out, load_in, checkout_at,
+      authorized_driver_verified, approved_drivers, loadout_manifest,
+      expected_return_at, mission_priority, approval_status, approved_by, am_allocation_ids
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     body.organizationId || "1pwr_lesotho",
@@ -54,7 +59,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.passengers || "",
     body.loadOut || "",
     body.loadIn || "",
-    now
+    now,
+    body.authorizedDriverVerified ? 1 : 0,
+    JSON.stringify(body.approvedDrivers || []),
+    JSON.stringify(body.loadoutManifest || []),
+    body.expectedReturnAt || null,
+    body.missionPriority || "normal",
+    body.approvalStatus || "auto-approved",
+    body.approvedBy || "",
+    JSON.stringify(body.amAllocationIds || [])
   );
 
   // Insert multi-stop itinerary if provided

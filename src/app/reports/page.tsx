@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 
-type ExportType = "work-orders" | "vehicles" | "trips" | "cost-summary" | "inspections";
+type ExportType = "work-orders" | "vehicles" | "trips" | "cost-summary" | "inspections" | "tco" | "vehicle-checks" | "scheduled-maintenance" | "vehicle-requests";
 
 export default function ReportsPage(): React.ReactElement {
   const { organizationId } = useAuth();
@@ -54,7 +54,11 @@ export default function ReportsPage(): React.ReactElement {
             ["vehicles", "Vehicle registry"],
             ["trips", "Trips"],
             ["cost-summary", "Cost summary by vehicle"],
-            ["inspections", "Inspections / checklists (JSON lines in items_json)"],
+            ["inspections", "Inspections / checklists"],
+            ["tco", "TCO & EOL analysis (purchase price, repair cost, EOL score)"],
+            ["vehicle-checks", "Driver vehicle checks (pre-deployment)"],
+            ["scheduled-maintenance", "Scheduled maintenance (intervals, overdue status)"],
+            ["vehicle-requests", "Vehicle allocation requests"],
           ] as const
         ).map(([type, label]) => (
           <a

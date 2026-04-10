@@ -27,8 +27,8 @@ export async function POST(
 
   const laborId = uuidv4();
   db.prepare(`
-    INSERT INTO work_order_labor (id, work_order_id, worker_name, worker_id, role, hours, rate_per_hour, description, work_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO work_order_labor (id, work_order_id, worker_name, worker_id, role, hours, rate_per_hour, description, work_date, started_at, completed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     laborId,
     id,
@@ -38,7 +38,9 @@ export async function POST(
     body.hours || 0,
     body.ratePerHour || 0,
     body.description || "",
-    body.workDate || new Date().toISOString().split("T")[0]
+    body.workDate || new Date().toISOString().split("T")[0],
+    body.startedAt || null,
+    body.completedAt || null
   );
 
   // Recalculate totals on work order

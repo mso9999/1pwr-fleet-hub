@@ -10,6 +10,7 @@ import { VehicleStatusBadge } from "@/components/StatusBadge";
 import { VEHICLE_STATUS, ASSET_CLASS, TRACKER_STATUS } from "@/types";
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
 import { MediaUpload } from "@/components/MediaUpload";
+import { VehicleDashboardTabs } from "@/components/VehicleDashboardTabs";
 
 interface VehicleDetail {
   id: string;
@@ -194,6 +195,8 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
         </div>
         <VehicleStatusBadge status={vehicle.status} />
       </div>
+
+      <VehicleDashboardTabs vehicleId={vehicle.id} vehicleCode={vehicle.code} />
 
       <Card>
         <CardHeader>

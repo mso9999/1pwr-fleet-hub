@@ -23,6 +23,11 @@ export async function PATCH(
   db.prepare("UPDATE vehicles SET current_location = ?, status = 'operational', updated_at = ? WHERE id = ?")
     .run(body.arrivalLocation || "", now, trip.vehicle_id);
 
+  if (body.odoEnd) {
+    db.prepare("UPDATE vehicles SET total_mileage_km = MAX(total_mileage_km, ?) WHERE id = ?")
+      .run(body.odoEnd, trip.vehicle_id);
+  }
+
   const updated = db.prepare(`
     SELECT t.*, v.code as vehicle_code FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?
   `).get(id);

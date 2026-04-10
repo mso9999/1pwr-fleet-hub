@@ -204,9 +204,57 @@ export function GET(request: NextRequest): NextResponse {
     ];
     csv = rowsToCsv(headers, rows);
     filename = `inspections-${org}.csv`;
+  } else if (type === "tco") {
+    const rows = db.prepare(`
+      SELECT v.code, v.make, v.model, v.year, v.fuel_type, v.transmission, v.asset_class, v.status,
+             v.purchase_price, v.total_mileage_km, v.date_in_service, v.eol_score, v.eol_status,
+             COALESCE(SUM(wo.total_cost), 0) as total_repair_cost,
+             COUNT(wo.id) as work_order_count,
+             COALESCE(SUM(CASE WHEN wo.downtime_end IS NOT NULL
+               THEN ROUND(julianday(wo.downtime_end) - julianday(wo.downtime_start), 1) ELSE 0 END), 0) as total_downtime_days
+      FROM vehicles v LEFT JOIN work_orders wo ON wo.vehicle_id = v.id
+      WHERE v.organization_id = ? GROUP BY v.id ORDER BY total_repair_cost DESC
+    `).all(org) as Record<string, unknown>[];
+    csv = rowsToCsv(["code","make","model","year","fuel_type","transmission","asset_class","status","purchase_price","total_mileage_km","date_in_service","eol_score","eol_status","total_repair_cost","work_order_count","total_downtime_days"], rows);
+    filename = `tco-${org}.csv`;
+  } else if (type === "vehicle-checks") {
+    let q = `
+      SELECT dvc.id, v.code as vehicle_code, dvc.driver_name, dvc.check_date, dvc.direction,
+             dvc.mileage_km, dvc.route_from, dvc.route_to, dvc.overall_pass,
+             dvc.has_exceptions, dvc.exception_approved, dvc.approved_by, dvc.remarks, dvc.created_at
+      FROM driver_vehicle_checks dvc JOIN vehicles v ON dvc.vehicle_id = v.id
+      WHERE dvc.organization_id = ?
+    `;
+    const params: string[] = [org];
+    if (from) { q += ` AND dvc.check_date >= ?`; params.push(from); }
+    if (to) { q += ` AND dvc.check_date <= ?`; params.push(to); }
+    q += ` ORDER BY dvc.created_at DESC`;
+    const rows = db.prepare(q).all(...params) as Record<string, unknown>[];
+    csv = rowsToCsv(["id","vehicle_code","driver_name","check_date","direction","mileage_km","route_from","route_to","overall_pass","has_exceptions","exception_approved","approved_by","remarks","created_at"], rows);
+    filename = `vehicle-checks-${org}.csv`;
+  } else if (type === "scheduled-maintenance") {
+    const rows = db.prepare(`
+      SELECT sm.id, v.code as vehicle_code, sm.maintenance_type, sm.status,
+             sm.interval_km, sm.interval_months, sm.last_performed_date, sm.last_performed_km,
+             sm.next_due_date, sm.next_due_km, v.total_mileage_km as current_mileage, sm.work_order_id
+      FROM scheduled_maintenance sm JOIN vehicles v ON sm.vehicle_id = v.id
+      WHERE sm.organization_id = ? ORDER BY sm.status, sm.next_due_date
+    `).all(org) as Record<string, unknown>[];
+    csv = rowsToCsv(["id","vehicle_code","maintenance_type","status","interval_km","interval_months","last_performed_date","last_performed_km","next_due_date","next_due_km","current_mileage","work_order_id"], rows);
+    filename = `maintenance-schedule-${org}.csv`;
+  } else if (type === "vehicle-requests") {
+    const rows = db.prepare(`
+      SELECT vr.id, vr.requested_by_name, vr.requested_for, vr.purpose, vr.destination,
+             vr.departure_date, vr.return_date, vr.priority, vr.status,
+             vr.approved_by_name, av.code as assigned_vehicle, vr.created_at
+      FROM vehicle_requests vr LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+      WHERE vr.organization_id = ? ORDER BY vr.created_at DESC
+    `).all(org) as Record<string, unknown>[];
+    csv = rowsToCsv(["id","requested_by_name","requested_for","purpose","destination","departure_date","return_date","priority","status","approved_by_name","assigned_vehicle","created_at"], rows);
+    filename = `vehicle-requests-${org}.csv`;
   } else {
     return NextResponse.json(
-      { error: "Invalid type — use work-orders, vehicles, trips, cost-summary, or inspections" },
+      { error: "Invalid type — use work-orders, vehicles, trips, cost-summary, inspections, tco, vehicle-checks, scheduled-maintenance, or vehicle-requests" },
       { status: 400 }
     );
   }
