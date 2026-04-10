@@ -28,20 +28,47 @@ export function GET(): NextResponse {
     // Check SQLite version
     results.sqliteVersion = (db.prepare("SELECT sqlite_version() as v").get() as { v: string }).v;
 
-    // Try creating a test table
-    try {
-      db.exec("CREATE TABLE IF NOT EXISTS _migration_test (id TEXT PRIMARY KEY)");
-      db.exec("DROP TABLE IF EXISTS _migration_test");
-      results.canCreateTables = true;
-    } catch (e) {
-      results.canCreateTables = false;
-      results.createTableError = String(e);
-    }
+    // Try the actual migration steps one at a time
+    const migrationTests: Array<[string, string]> = [
+      ["alter_vehicles_purchase_price", "ALTER TABLE vehicles ADD COLUMN purchase_price REAL DEFAULT 0"],
+      ["alter_trips_expected_return", "ALTER TABLE trips ADD COLUMN expected_return_at TEXT DEFAULT NULL"],
+      ["create_driver_vehicle_checks", `CREATE TABLE IF NOT EXISTS driver_vehicle_checks (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+        vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+        driver_name TEXT NOT NULL DEFAULT '',
+        check_date TEXT NOT NULL DEFAULT (date('now')),
+        direction TEXT NOT NULL DEFAULT 'departing',
+        overall_pass INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`],
+      ["create_vehicle_requests", `CREATE TABLE IF NOT EXISTS vehicle_requests (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+        status TEXT NOT NULL DEFAULT 'requested',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`],
+    ];
 
-    // Clean up test col if we added it
+    const migrationResults: Record<string, string> = {};
+    for (const [name, sql] of migrationTests) {
+      try {
+        db.exec(sql);
+        migrationResults[name] = "OK";
+      } catch (e) {
+        migrationResults[name] = String(e);
+      }
+    }
+    results.migrationTests = migrationResults;
+
+    // Now try running the actual getDb() migration
     try {
-      // SQLite <3.35 can't drop columns, just leave it
-    } catch {}
+      const { getDb } = require("@/lib/db");
+      getDb();
+      results.getDbResult = "OK";
+    } catch (e) {
+      results.getDbResult = String(e);
+    }
 
     db.close();
   } catch (err) {
