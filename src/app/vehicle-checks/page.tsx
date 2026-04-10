@@ -87,13 +87,15 @@ export default function VehicleChecksPage() {
             Required before each vehicle deployment. Complete the checklist, then check out a vehicle under Trips.
           </p>
         </div>
-        <Button
-          onClick={() => setShowForm(!showForm)}
-          size="lg"
-          className="touch-manipulation min-h-[48px]"
-        >
-          + New vehicle check
-        </Button>
+        <span data-tutorial="tutorial-vehicle-checks-new">
+          <Button
+            onClick={() => setShowForm(!showForm)}
+            size="lg"
+            className="touch-manipulation min-h-[48px]"
+          >
+            + New vehicle check
+          </Button>
+        </span>
       </div>
 
       {showForm && (

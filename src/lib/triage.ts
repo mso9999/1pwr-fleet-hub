@@ -33,7 +33,9 @@ const SPECIALIST_RE =
   /\b(ecu|sensor|throttle|auto\s*elect|electrician|germiston|injection|immobilizer|diagnostic|software)\b/i;
 const HEAVY_RE =
   /\b(crane|2628|engine\s*rebuild|overhaul|crankshaft|radiator|heavy|telehandler|welding|fabricat)\b/i;
-const HEAVY_ASSET = /heavy-vehicle|equipment/;
+/** Prefer HQ for heavy plant / trucks / equipment (not light 4WD). Legacy slugs included for unmigrated DBs. */
+const HEAVY_ASSET =
+  /cargo-truck|yellow-plant|tractor|trailer|mobile-equipment|heavy-vehicle|equipment/;
 
 export function scorePartsReady(
   partRows: Array<{ pr_status: string }>

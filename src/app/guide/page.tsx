@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
 
 const SECTIONS = [
   {
@@ -29,6 +30,24 @@ export default function GuideIndexPage() {
           In-app help for 1PWR Fleet Hub. Open a topic below; each page is written to match what you see on screen.
         </p>
       </div>
+
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardHeader>
+          <CardTitle className="text-lg text-blue-900">Interactive tutorial</CardTitle>
+          <CardDescription className="text-zinc-700">
+            Step through the main workflows with on-screen highlights: dashboard, vehicles, trips, checks, work orders, map,
+            analytics, reports, and daily update. A temporary demo vehicle (code starting with{" "}
+            <span className="font-mono">TUT-</span>) is created for the register walkthrough and removed when you finish or exit.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-4">
+          <TutorialLaunchButton className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700" />
+          <span className="text-xs text-zinc-500">Or open the app with</span>
+          <Link href="/?tutorial=1" className="font-mono text-xs text-blue-700 hover:underline">
+            ?tutorial=1
+          </Link>
+        </CardContent>
+      </Card>
 
       <ul className="space-y-4">
         {SECTIONS.map((s) => (

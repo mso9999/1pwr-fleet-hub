@@ -44,13 +44,40 @@ export const VEHICLE_STATUS = {
 
 export type VehicleStatus = (typeof VEHICLE_STATUS)[keyof typeof VEHICLE_STATUS];
 
+/** Fleet vehicle / equipment category (stored in vehicles.asset_class). */
 export const ASSET_CLASS = {
-  LIGHT: "light-vehicle",
-  HEAVY: "heavy-vehicle",
-  EQUIPMENT: "equipment",
+  FOUR_WD: "4wd",
+  CARGO_TRUCK: "cargo-truck",
+  YELLOW_PLANT: "yellow-plant",
+  TRACTOR: "tractor",
+  TRAILER: "trailer",
+  MOBILE_EQUIPMENT: "mobile-equipment",
 } as const;
 
 export type AssetClass = (typeof ASSET_CLASS)[keyof typeof ASSET_CLASS];
+
+/** Human-readable labels for UI and exports. */
+export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
+  "4wd": "4WD (bakkies & SUV)",
+  "cargo-truck": "Cargo trucks",
+  "yellow-plant": "Yellow plant",
+  tractor: "Tractors",
+  trailer: "Trailers",
+  "mobile-equipment": "Mobile equipment (compressors)",
+};
+
+/** Display string for asset_class (handles legacy DB values before migration). */
+export function assetClassLabel(code: string): string {
+  if ((Object.values(ASSET_CLASS) as string[]).includes(code)) {
+    return ASSET_CLASS_LABELS[code as AssetClass];
+  }
+  const legacy: Record<string, string> = {
+    "light-vehicle": ASSET_CLASS_LABELS["4wd"],
+    "heavy-vehicle": ASSET_CLASS_LABELS["cargo-truck"],
+    equipment: ASSET_CLASS_LABELS["mobile-equipment"],
+  };
+  return legacy[code] || code.replace(/-/g, " ");
+}
 
 export const TRACKER_STATUS = {
   ACTIVE: "active",
@@ -522,6 +549,29 @@ export const ISSUE_SEVERITY = {
 
 export type IssueSeverity = (typeof ISSUE_SEVERITY)[keyof typeof ISSUE_SEVERITY];
 
+/** Field issue ticket lifecycle (ticketing-style). */
+export const FIELD_ISSUE_STATUS = {
+  OPEN: "open",
+  CONVERTED: "converted",
+  CLOSED: "closed",
+  DISMISSED: "dismissed",
+} as const;
+
+export type FieldIssueStatus = (typeof FIELD_ISSUE_STATUS)[keyof typeof FIELD_ISSUE_STATUS];
+
+/** Closeout / resolution outcome for a field issue ticket. */
+export const FIELD_ISSUE_CLOSEOUT_OUTCOME = {
+  RESOLVED_NO_WO: "resolved_no_wo",
+  RESOLVED_VIA_WO: "resolved_via_work_order",
+  DEFERRED: "deferred",
+  DUPLICATE: "duplicate",
+  NOT_REPRODUCIBLE: "not_reproducible",
+  OTHER: "other",
+} as const;
+
+export type FieldIssueCloseoutOutcome =
+  (typeof FIELD_ISSUE_CLOSEOUT_OUTCOME)[keyof typeof FIELD_ISSUE_CLOSEOUT_OUTCOME];
+
 export interface FieldIssueReport {
   id: string;
   organizationId: string;
@@ -529,6 +579,8 @@ export interface FieldIssueReport {
   vehicleCode?: string;
   vehicleMake?: string;
   vehicleModel?: string;
+  /** Human-readable ticket UID, e.g. IR-LS-2026-00001 */
+  ticketUid: string;
   reportedById: string;
   reportedByName: string;
   title: string;
@@ -542,6 +594,12 @@ export interface FieldIssueReport {
   workOrderId: string | null;
   createdAt: string;
   resolvedAt: string | null;
+  closedAt: string | null;
+  closedById: string | null;
+  closedByName: string | null;
+  attendedByName: string | null;
+  closeoutOutcome: string | null;
+  closeoutNotes: string | null;
 }
 
 // ── Driver Vehicle Checks ──

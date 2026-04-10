@@ -25,7 +25,8 @@ interface OrgRow {
 }
 
 const REF_TYPES = [
-  { value: "site", label: "Sites / Destinations" },
+  { value: "site", label: "Sites / Destinations (PR)" },
+  { value: "department", label: "Departments (PR)" },
   { value: "mission_type", label: "Mission Types" },
   { value: "third_party_shop", label: "3rd Party Shops" },
 ];
@@ -42,6 +43,8 @@ export default function AdminPage() {
   const [newLabel, setNewLabel] = useState("");
   const [newSort, setNewSort] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncingPr, setIsSyncingPr] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/organizations").then((r) => r.json()).then(setOrgs).catch(() => {});
@@ -103,6 +106,32 @@ export default function AdminPage() {
     loadItems();
   }
 
+  async function syncFromPr(): Promise<void> {
+    setIsSyncingPr(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch(`/api/sync/pr-reference?org=${organizationId}`, { method: "POST" });
+      const data = (await res.json()) as {
+        success?: boolean;
+        sites?: { upserted: number; deactivated: number };
+        departments?: { upserted: number; deactivated: number };
+        error?: string;
+      };
+      if (data.success) {
+        setSyncMessage(
+          `PR sync OK — sites: +${data.sites?.upserted ?? 0} / −${data.sites?.deactivated ?? 0}; departments: +${data.departments?.upserted ?? 0} / −${data.departments?.deactivated ?? 0}`
+        );
+        loadItems();
+      } else {
+        setSyncMessage(data.error || "Sync failed");
+      }
+    } catch {
+      setSyncMessage("Sync request failed");
+    } finally {
+      setIsSyncingPr(false);
+    }
+  }
+
   const currentOrg = orgs.find((o) => o.id === organizationId);
 
   return (
@@ -113,9 +142,21 @@ export default function AdminPage() {
           <p className="text-slate-500">
             Manage dropdown options for{" "}
             <span className="font-semibold text-slate-700">{currentOrg?.name || organizationId}</span>
+            . Sites and departments are mirrored from the PR app Firestore (
+            <code className="text-xs text-slate-600">referenceData_sites</code>,{" "}
+            <code className="text-xs text-slate-600">referenceData_departments</code>
+            ).
           </p>
         </div>
+        <Button type="button" variant="outline" disabled={isSyncingPr} onClick={() => void syncFromPr()}>
+          {isSyncingPr ? "Syncing from PR…" : "Sync sites & departments from PR"}
+        </Button>
       </div>
+      {syncMessage && (
+        <p className={`text-sm ${/failed|Sync request/i.test(syncMessage) ? "text-red-600" : "text-emerald-700"}`}>
+          {syncMessage}
+        </p>
+      )}
 
       {/* Type selector */}
       <div className="flex gap-2 flex-wrap">

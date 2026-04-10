@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +45,10 @@ interface VehicleOption {
 interface RefItem { code: string; label: string; }
 interface StopInput { location: string; loadOut: string; loadIn: string; notes: string; }
 
-export default function TripsPage(): React.ReactElement {
+function TripsPageContent(): React.ReactElement {
+  const searchParams = useSearchParams();
+  const tripParam = searchParams.get("trip");
+  const vehicleParam = searchParams.get("vehicle");
   const { organizationId } = useAuth();
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
@@ -117,11 +121,49 @@ export default function TripsPage(): React.ReactElement {
   const completedTrips = trips.filter((t) => t.checkin_at);
   const operationalVehicles = vehicles.filter((v) => v.status === "operational" || v.status === "deployed");
 
+  useEffect(() => {
+    if (isLoading || trips.length === 0) return;
+    if (tripParam) {
+      const t = trips.find((tr) => tr.id === tripParam);
+      if (!t) return;
+      if (!t.checkin_at) {
+        requestAnimationFrame(() => {
+          document.getElementById(`trip-active-${t.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      } else {
+        setExpandedTrip(t.id);
+        requestAnimationFrame(() => {
+          document.getElementById(`trip-row-${t.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
+      return;
+    }
+    if (vehicleParam) {
+      const forVehicle = trips.filter((t) => t.vehicle_id === vehicleParam);
+      const active = forVehicle.find((t) => !t.checkin_at);
+      if (active) {
+        requestAnimationFrame(() => {
+          document.getElementById(`trip-active-${active.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+        return;
+      }
+      const latest = forVehicle[0];
+      if (latest) {
+        setExpandedTrip(latest.id);
+        requestAnimationFrame(() => {
+          document.getElementById(`trip-row-${latest.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
+    }
+  }, [isLoading, trips, tripParam, vehicleParam]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-zinc-500">{activeTrips.length} active · {completedTrips.length} completed</p>
-        <Button onClick={() => setShowCheckout(!showCheckout)} size="lg">+ Check Out Vehicle</Button>
+        <span data-tutorial="tutorial-trips-checkout">
+          <Button onClick={() => setShowCheckout(!showCheckout)} size="lg">+ Check Out Vehicle</Button>
+        </span>
       </div>
 
       {showCheckout && (
@@ -150,7 +192,11 @@ export default function TripsPage(): React.ReactElement {
           <CardContent>
             <div className="space-y-3">
               {activeTrips.map((trip) => (
-                <div key={trip.id} className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                <div
+                  key={trip.id}
+                  id={`trip-active-${trip.id}`}
+                  className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/50 p-4 scroll-mt-24"
+                >
                   <div>
                     <div className="flex items-center gap-2 font-medium">
                       <Badge variant="info">{trip.vehicle_code}</Badge>
@@ -219,6 +265,14 @@ export default function TripsPage(): React.ReactElement {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function TripsPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<p className="text-zinc-500 text-center py-12">Loading trips…</p>}>
+      <TripsPageContent />
+    </Suspense>
   );
 }
 
@@ -413,7 +467,11 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
 }): React.ReactElement {
   return (
     <>
-      <tr className={`border-b border-zinc-100 cursor-pointer hover:bg-zinc-50 ${isExpanded ? "bg-blue-50/50" : ""}`} onClick={onToggle}>
+      <tr
+        id={`trip-row-${trip.id}`}
+        className={`border-b border-zinc-100 cursor-pointer hover:bg-zinc-50 scroll-mt-24 ${isExpanded ? "bg-blue-50/50" : ""}`}
+        onClick={onToggle}
+      >
         <td className="py-2.5 pr-3 font-medium">{trip.vehicle_code}</td>
         <td className="py-2.5 pr-3 text-zinc-600">{trip.departure_location} → {trip.arrival_location || trip.destination}</td>
         <td className="py-2.5 pr-3 hidden sm:table-cell text-zinc-600">{trip.driver_name || "—"}</td>

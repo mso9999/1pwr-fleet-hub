@@ -14,6 +14,7 @@ import { initializeApp, cert, getApps, type App } from "firebase-admin/app";
 import {
   getFirestore,
   type Firestore,
+  type QuerySnapshot,
 } from "firebase-admin/firestore";
 import { getDb } from "./db";
 import fs from "fs";
@@ -57,25 +58,40 @@ export interface SyncResult {
   error?: string;
 }
 
+export type ReferenceDataKind = "site" | "department";
+
 /**
- * READ-ONLY: Sync site/location reference data from Firestore into local SQLite.
- * Source: `referenceData_sites` or `sites` collection (canonical for all 1PWR apps).
- * Target: local `reference_data` table with type = 'site'.
+ * READ-ONLY: Sync one reference list from shared PR Firestore into local `reference_data`.
+ * Collections follow the PR app convention: `referenceData_sites`, `referenceData_departments`.
+ * Shape: code, name|label, sortOrder, active, optional lat/lng/country.
  *
- * Existing local records not found in the source are marked active=0, never deleted.
+ * Existing local rows of this type not present in the snapshot batch are marked active=0.
  */
-export async function syncSitesFromFirestore(
+export async function syncReferenceListFromPr(
+  collectionName: string,
+  refType: ReferenceDataKind,
   organizationId: string = "1pwr_lesotho"
 ): Promise<SyncResult> {
-  const fs = getAdminFirestore();
-  if (!fs) return { success: false, upserted: 0, deactivated: 0, error: "Firestore not available" };
+  const firestore = getAdminFirestore();
+  if (!firestore) {
+    return { success: false, upserted: 0, deactivated: 0, error: "Firestore not available" };
+  }
 
   try {
-    const snapshot = await fs
-      .collection("referenceData_sites")
-      .where("active", "!=", false)
-      .limit(100)
-      .get();
+    let snapshot: QuerySnapshot;
+    try {
+      snapshot = await firestore
+        .collection(collectionName)
+        .where("active", "!=", false)
+        .limit(500)
+        .get();
+    } catch (queryErr) {
+      console.warn(
+        `[firestore-sync] active filter query failed for ${collectionName}, using full scan:`,
+        queryErr
+      );
+      snapshot = await firestore.collection(collectionName).limit(500).get();
+    }
 
     if (snapshot.empty) {
       return { success: true, upserted: 0, deactivated: 0 };
@@ -84,29 +100,34 @@ export async function syncSitesFromFirestore(
     const db = getDb();
     let upserted = 0;
     let deactivated = 0;
-
     const firestoreCodes = new Set<string>();
 
     const txn = db.transaction(() => {
       for (const doc of snapshot.docs) {
         const data = doc.data();
-        const code = data.code || doc.id;
-        const label = data.name || data.label || code;
-        const sortOrder = data.sortOrder ?? data.sort_order ?? 0;
+        if (data.active === false) continue;
+
+        const code = String(data.code || doc.id).trim();
+        if (!code) continue;
+
+        const label = String(data.name || data.label || code).trim();
+        const sortOrder = Number(data.sortOrder ?? data.sort_order ?? 0);
         const meta = JSON.stringify({
           latitude: data.latitude ?? null,
           longitude: data.longitude ?? null,
           country: data.country ?? "",
           firestoreId: doc.id,
+          source: "pr_firestore",
+          collection: collectionName,
         });
 
         firestoreCodes.add(code);
 
         const existing = db
           .prepare(
-            "SELECT id FROM reference_data WHERE organization_id = ? AND type = 'site' AND code = ?"
+            "SELECT id FROM reference_data WHERE organization_id = ? AND type = ? AND code = ?"
           )
-          .get(organizationId, code) as { id: string } | undefined;
+          .get(organizationId, refType, code) as { id: string } | undefined;
 
         if (existing) {
           db.prepare(
@@ -114,8 +135,9 @@ export async function syncSitesFromFirestore(
           ).run(label, sortOrder, meta, existing.id);
         } else {
           db.prepare(
-            "INSERT INTO reference_data (id, organization_id, type, code, label, sort_order, active, meta) VALUES (lower(hex(randomblob(16))), ?, 'site', ?, ?, ?, 1, ?)"
-          ).run(organizationId, code, label, sortOrder, meta);
+            `INSERT INTO reference_data (id, organization_id, type, code, label, sort_order, active, meta)
+             VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, 1, ?)`
+          ).run(organizationId, refType, code, label, sortOrder, meta);
         }
         upserted++;
       }
@@ -123,9 +145,9 @@ export async function syncSitesFromFirestore(
       if (firestoreCodes.size > 0) {
         const allLocal = db
           .prepare(
-            "SELECT id, code FROM reference_data WHERE organization_id = ? AND type = 'site' AND active = 1"
+            "SELECT id, code FROM reference_data WHERE organization_id = ? AND type = ? AND active = 1"
           )
-          .all(organizationId) as Array<{ id: string; code: string }>;
+          .all(organizationId, refType) as Array<{ id: string; code: string }>;
 
         for (const row of allLocal) {
           if (!firestoreCodes.has(row.code)) {
@@ -142,9 +164,52 @@ export async function syncSitesFromFirestore(
     return { success: true, upserted, deactivated };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[firestore-sync] syncSitesFromFirestore failed:", msg);
+    console.error(`[firestore-sync] syncReferenceListFromPr(${collectionName}) failed:`, msg);
     return { success: false, upserted: 0, deactivated: 0, error: msg };
   }
+}
+
+/**
+ * READ-ONLY: Sync sites/locations from PR Firestore `referenceData_sites` → type `site`.
+ */
+export async function syncSitesFromFirestore(
+  organizationId: string = "1pwr_lesotho"
+): Promise<SyncResult> {
+  return syncReferenceListFromPr("referenceData_sites", "site", organizationId);
+}
+
+/**
+ * READ-ONLY: Sync departments from PR Firestore `referenceData_departments` → type `department`.
+ */
+export async function syncDepartmentsFromFirestore(
+  organizationId: string = "1pwr_lesotho"
+): Promise<SyncResult> {
+  return syncReferenceListFromPr("referenceData_departments", "department", organizationId);
+}
+
+export interface PrReferenceSyncBundle {
+  success: boolean;
+  sites: SyncResult;
+  departments: SyncResult;
+  error?: string;
+}
+
+/**
+ * Sync both PR-managed lists (locations + departments) into local `reference_data`.
+ */
+export async function syncPrReferenceLists(
+  organizationId: string = "1pwr_lesotho"
+): Promise<PrReferenceSyncBundle> {
+  const sites = await syncSitesFromFirestore(organizationId);
+  const departments = await syncDepartmentsFromFirestore(organizationId);
+  const success = sites.success && departments.success;
+  const parts = [sites.error, departments.error].filter(Boolean);
+  return {
+    success,
+    sites,
+    departments,
+    error: parts.length ? parts.join("; ") : undefined,
+  };
 }
 
 /**

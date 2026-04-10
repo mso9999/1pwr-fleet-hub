@@ -17,7 +17,16 @@ export default function MapPage(): React.ReactElement {
 
   return (
     <div className="h-[calc(100vh-8rem)]">
-      <FleetMap onVehicleClick={(id) => router.push(`/vehicles/${id}`)} />
+      <FleetMap
+        onVehicleClick={(id) => router.push(`/vehicles/${id}`)}
+        onMissionClick={(vehicleId, activeTripId) => {
+          if (activeTripId) {
+            router.push(`/trips?trip=${encodeURIComponent(activeTripId)}`);
+          } else {
+            router.push(`/trips?vehicle=${encodeURIComponent(vehicleId)}`);
+          }
+        }}
+      />
     </div>
   );
 }

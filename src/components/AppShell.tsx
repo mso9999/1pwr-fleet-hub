@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { navDataTutorialHref } from "@/lib/tutorial-steps";
+import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: "grid" },
@@ -186,6 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    data-tutorial={navDataTutorialHref(item.href)}
                     onClick={() => setIsMobileOpen(false)}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
@@ -235,6 +238,8 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center gap-4 border-b border-zinc-200 bg-white px-4 md:px-6">
           <button
+            type="button"
+            data-tutorial="header-menu"
             onClick={() => setIsMobileOpen(true)}
             className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 md:hidden"
           >
@@ -242,7 +247,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold text-zinc-900">
+          <h1 className="text-lg font-semibold text-zinc-900 flex-1">
             {pathname.startsWith("/guide/inspections")
               ? "User guide · Inspections"
               : pathname.startsWith("/guide/getting-started")
@@ -258,9 +263,10 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                             (i.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(i.href)))
                       )?.label || "Dashboard"}
           </h1>
+          <TutorialLaunchButton />
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6" data-tutorial="main-content">
           {children}
         </main>
       </div>

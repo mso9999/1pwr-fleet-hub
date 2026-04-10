@@ -1,10 +1,12 @@
 import type Database from "better-sqlite3";
+import { assetClassLabel } from "@/types";
 
 export interface DailyUpdateItem {
   workOrderId: string;
   vehicleCode: string;
   vehicleMake: string;
   vehicleModel: string;
+  assetClass: string;
   title: string;
   status: string;
   repairLocation: string;
@@ -18,6 +20,45 @@ export interface DailyUpdateResult {
   markdown: string;
   plainText: string;
   items: DailyUpdateItem[];
+}
+
+/** WhatsApp report leads with these road-fleet buckets; other asset classes appear only when there is activity today. */
+const ASSET_4WD = new Set(["4wd", "light-vehicle"]);
+const ASSET_CARGO = new Set(["cargo-truck", "heavy-vehicle"]);
+
+export function isPrimaryWhatsAppFleetClass(assetClass: string): boolean {
+  return ASSET_4WD.has(assetClass) || ASSET_CARGO.has(assetClass);
+}
+
+function summarizeStatusCounts(
+  rows: Array<{ asset_class: string; status: string; c: number }>,
+  classes: Set<string>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    if (!classes.has(r.asset_class)) continue;
+    out[r.status] = (out[r.status] || 0) + r.c;
+  }
+  return out;
+}
+
+function formatBucketStatusLine(label: string, byStatus: Record<string, number>): string {
+  const op = byStatus.operational ?? 0;
+  const dep = byStatus.deployed ?? 0;
+  const mHq = byStatus["maintenance-hq"] ?? 0;
+  const m3 = byStatus["maintenance-3rdparty"] ?? 0;
+  const ap = byStatus["awaiting-parts"] ?? 0;
+  const gr = byStatus.grounded ?? 0;
+  const wo = byStatus["written-off"] ?? 0;
+  const maint = mHq + m3 + ap;
+  const road = op + dep;
+  const parts = [
+    `${road} road (${op} op, ${dep} deployed)`,
+    maint > 0 ? `${maint} in maintenance/3rd/awaiting parts` : null,
+    gr > 0 ? `${gr} grounded` : null,
+    wo > 0 ? `${wo} written off` : null,
+  ].filter(Boolean);
+  return `${label}: ${parts.join("; ")}.`;
 }
 
 function padHeading(dateIso: string): string {
@@ -123,6 +164,7 @@ export function buildDailyUpdate(
     vehicle_code: string;
     vehicle_make: string;
     vehicle_model: string;
+    vehicle_asset_class: string;
   }> = [];
 
   if (touchedIds.size > 0) {
@@ -131,7 +173,8 @@ export function buildDailyUpdate(
       .prepare(
         `
         SELECT wo.id, wo.title, wo.status, wo.repair_location, wo.assigned_to, wo.description,
-               v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
+               v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model,
+               v.asset_class as vehicle_asset_class
         FROM work_orders wo
         JOIN vehicles v ON wo.vehicle_id = v.id
         WHERE wo.organization_id = ? AND wo.id IN (${placeholders})
@@ -147,6 +190,7 @@ export function buildDailyUpdate(
         vehicle_code: string;
         vehicle_make: string;
         vehicle_model: string;
+        vehicle_asset_class: string;
       }>;
   }
 
@@ -180,6 +224,7 @@ export function buildDailyUpdate(
       vehicleCode: wo.vehicle_code,
       vehicleMake: wo.vehicle_make,
       vehicleModel: wo.vehicle_model,
+      assetClass: wo.vehicle_asset_class || "",
       title: wo.title,
       status: wo.status,
       repairLocation: wo.repair_location,
@@ -188,18 +233,31 @@ export function buildDailyUpdate(
     });
   }
 
-  items.sort((a, b) => a.vehicleCode.localeCompare(b.vehicleCode));
+  items.sort((a, b) => {
+    const ap = isPrimaryWhatsAppFleetClass(a.assetClass) ? 0 : 1;
+    const bp = isPrimaryWhatsAppFleetClass(b.assetClass) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    return a.vehicleCode.localeCompare(b.vehicleCode);
+  });
 
-  const vehicleStats = db
+  const primaryItems = items.filter((i) => isPrimaryWhatsAppFleetClass(i.assetClass));
+  const otherItems = items.filter((i) => !isPrimaryWhatsAppFleetClass(i.assetClass));
+
+  const fleetClassRows = db
     .prepare(
       `
-    SELECT status, COUNT(*) as c FROM vehicles WHERE organization_id = ? GROUP BY status
+    SELECT asset_class, status, COUNT(*) as c
+    FROM vehicles
+    WHERE organization_id = ?
+      AND asset_class IN ('4wd', 'light-vehicle', 'cargo-truck', 'heavy-vehicle')
+    GROUP BY asset_class, status
   `
     )
-    .all(organizationId) as Array<{ status: string; c: number }>;
+    .all(organizationId) as Array<{ asset_class: string; status: string; c: number }>;
 
-  const op = vehicleStats.find((s) => s.status === "operational")?.c ?? 0;
-  const dep = vehicleStats.find((s) => s.status === "deployed")?.c ?? 0;
+  const snap4wd = summarizeStatusCounts(fleetClassRows, ASSET_4WD);
+  const snapCargo = summarizeStatusCounts(fleetClassRows, ASSET_CARGO);
+
   const openWo = db
     .prepare(
       `
@@ -210,20 +268,48 @@ export function buildDailyUpdate(
     .get(organizationId) as { c: number };
 
   const heading = `TODAY'S UPDATES — ${padHeading(dateIso)}`;
-  const sub =
+
+  let sub =
     "(Auto-generated from Fleet Hub — review before posting to WhatsApp)\n\n" +
-    `Fleet snapshot: ~${op + dep} vehicles available/deployed; ${openWo.c} open work orders (all dates).\n`;
+    "Fleet status (4WD & cargo trucks):\n" +
+    `${formatBucketStatusLine("4WD", snap4wd)}\n` +
+    `${formatBucketStatusLine("Cargo trucks", snapCargo)}\n` +
+    `Open work orders (all categories, all dates): ${openWo.c}.\n`;
+
+  if (otherItems.length > 0) {
+    const brief = otherItems
+      .map((it) => `${it.vehicleCode} (${assetClassLabel(it.assetClass)})`)
+      .join(", ");
+    sub += `\nOther categories (activity today only): ${brief}.\n`;
+  }
+
+  function formatWoBlock(index: number, it: DailyUpdateItem): string {
+    let block = `\n${index}. ${it.vehicleCode} (${it.vehicleMake} ${it.vehicleModel}) — ${it.title}\n`;
+    block += `   • Current status: ${it.status}`;
+    if (it.assignedTo) block += ` · Assigned: ${it.assignedTo}`;
+    block += ` · Location: ${it.repairLocation}\n`;
+    for (const ln of it.lines) {
+      block += `   • ${ln}\n`;
+    }
+    return block;
+  }
 
   let body = "";
-  items.forEach((it, i) => {
-    body += `\n${i + 1}. ${it.vehicleCode} (${it.vehicleMake} ${it.vehicleModel}) — ${it.title}\n`;
-    body += `   • Current status: ${it.status}`;
-    if (it.assignedTo) body += ` · Assigned: ${it.assignedTo}`;
-    body += ` · Location: ${it.repairLocation}\n`;
-    for (const ln of it.lines) {
-      body += `   • ${ln}\n`;
-    }
-  });
+  let idx = 0;
+  if (primaryItems.length > 0) {
+    body += "\n— Road fleet (4WD & cargo trucks) —\n";
+    primaryItems.forEach((it) => {
+      idx += 1;
+      body += formatWoBlock(idx, it);
+    });
+  }
+  if (otherItems.length > 0) {
+    body += "\n— Other categories (only shown when there is activity today) —\n";
+    otherItems.forEach((it) => {
+      idx += 1;
+      body += formatWoBlock(idx, it);
+    });
+  }
 
   if (items.length === 0) {
     body =

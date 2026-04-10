@@ -14,6 +14,34 @@ if (!fs.existsSync(DB_DIR)) {
 let db: Database.Database | null = null;
 let schemaReady = false;
 
+/**
+ * Ensures phase-1 vehicle columns and tables exist. Idempotent and safe to run on every getDb().
+ * Fixes "no such column: pool" / "no such table: scheduled_maintenance" when an older DB missed migrations.
+ */
+function ensurePhase1Schema(db: Database.Database): void {
+  migrateVehiclesPhase1(db);
+  migrateAssetClassCategories(db);
+  migrateFieldIssueTicketing(db);
+  migrateVehicleGpsSnapshots(db);
+  migrateTripsPhase1(db);
+
+  const hasScheduledMaintenance = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_maintenance' LIMIT 1")
+    .get();
+  const hasVehicleRequests = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vehicle_requests' LIMIT 1")
+    .get();
+  if (!hasScheduledMaintenance || !hasVehicleRequests) {
+    console.warn(
+      "[db] Phase 1 tables missing — running createPhase1Tables (scheduled_maintenance, vehicle_requests, …)"
+    );
+    createPhase1Tables(db);
+  }
+
+  migrateWorkOrdersPhase3(db);
+  migrateWorkOrderLaborPhase3(db);
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     db = new Database(DB_PATH);
@@ -26,7 +54,18 @@ export function getDb(): Database.Database {
       schemaReady = true;
     } catch (err) {
       console.error("[db] Schema initialization failed:", err);
+      try {
+        ensurePhase1Schema(db);
+        schemaReady = true;
+      } catch (repairErr) {
+        console.error("[db] Phase 1 repair after init failure:", repairErr);
+      }
     }
+  }
+  try {
+    ensurePhase1Schema(db);
+  } catch (err) {
+    console.error("[db] ensurePhase1Schema:", err);
   }
   return db;
 }
@@ -70,7 +109,7 @@ function initializeSchema(db: Database.Database): void {
       license_plate TEXT DEFAULT '',
       vin TEXT DEFAULT '',
       engine_number TEXT DEFAULT '',
-      asset_class TEXT NOT NULL DEFAULT 'light-vehicle',
+      asset_class TEXT NOT NULL DEFAULT '4wd',
       home_location TEXT NOT NULL DEFAULT 'HQ',
       current_location TEXT NOT NULL DEFAULT 'HQ',
       status TEXT NOT NULL DEFAULT 'operational',
@@ -321,6 +360,9 @@ function initializeSchema(db: Database.Database): void {
     ["migrateUsersSchema", () => migrateUsersSchema(db)],
     ["migrateInspectionsSchema", () => migrateInspectionsSchema(db)],
     ["migrateVehiclesPhase1", () => migrateVehiclesPhase1(db)],
+    ["migrateAssetClassCategories", () => migrateAssetClassCategories(db)],
+    ["migrateFieldIssueTicketing", () => migrateFieldIssueTicketing(db)],
+    ["migrateVehicleGpsSnapshots", () => migrateVehicleGpsSnapshots(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
@@ -341,9 +383,7 @@ function initializeSchema(db: Database.Database): void {
 function migrateUsersSchema(db: Database.Database): void {
   const cols = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "updated_at")) {
-    db.exec(
-      "ALTER TABLE users ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
-    );
+    db.exec("ALTER TABLE users ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
     db.prepare("UPDATE users SET updated_at = created_at WHERE IFNULL(TRIM(updated_at), '') = ''").run();
   }
 }
@@ -351,11 +391,80 @@ function migrateUsersSchema(db: Database.Database): void {
 function migrateInspectionsSchema(db: Database.Database): void {
   const cols = db.prepare("PRAGMA table_info(inspections)").all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === "updated_at")) {
-    db.exec(
-      "ALTER TABLE inspections ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
-    );
+    // SQLite requires a constant default on ADD COLUMN; non-constant defaults fail the migration.
+    db.exec("ALTER TABLE inspections ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''");
     db.prepare("UPDATE inspections SET updated_at = created_at WHERE IFNULL(TRIM(updated_at), '') = ''").run();
   }
+}
+
+function migrateAssetClassCategories(db: Database.Database): void {
+  const renames: Array<[string, string]> = [
+    ["light-vehicle", "4wd"],
+    ["heavy-vehicle", "cargo-truck"],
+    ["equipment", "mobile-equipment"],
+  ];
+  for (const [from, to] of renames) {
+    db.prepare("UPDATE vehicles SET asset_class = ? WHERE asset_class = ?").run(to, from);
+  }
+}
+
+function migrateFieldIssueTicketing(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS issue_ticket_seq (
+      organization_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      seq INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (organization_id, year)
+    );
+  `);
+
+  const cols = db.prepare("PRAGMA table_info(field_issue_reports)").all() as Array<{ name: string }>;
+  const has = (n: string) => cols.some((c) => c.name === n);
+
+  const additions: Array<[string, string]> = [
+    ["ticket_uid", "TEXT"],
+    ["closed_at", "TEXT"],
+    ["closed_by_id", "TEXT DEFAULT ''"],
+    ["closed_by_name", "TEXT DEFAULT ''"],
+    ["attended_by_name", "TEXT DEFAULT ''"],
+    ["closeout_outcome", "TEXT DEFAULT ''"],
+    ["closeout_notes", "TEXT DEFAULT ''"],
+  ];
+
+  for (const [name, def] of additions) {
+    if (!has(name)) {
+      db.exec(`ALTER TABLE field_issue_reports ADD COLUMN ${name} ${def}`);
+    }
+  }
+
+  const needsUid = db
+    .prepare(`SELECT id FROM field_issue_reports WHERE ticket_uid IS NULL OR TRIM(IFNULL(ticket_uid, '')) = ''`)
+    .all() as Array<{ id: string }>;
+  for (const r of needsUid) {
+    const uid = `IR-MIG-${r.id.replace(/-/g, "").slice(0, 16)}`;
+    db.prepare(`UPDATE field_issue_reports SET ticket_uid = ? WHERE id = ?`).run(uid, r.id);
+  }
+
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_field_reports_ticket_uid ON field_issue_reports(ticket_uid)`);
+}
+
+function migrateVehicleGpsSnapshots(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_gps_snapshots (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      organization_id TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      source_ts INTEGER NOT NULL,
+      speed INTEGER NOT NULL DEFAULT 0,
+      mileage INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (vehicle_id, source_ts)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vehicle_gps_org_ts ON vehicle_gps_snapshots(organization_id, source_ts);
+    CREATE INDEX IF NOT EXISTS idx_vehicle_gps_vehicle_ts ON vehicle_gps_snapshots(vehicle_id, source_ts);
+  `);
 }
 
 function migrateVehiclesPhase1(db: Database.Database): void {

@@ -44,7 +44,7 @@ export async function POST(
     body.assignedTo || "",
     body.repairLocation || "hq",
     report.reported_by_name,
-    `Auto-created from field report #${id.slice(0, 8)}`,
+    `Auto-created from field issue ticket ${String(report.ticket_uid || id)}`,
     now,
     now,
     now

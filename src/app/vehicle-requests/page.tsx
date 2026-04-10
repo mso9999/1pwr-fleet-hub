@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 
 interface RequestRow {
   id: string;
@@ -56,6 +57,12 @@ const STATUS_COLORS: Record<string, string> = {
   completed: "secondary",
   cancelled: "secondary",
 };
+
+interface RefRow {
+  code: string;
+  label: string;
+  active: number;
+}
 
 export default function VehicleRequestsPage() {
   const { organizationId, user } = useAuth();
@@ -347,10 +354,60 @@ function RequestForm({
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [sites, setSites] = useState<RefRow[]>([]);
+  const [departments, setDepartments] = useState<RefRow[]>([]);
+  const [destinationChoice, setDestinationChoice] = useState("");
+  const [destinationOther, setDestinationOther] = useState("");
+  const [requestedForChoice, setRequestedForChoice] = useState("");
+  const [requestedForOther, setRequestedForOther] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/reference-data?org=${organizationId}&type=site`).then((r) => r.json()),
+      fetch(`/api/reference-data?org=${organizationId}&type=department`).then((r) => r.json()),
+    ])
+      .then(([s, d]) => {
+        setSites(((s || []) as RefRow[]).filter((row) => row.active));
+        setDepartments(((d || []) as RefRow[]).filter((row) => row.active));
+      })
+      .catch(() => {
+        setSites([]);
+        setDepartments([]);
+      });
+  }, [organizationId]);
+
+  const siteRows = sites.filter((s) => s.code !== "OTHER");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError("");
+
+    let destination = "";
+    if (destinationChoice === "__write__") {
+      destination = destinationOther.trim();
+      if (!destination) {
+        setFormError("Enter a destination or choose a site.");
+        return;
+      }
+    } else if (destinationChoice) {
+      destination = destinationChoice;
+    } else {
+      setFormError("Choose a destination.");
+      return;
+    }
+
+    let requestedFor = "";
+    if (requestedForChoice === "__other__") {
+      requestedFor = requestedForOther.trim();
+      if (!requestedFor) {
+        setFormError("Enter a team or person, or pick a different option.");
+        return;
+      }
+    } else if (requestedForChoice) {
+      const dept = departments.find((d) => d.code === requestedForChoice);
+      requestedFor = dept ? dept.label : requestedForChoice;
+    }
+
     const fd = new FormData(e.currentTarget);
 
     setIsSubmitting(true);
@@ -361,9 +418,9 @@ function RequestForm({
         organizationId,
         requestedById: userId,
         requestedByName: userName,
-        requestedFor: fd.get("requestedFor") || "",
+        requestedFor,
         purpose: fd.get("purpose") || "",
-        destination: fd.get("destination") || "",
+        destination,
         departureDate: fd.get("departureDate") || "",
         returnDate: fd.get("returnDate") || "",
         passengers: fd.get("passengers") || "",
@@ -388,8 +445,58 @@ function RequestForm({
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Input name="purpose" label="Purpose *" required placeholder="e.g. Site delivery to MAK" />
-            <Input name="destination" label="Destination *" required placeholder="Site code or location" />
-            <Input name="requestedFor" label="Requested for" placeholder="Team or person (if not yourself)" />
+            <div className="flex flex-col gap-1.5 sm:col-span-1">
+              <label className="text-sm font-medium text-zinc-700">Destination *</label>
+              <select
+                required
+                value={destinationChoice}
+                onChange={(e) => setDestinationChoice(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              >
+                <option value="">Select site or other…</option>
+                {siteRows.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.label}
+                  </option>
+                ))}
+                <option value="__write__">Other (type site / location)…</option>
+              </select>
+              {destinationChoice === "__write__" && (
+                <Input
+                  label=""
+                  value={destinationOther}
+                  onChange={(e) => setDestinationOther(e.target.value)}
+                  placeholder="Site code or location"
+                  aria-label="Destination (other)"
+                />
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5 sm:col-span-1">
+              <label className="text-sm font-medium text-zinc-700">Requested for</label>
+              <p className="text-xs text-zinc-500 -mt-1 mb-0">Team or person (if not yourself)</p>
+              <select
+                value={requestedForChoice}
+                onChange={(e) => setRequestedForChoice(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              >
+                <option value="">Myself / same as requester</option>
+                {departments.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.label}
+                  </option>
+                ))}
+                <option value="__other__">Other (team or person)…</option>
+              </select>
+              {requestedForChoice === "__other__" && (
+                <Input
+                  label=""
+                  value={requestedForOther}
+                  onChange={(e) => setRequestedForOther(e.target.value)}
+                  placeholder="Team or person name"
+                  aria-label="Requested for (other)"
+                />
+              )}
+            </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Input name="departureDate" label="Departure date *" type="date" required />
@@ -404,9 +511,9 @@ function RequestForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <Select name="requiredVehicleClass" label="Vehicle class needed">
               <option value="">Any</option>
-              <option value="light-vehicle">Light vehicle</option>
-              <option value="heavy-vehicle">Heavy vehicle</option>
-              <option value="equipment">Equipment</option>
+              {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+                <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
+              ))}
             </Select>
             <Input name="loadoutDescription" label="Loadout / equipment" placeholder="What will you be carrying?" />
           </div>

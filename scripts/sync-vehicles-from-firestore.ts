@@ -149,7 +149,7 @@ async function main(): Promise<void> {
       license_plate TEXT DEFAULT '',
       vin TEXT DEFAULT '',
       engine_number TEXT DEFAULT '',
-      asset_class TEXT NOT NULL DEFAULT 'light-vehicle',
+      asset_class TEXT NOT NULL DEFAULT '4wd',
       home_location TEXT NOT NULL DEFAULT 'HQ',
       current_location TEXT NOT NULL DEFAULT 'HQ',
       status TEXT NOT NULL DEFAULT 'operational',
@@ -370,13 +370,19 @@ async function main(): Promise<void> {
       }
 
       const existing = existingByOrgCode.get(`${orgId}::${fleetCode.toLowerCase()}`);
-      const heavyVehicles = ["36", "TH"];
-      const equipmentCodes = ["DRig", "Comp", "SmComp", "BigComp", "Tractors", "Trailer", "DollyTrailer", "ATV", "T3", "T4", "T6", "T7"];
-      const assetClass = heavyVehicles.includes(fleetCode)
-        ? "heavy-vehicle"
-        : equipmentCodes.includes(fleetCode)
-          ? "equipment"
-          : "light-vehicle";
+      const cargoTruckCodes = ["36", "TH"];
+      const yellowPlantCodes = ["DRig"];
+      const tractorCodes = ["Tractors"];
+      const trailerCodes = ["Trailer", "DollyTrailer", "T3", "T4", "T6", "T7"];
+      const mobileEquipCodes = ["Comp", "SmComp", "BigComp"];
+      const fourWdCodes = ["ATV"];
+      let assetClass = "4wd";
+      if (cargoTruckCodes.includes(fleetCode)) assetClass = "cargo-truck";
+      else if (yellowPlantCodes.includes(fleetCode)) assetClass = "yellow-plant";
+      else if (tractorCodes.includes(fleetCode)) assetClass = "tractor";
+      else if (trailerCodes.includes(fleetCode)) assetClass = "trailer";
+      else if (mobileEquipCodes.includes(fleetCode)) assetClass = "mobile-equipment";
+      else if (fourWdCodes.includes(fleetCode)) assetClass = "4wd";
 
       const prSyncNote = `PR System ID: ${v.id}`;
 

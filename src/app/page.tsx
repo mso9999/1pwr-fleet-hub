@@ -121,7 +121,7 @@ export default function DashboardPage(): React.ReactElement {
         <p className="text-sm text-zinc-500">Real-time fleet status, KPIs, and alerts</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-tutorial="tutorial-dashboard-kpis">
         <KpiCard
           label="Fleet Uptime"
           value={data.fleetUptimePct}
@@ -135,7 +135,7 @@ export default function DashboardPage(): React.ReactElement {
       </div>
 
       {/* Vehicle status grid */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" data-tutorial="tutorial-dashboard-status">
         <StatCard label="Total" value={data.totalVehicles} color="text-zinc-900" />
         <StatCard label="Operational" value={data.operational} color="text-emerald-600" />
         <StatCard label="Deployed" value={data.deployed} color="text-blue-600" />
@@ -161,7 +161,7 @@ export default function DashboardPage(): React.ReactElement {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2" data-tutorial="tutorial-dashboard-panels">
         {/* Active trips */}
         <Card>
           <CardHeader className="pb-3">

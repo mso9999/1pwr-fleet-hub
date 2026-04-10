@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { allocateIssueTicketUid } from "@/lib/issue-tickets";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { writeFile, mkdir } from "fs/promises";
@@ -94,10 +95,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    const ticketUid = allocateIssueTicketUid(db, vehicle.organization_id);
+
     db.prepare(`
-      INSERT INTO field_issue_reports (id, organization_id, vehicle_id, reported_by_id, reported_by_name, title, description, severity, location, odometer, is_driveable, photo_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(reportId, vehicle.organization_id, vehicleId, reportedById, reportedByName, title, description, severity, location, odometer, isDriveable, photoCount);
+      INSERT INTO field_issue_reports (id, organization_id, vehicle_id, ticket_uid, reported_by_id, reported_by_name, title, description, severity, location, odometer, is_driveable, photo_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      reportId,
+      vehicle.organization_id,
+      vehicleId,
+      ticketUid,
+      reportedById,
+      reportedByName,
+      title,
+      description,
+      severity,
+      location,
+      odometer,
+      isDriveable,
+      photoCount
+    );
 
     const report = db.prepare(
       "SELECT r.*, v.code as vehicle_code FROM field_issue_reports r JOIN vehicles v ON r.vehicle_id = v.id WHERE r.id = ?"

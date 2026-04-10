@@ -3,32 +3,47 @@ import { getDb } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
-  const db = getDb();
-  const sp = request.nextUrl.searchParams;
-  const org = sp.get("org") || "1pwr_lesotho";
+  try {
+    const db = getDb();
+    const sp = request.nextUrl.searchParams;
+    const org = sp.get("org") || "1pwr_lesotho";
 
-  let query = `
+    let query = `
     SELECT vr.*,
            av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
     FROM vehicle_requests vr
     LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
     WHERE vr.organization_id = ?
   `;
-  const params: unknown[] = [org];
+    const params: unknown[] = [org];
 
-  const status = sp.get("status");
-  if (status) { query += " AND vr.status = ?"; params.push(status); }
+    const status = sp.get("status");
+    if (status) {
+      query += " AND vr.status = ?";
+      params.push(status);
+    }
 
-  const requestedById = sp.get("requestedById");
-  if (requestedById) { query += " AND vr.requested_by_id = ?"; params.push(requestedById); }
+    const requestedById = sp.get("requestedById");
+    if (requestedById) {
+      query += " AND vr.requested_by_id = ?";
+      params.push(requestedById);
+    }
 
-  const pending = sp.get("pending");
-  if (pending === "true") { query += " AND vr.status IN ('requested', 'approved')"; }
+    const pending = sp.get("pending");
+    if (pending === "true") {
+      query += " AND vr.status IN ('requested', 'approved')";
+    }
 
-  query += " ORDER BY CASE vr.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, vr.created_at DESC LIMIT 200";
+    query +=
+      " ORDER BY CASE vr.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, vr.created_at DESC LIMIT 200";
 
-  const rows = db.prepare(query).all(...params);
-  return NextResponse.json(rows);
+    const rows = db.prepare(query).all(...params);
+    return NextResponse.json(rows);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[api/vehicle-requests GET]", err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

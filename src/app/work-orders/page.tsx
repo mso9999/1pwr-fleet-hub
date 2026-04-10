@@ -82,7 +82,7 @@ interface VehicleOption {
   model: string;
 }
 
-const MECHANICS = ["Tebesi", "Kola", "Thene", "Molefe", "Khanare", "Seutloali", "Kubutu"];
+const MECHANICS = ["Tebesi", "Kola", "Thene", "Molefe", "Khanare", "Seutloali", "Kubutu", "Kelebone"];
 const THIRD_PARTY_SHOPS = ["BFN", "Delter", "ECU Express Germiston", "John Williams", "Midas", "Lesotho Nissan", "Selematsela", "KET"];
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -165,7 +165,7 @@ export default function WorkOrdersPage(): React.ReactElement {
         })}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3" data-tutorial="tutorial-work-orders-header">
         <span className="text-sm text-zinc-500">{activeOrders.length} active · {closedOrders.length} done</span>
         <Button onClick={() => setShowCreate(!showCreate)}>+ New Work Order</Button>
       </div>

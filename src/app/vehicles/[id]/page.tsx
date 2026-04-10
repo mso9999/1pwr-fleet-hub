@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleStatusBadge } from "@/components/StatusBadge";
-import { VEHICLE_STATUS, ASSET_CLASS, TRACKER_STATUS } from "@/types";
+import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, TRACKER_STATUS, assetClassLabel } from "@/types";
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
 import { MediaUpload } from "@/components/MediaUpload";
 import { VehicleDashboardTabs } from "@/components/VehicleDashboardTabs";
@@ -240,9 +240,9 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
               <Input name="licensePlate" label="License Plate" defaultValue={vehicle.license_plate} />
               <Input name="vin" label="VIN" defaultValue={vehicle.vin} />
               <Input name="engineNumber" label="Engine Number" defaultValue={vehicle.engine_number} />
-              <Select name="assetClass" label="Asset Class" defaultValue={vehicle.asset_class}>
-                {Object.values(ASSET_CLASS).map((c) => (
-                  <option key={c} value={c}>{c.replace("-", " ")}</option>
+              <Select name="assetClass" label="Category" defaultValue={vehicle.asset_class}>
+                {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+                  <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
                 ))}
               </Select>
               <Input name="homeLocation" label="Home Location" defaultValue={vehicle.home_location} />
@@ -267,7 +267,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
               <InfoRow label="License Plate" value={vehicle.license_plate || "—"} />
               <InfoRow label="VIN" value={vehicle.vin || "—"} />
               <InfoRow label="Engine Number" value={vehicle.engine_number || "—"} />
-              <InfoRow label="Asset Class" value={vehicle.asset_class.replace("-", " ")} />
+              <InfoRow label="Category" value={assetClassLabel(vehicle.asset_class)} />
               <InfoRow label="Home Location" value={vehicle.home_location} />
               <InfoRow label="Current Location" value={vehicle.current_location} />
               <InfoRow label="Date in Service" value={vehicle.date_in_service || "—"} />

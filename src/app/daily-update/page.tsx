@@ -66,7 +66,7 @@ export default function DailyUpdatePage(): React.ReactElement {
       <div>
         <h2 className="text-2xl font-bold text-zinc-900">Daily update generator</h2>
         <p className="text-sm text-zinc-500 mt-1">
-          Compiled from work order status changes and progress notes for the selected day. Edit before pasting to WhatsApp.
+          Compiled from work order status changes and progress notes for the selected day. The snapshot highlights 4WD and cargo trucks; plant, tractors, trailers, and mobile equipment appear only when they have activity that day. Edit before pasting to WhatsApp.
         </p>
       </div>
 
@@ -88,13 +88,14 @@ export default function DailyUpdatePage(): React.ReactElement {
           </CardHeader>
           <CardContent>
             <textarea
+              data-tutorial="tutorial-daily-update-editor"
               className="w-full min-h-[320px] rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm font-mono text-zinc-800"
               value={edited}
               onChange={(e) => setEdited(e.target.value)}
               spellCheck={false}
             />
             <p className="text-xs text-zinc-500 mt-2">
-              {(data.items as unknown[]).length} vehicle line(s) from activity on this date.
+              {(data.items as unknown[]).length} work order line(s) from activity on this date (road fleet listed first).
             </p>
           </CardContent>
         </Card>

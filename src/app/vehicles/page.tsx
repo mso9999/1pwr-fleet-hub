@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleStatusBadge } from "@/components/StatusBadge";
 import type { VehicleStatus, AssetClass } from "@/types";
-import { VEHICLE_STATUS, ASSET_CLASS } from "@/types";
+import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, assetClassLabel } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 
 interface VehicleRow {
@@ -45,7 +45,7 @@ export default function VehiclesPage(): React.ReactElement {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3" data-tutorial="tutorial-vehicles-header">
         <div className="flex items-center gap-3">
           <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
@@ -55,9 +55,11 @@ export default function VehiclesPage(): React.ReactElement {
           </Select>
           <span className="text-sm text-zinc-500">{vehicles.length} vehicles</span>
         </div>
-        <Button onClick={() => setIsAddOpen(!isAddOpen)}>
-          + Add Vehicle
-        </Button>
+        <span data-tutorial="tutorial-vehicles-add">
+          <Button onClick={() => setIsAddOpen(!isAddOpen)}>
+            + Add Vehicle
+          </Button>
+        </span>
       </div>
 
       {isAddOpen && <AddVehicleForm onAdded={() => { setIsAddOpen(false); loadVehicles(); }} onCancel={() => setIsAddOpen(false)} />}
@@ -72,7 +74,7 @@ export default function VehiclesPage(): React.ReactElement {
                 <th className="pb-3 pr-4">Code</th>
                 <th className="pb-3 pr-4">Vehicle</th>
                 <th className="pb-3 pr-4 hidden sm:table-cell">License</th>
-                <th className="pb-3 pr-4 hidden md:table-cell">Class</th>
+                <th className="pb-3 pr-4 hidden md:table-cell">Category</th>
                 <th className="pb-3 pr-4">Location</th>
                 <th className="pb-3 pr-4">Status</th>
               </tr>
@@ -90,7 +92,7 @@ export default function VehiclesPage(): React.ReactElement {
                     {v.year && <div className="text-xs text-zinc-400">{v.year}</div>}
                   </td>
                   <td className="py-3 pr-4 hidden sm:table-cell text-zinc-600">{v.license_plate || "—"}</td>
-                  <td className="py-3 pr-4 hidden md:table-cell text-zinc-600 capitalize">{v.asset_class.replace("-", " ")}</td>
+                  <td className="py-3 pr-4 hidden md:table-cell text-zinc-600">{assetClassLabel(v.asset_class)}</td>
                   <td className="py-3 pr-4 text-zinc-600">{v.current_location}</td>
                   <td className="py-3 pr-4"><VehicleStatusBadge status={v.status} /></td>
                 </tr>
@@ -144,9 +146,9 @@ function AddVehicleForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: 
           <Input name="model" label="Model" placeholder="e.g. Ranger" />
           <Input name="year" label="Year" type="number" placeholder="e.g. 2008" />
           <Input name="licensePlate" label="License Plate" placeholder="e.g. A 838 BCF" />
-          <Select name="assetClass" label="Asset Class" defaultValue="light-vehicle">
-            {Object.values(ASSET_CLASS).map((c) => (
-              <option key={c} value={c}>{c.replace("-", " ")}</option>
+          <Select name="assetClass" label="Category" defaultValue={ASSET_CLASS.FOUR_WD}>
+            {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+              <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
             ))}
           </Select>
           <Input name="homeLocation" label="Home Location" placeholder="HQ" defaultValue="HQ" />

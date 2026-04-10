@@ -65,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.licensePlate || "",
     body.vin || "",
     body.engineNumber || "",
-    body.assetClass || "light-vehicle",
+    body.assetClass || "4wd",
     body.homeLocation || "HQ",
     body.currentLocation || body.homeLocation || "HQ",
     body.status || "operational",

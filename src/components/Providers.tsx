@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { AppShell } from "@/components/AppShell";
+import { TutorialProvider } from "@/components/tutorial/TutorialProvider";
 import { AppVersionConsole } from "@/components/AppVersionConsole";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
@@ -32,7 +33,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <TutorialProvider>
+      <AppShell>{children}</AppShell>
+    </TutorialProvider>
+  );
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
