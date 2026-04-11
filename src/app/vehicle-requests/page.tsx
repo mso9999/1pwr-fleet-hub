@@ -69,28 +69,66 @@ export default function VehicleRequestsPage() {
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [pool, setPool] = useState<PoolData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"requests" | "pool">("requests");
 
   const isManager = user && (user.role === "fleet_lead" || user.role === "manager" || user.role === "admin");
 
   const loadData = useCallback(() => {
+    setIsLoading(true);
+    setLoadError(null);
     Promise.all([
-      fetch(`/api/vehicle-requests?org=${organizationId}`).then((r) => r.json()),
-      fetch(`/api/vehicle-requests/pool?org=${organizationId}`).then((r) => r.json()),
-    ]).then(([reqs, poolData]) => {
-      setRequests(reqs);
-      setPool(poolData);
-      setIsLoading(false);
-    }).catch(() => setIsLoading(false));
+      fetch(`/api/vehicle-requests?org=${organizationId}`).then(async (r) => {
+        const j: unknown = await r.json();
+        return { ok: r.ok, j };
+      }),
+      fetch(`/api/vehicle-requests/pool?org=${organizationId}`).then(async (r) => {
+        const j: unknown = await r.json();
+        return { ok: r.ok, j };
+      }),
+    ])
+      .then(([{ ok: okReq, j: reqsRaw }, { ok: okPool, j: poolRaw }]) => {
+        setRequests(Array.isArray(reqsRaw) ? reqsRaw : []);
+        const poolOk =
+          okPool &&
+          poolRaw &&
+          typeof poolRaw === "object" &&
+          poolRaw !== null &&
+          "pools" in poolRaw;
+        setPool(poolOk ? (poolRaw as PoolData) : null);
+        if (!okReq || !okPool) {
+          const e1 =
+            !okReq && reqsRaw && typeof reqsRaw === "object" && "error" in reqsRaw
+              ? String((reqsRaw as { error: string }).error)
+              : null;
+          const e2 =
+            !okPool && poolRaw && typeof poolRaw === "object" && "error" in poolRaw
+              ? String((poolRaw as { error: string }).error)
+              : null;
+          setLoadError([e1, e2].filter(Boolean).join(" · ") || "Could not load data");
+        }
+        setIsLoading(false);
+      })
+      .catch(() => {
+        setRequests([]);
+        setPool(null);
+        setLoadError("Network error");
+        setIsLoading(false);
+      });
   }, [organizationId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const pendingCount = requests.filter((r) => r.status === "requested").length;
+  const pendingCount = (Array.isArray(requests) ? requests : []).filter((r) => r.status === "requested").length;
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong className="font-semibold">Could not load vehicle requests.</strong> {loadError}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-zinc-500">

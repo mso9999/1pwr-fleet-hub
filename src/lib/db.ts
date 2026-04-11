@@ -15,10 +15,45 @@ let db: Database.Database | null = null;
 let schemaReady = false;
 
 /**
+ * Lightweight: guarantee vehicle_requests exists even if full Phase-1 DDL never ran.
+ */
+function ensureVehicleRequestsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_requests (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      requested_by_id TEXT NOT NULL DEFAULT '',
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      requested_for TEXT NOT NULL DEFAULT '',
+      vehicle_id TEXT DEFAULT NULL,
+      assigned_vehicle_id TEXT DEFAULT NULL,
+      purpose TEXT NOT NULL DEFAULT '',
+      destination TEXT NOT NULL DEFAULT '',
+      departure_date TEXT NOT NULL DEFAULT '',
+      return_date TEXT NOT NULL DEFAULT '',
+      passengers TEXT DEFAULT '',
+      required_vehicle_class TEXT DEFAULT '',
+      loadout_description TEXT DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      status TEXT NOT NULL DEFAULT 'requested',
+      approved_by_id TEXT DEFAULT '',
+      approved_by_name TEXT DEFAULT '',
+      rejection_reason TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_vr_org ON vehicle_requests(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_status ON vehicle_requests(status);
+  `);
+}
+
+/**
  * Ensures phase-1 vehicle columns and tables exist. Idempotent and safe to run on every getDb().
  * Fixes "no such column: pool" / "no such table: scheduled_maintenance" when an older DB missed migrations.
  */
 function ensurePhase1Schema(db: Database.Database): void {
+  ensureVehicleRequestsTable(db);
   migrateVehiclesPhase1(db);
   migrateAssetClassCategories(db);
   migrateFieldIssueTicketing(db);

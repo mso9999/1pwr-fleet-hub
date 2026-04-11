@@ -1,5 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
+import type Database from "better-sqlite3";
 import { getDb } from "@/lib/db";
+
+function loadOperationalVehiclesForPool(
+  db: Database.Database,
+  org: string
+): Array<Record<string, unknown>> {
+  const full = `
+    SELECT id, code, make, model, year, asset_class, status, pool, assigned_team, current_location
+    FROM vehicles
+    WHERE organization_id = ? AND status = 'operational'
+    ORDER BY pool, code
+  `;
+  try {
+    return db.prepare(full).all(org) as Array<Record<string, unknown>>;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!msg.includes("no such column")) throw e;
+    const rows = db
+      .prepare(
+        `
+      SELECT id, code, make, model, asset_class, status, current_location
+      FROM vehicles
+      WHERE organization_id = ? AND status = 'operational'
+      ORDER BY code
+    `
+      )
+      .all(org) as Array<Record<string, unknown>>;
+    return rows.map((v) => ({
+      ...v,
+      year: null,
+      pool: "general",
+      assigned_team: "",
+    }));
+  }
+}
 
 /**
  * GET /api/vehicle-requests/pool
@@ -12,16 +47,7 @@ export function GET(request: NextRequest): NextResponse {
     const db = getDb();
     const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
 
-    const vehicles = db
-      .prepare(
-        `
-    SELECT id, code, make, model, year, asset_class, status, pool, assigned_team, current_location
-    FROM vehicles
-    WHERE organization_id = ? AND status = 'operational'
-    ORDER BY pool, code
-  `
-      )
-      .all(org) as Array<Record<string, unknown>>;
+    const vehicles = loadOperationalVehiclesForPool(db, org);
 
     const pendingRequests = db
       .prepare(
