@@ -49,11 +49,56 @@ function ensureVehicleRequestsTable(db: Database.Database): void {
 }
 
 /**
+ * Older DBs may have a partial vehicle_requests table; CREATE TABLE IF NOT EXISTS does not add columns.
+ * Aligns schema with ensureVehicleRequestsTable so API queries (ORDER BY priority, JOIN assigned_vehicle_id, …) work.
+ */
+function migrateVehicleRequestsSchema(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vehicle_requests' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(vehicle_requests)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["organization_id", "TEXT NOT NULL DEFAULT '1pwr_lesotho'"],
+    ["requested_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["requested_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["requested_for", "TEXT NOT NULL DEFAULT ''"],
+    ["vehicle_id", "TEXT DEFAULT NULL"],
+    ["assigned_vehicle_id", "TEXT DEFAULT NULL"],
+    ["purpose", "TEXT NOT NULL DEFAULT ''"],
+    ["destination", "TEXT NOT NULL DEFAULT ''"],
+    ["departure_date", "TEXT NOT NULL DEFAULT ''"],
+    ["return_date", "TEXT NOT NULL DEFAULT ''"],
+    ["passengers", "TEXT DEFAULT ''"],
+    ["required_vehicle_class", "TEXT DEFAULT ''"],
+    ["loadout_description", "TEXT DEFAULT ''"],
+    ["priority", "TEXT NOT NULL DEFAULT 'normal'"],
+    ["status", "TEXT NOT NULL DEFAULT 'requested'"],
+    ["approved_by_id", "TEXT DEFAULT ''"],
+    ["approved_by_name", "TEXT DEFAULT ''"],
+    ["rejection_reason", "TEXT DEFAULT ''"],
+    ["notes", "TEXT DEFAULT ''"],
+    ["created_at", "TEXT NOT NULL DEFAULT ''"],
+    ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE vehicle_requests ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
+/**
  * Ensures phase-1 vehicle columns and tables exist. Idempotent and safe to run on every getDb().
  * Fixes "no such column: pool" / "no such table: scheduled_maintenance" when an older DB missed migrations.
  */
 function ensurePhase1Schema(db: Database.Database): void {
   ensureVehicleRequestsTable(db);
+  migrateVehicleRequestsSchema(db);
   migrateVehiclesPhase1(db);
   migrateAssetClassCategories(db);
   migrateFieldIssueTicketing(db);
