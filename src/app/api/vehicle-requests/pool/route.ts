@@ -6,10 +6,11 @@ function loadOperationalVehiclesForPool(
   db: Database.Database,
   org: string
 ): Array<Record<string, unknown>> {
+  // Include deployed: vehicles on active trips are still part of the visible fleet pool (same as trips UI / dashboard KPIs).
   const full = `
     SELECT id, code, make, model, year, asset_class, status, pool, assigned_team, current_location
     FROM vehicles
-    WHERE organization_id = ? AND status = 'operational'
+    WHERE organization_id = ? AND status IN ('operational', 'deployed')
     ORDER BY pool, code
   `;
   try {
@@ -22,7 +23,7 @@ function loadOperationalVehiclesForPool(
         `
       SELECT id, code, make, model, asset_class, status, current_location
       FROM vehicles
-      WHERE organization_id = ? AND status = 'operational'
+      WHERE organization_id = ? AND status IN ('operational', 'deployed')
       ORDER BY code
     `
       )

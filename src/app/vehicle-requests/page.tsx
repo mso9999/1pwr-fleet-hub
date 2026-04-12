@@ -40,6 +40,8 @@ interface PoolVehicle {
   model: string;
   pool: string;
   current_location: string;
+  /** Present when API returns full vehicle row (operational vs deployed). */
+  status?: string;
 }
 
 interface PoolData {
@@ -134,7 +136,7 @@ export default function VehicleRequestsPage() {
           <p className="text-sm text-zinc-500">
             {requests.length} request{requests.length !== 1 ? "s" : ""}
             {pendingCount > 0 && <span className="text-amber-600 font-semibold"> · {pendingCount} pending approval</span>}
-            {pool && <span> · {pool.availableCount} vehicles available</span>}
+            {pool && <span> · {pool.availableCount} in vehicle pool</span>}
           </p>
         </div>
         <div className="flex gap-2">
@@ -170,8 +172,16 @@ export default function VehicleRequestsPage() {
 
       {isLoading ? (
         <div className="text-zinc-500 text-center py-12">Loading…</div>
-      ) : view === "pool" && pool ? (
-        <PoolView pool={pool} onAssigned={loadData} />
+      ) : view === "pool" ? (
+        pool ? (
+          <PoolView pool={pool} />
+        ) : (
+          <div className="text-zinc-500 text-center py-12">
+            {loadError
+              ? "Vehicle pool could not be loaded. See the message above."
+              : "Vehicle pool is unavailable."}
+          </div>
+        )
       ) : requests.length === 0 ? (
         <div className="text-zinc-500 text-center py-12">No vehicle requests yet.</div>
       ) : (
@@ -234,8 +244,11 @@ function RequestCard({
     onUpdated();
   }
 
+  // Assign API only accepts operational vehicles; pool view also lists deployed for visibility.
   const availableVehicles = pool?.pools
-    ? Object.values(pool.pools).flat()
+    ? Object.values(pool.pools)
+        .flat()
+        .filter((v) => !v.status || v.status === "operational")
     : [];
 
   return (
@@ -313,7 +326,9 @@ function RequestCard({
   );
 }
 
-function PoolView({ pool, onAssigned }: { pool: PoolData; onAssigned: () => void }) {
+function PoolView({ pool }: { pool: PoolData }) {
+  const totalInPools = Object.values(pool.pools).reduce((n, list) => n + list.length, 0);
+
   return (
     <div className="space-y-6">
       {/* Status summary */}
@@ -328,6 +343,13 @@ function PoolView({ pool, onAssigned }: { pool: PoolData; onAssigned: () => void
         ))}
       </div>
 
+      {totalInPools === 0 && (
+        <p className="text-sm text-zinc-600 text-center py-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4">
+          No operational or deployed vehicles in this organization’s pool. Other statuses (maintenance, awaiting parts, etc.)
+          are excluded here — adjust vehicle status on the vehicle record if needed.
+        </p>
+      )}
+
       {/* Pool groups */}
       {Object.entries(pool.pools).map(([poolName, vehicles]) => (
         <Card key={poolName}>
@@ -337,12 +359,17 @@ function PoolView({ pool, onAssigned }: { pool: PoolData; onAssigned: () => void
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {vehicles.map((v) => (
-                <div key={v.id} className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2">
-                  <div>
+                <div key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-zinc-100 px-3 py-2">
+                  <div className="min-w-0">
                     <span className="font-bold text-sm">{v.code}</span>
                     <span className="text-xs text-zinc-500 ml-2">{v.make} {v.model}</span>
                   </div>
-                  <Badge variant="success" className="text-[10px]">{v.current_location}</Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {v.status === "deployed" && (
+                      <Badge variant="secondary" className="text-[10px]">Deployed</Badge>
+                    )}
+                    <Badge variant="success" className="text-[10px]">{v.current_location}</Badge>
+                  </div>
                 </div>
               ))}
             </div>
