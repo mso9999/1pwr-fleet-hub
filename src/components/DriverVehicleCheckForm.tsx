@@ -158,7 +158,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   let lastGroup = "";
 
   return (
-    <Card className="border-blue-200 shadow-md">
+    <Card className="border-blue-200 shadow-md" data-tutorial="tutorial-dvc-form">
       <CardHeader className="pb-2">
         <CardTitle className="text-xl">Driver Vehicle Check</CardTitle>
         <p className="text-sm text-zinc-500 font-normal">
@@ -168,7 +168,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
           {/* Direction toggle */}
-          <div className="flex gap-2">
+          <div className="flex gap-2" data-tutorial="tutorial-dvc-direction">
             {(["departing", "returning"] as const).map((d) => (
               <button
                 key={d}
@@ -209,7 +209,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           )}
 
           {/* Status check items — Pass/Fail */}
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-lg overflow-hidden" data-tutorial="tutorial-dvc-status-grid">
             {STATUS_ITEMS.map((item) => {
               const showHeader = item.category !== lastCategory;
               lastCategory = item.category;
@@ -283,7 +283,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           </div>
 
           {/* Equipment — Yes/No */}
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-lg overflow-hidden" data-tutorial="tutorial-dvc-equipment">
             {EQUIP_ITEMS.map((item) => {
               const showHeader = item.group !== lastGroup;
               lastGroup = item.group;
@@ -342,7 +342,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           )}
 
           {/* Submit */}
-          <div className="sticky bottom-0 z-10 flex flex-wrap gap-3 border-t border-zinc-200 bg-zinc-50/95 backdrop-blur py-4 -mx-4 px-4 md:static md:border-0 md:bg-transparent md:p-0">
+          <div
+            className="sticky bottom-0 z-10 flex flex-wrap gap-3 border-t border-zinc-200 bg-zinc-50/95 backdrop-blur py-4 -mx-4 px-4 md:static md:border-0 md:bg-transparent md:p-0"
+            data-tutorial="tutorial-dvc-submit"
+          >
             <Button
               type="submit"
               disabled={isSubmitting}

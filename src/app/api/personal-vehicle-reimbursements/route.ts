@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { countOperationalVehiclesInPool } from "@/lib/pvr-eligibility";
 import {
   computeReimbursementLsl,
-  getPvrRateSnapshot,
+  getPvrRateSnapshotForOrg,
   validateJustificationForFullPerKm,
   type PvrFeeType,
   type PvrRateBand,
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const rates = getPvrRateSnapshot();
+    const rates = getPvrRateSnapshotForOrg(db, org);
     const reimbursementLsl = computeReimbursementLsl(rateBand, feeType, totalKm, rates);
     const now = new Date().toISOString();
 

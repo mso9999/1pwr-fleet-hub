@@ -1,23 +1,27 @@
 /**
- * Interactive tutorial: each step highlights a [data-tutorial] target and can suggest sample inputs.
- * Tutorial-created DB rows use vehicle codes prefixed with TUT- and are removed on exit (see /api/tutorial/cleanup).
+ * Interactive tutorials: each step highlights [data-tutorial] targets.
+ * Multiple tracks: full app overview + focused workflow walkthroughs.
  */
 
 export interface TutorialStep {
   id: string;
-  /** App route where the target element exists (or should exist after navigation). */
   path: string;
-  /** Value of data-tutorial="…" on the highlighted element. */
   target: string;
   title: string;
   body: string;
-  /** Example values or hints for forms — shown in the tooltip. */
   suggestion?: string;
-  /** If true, POST /api/tutorial/seed runs when this step is entered (demo vehicle for CRUD demos). */
   seedOnEnter?: boolean;
 }
 
-export const TUTORIAL_STEPS: TutorialStep[] = [
+export interface TutorialTrack {
+  id: string;
+  /** Shown in the tutorials menu */
+  label: string;
+  steps: TutorialStep[];
+}
+
+/** Full app tour (original): dashboard → vehicles → trips → … */
+const OVERVIEW_STEPS: TutorialStep[] = [
   {
     id: "welcome",
     path: "/",
@@ -178,6 +182,217 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     suggestion: "Click Finish tutorial to clean up demo data and close this walkthrough.",
   },
 ];
+
+/** Step-by-step: perform a driver vehicle check */
+const DRIVER_CHECK_STEPS: TutorialStep[] = [
+  {
+    id: "dvc-intro",
+    path: "/vehicle-checks",
+    target: "nav-vehicle-checks",
+    title: "Driver vehicle check workflow",
+    body:
+      "This short tour walks through the pre-deployment checklist. You’ll open a new check, fill direction and vehicle, rate each line, confirm equipment, then submit.",
+    suggestion: "You must be on Vehicle Checks. Use the sidebar if you’re elsewhere.",
+  },
+  {
+    id: "dvc-new",
+    path: "/vehicle-checks",
+    target: "tutorial-vehicle-checks-new",
+    title: "1. Start a new check",
+    body:
+      "Tap + New vehicle check to expand the form. If you don’t see the highlighted button, scroll to the top of this page.",
+    suggestion: "After the form opens, tap Next to continue.",
+  },
+  {
+    id: "dvc-form",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-form",
+    title: "2. The checklist form",
+    body:
+      "Everything below is one submission: direction, vehicle and driver, route, pass/fail lines, equipment, remarks, then Submit.",
+  },
+  {
+    id: "dvc-direction",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-direction",
+    title: "3. Direction",
+    body:
+      "Choose whether the vehicle is leaving HQ or returning. This sets context for the deployment.",
+  },
+  {
+    id: "dvc-lines",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-status-grid",
+    title: "4. Rate each status line",
+    body:
+      "Tap ✓ for pass or ✗ for fail on electrics, fluids, driveability, and visual items. If you fail a line, describe it in the text box that appears.",
+  },
+  {
+    id: "dvc-equip",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-equipment",
+    title: "5. Equipment (Yes / No)",
+    body:
+      "Confirm jack, spare, triangle, tools, and other required items. Missing kit may be logged for follow-up.",
+  },
+  {
+    id: "dvc-submit",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-submit",
+    title: "6. Submit",
+    body:
+      "When complete, tap Submit vehicle check. Failures may require manager approval before deployment—your org’s policy applies.",
+  },
+];
+
+/** Mechanical / structured inspection checklist */
+const VEHICLE_INSPECTION_STEPS: TutorialStep[] = [
+  {
+    id: "insp-intro",
+    path: "/inspections",
+    target: "nav-inspections",
+    title: "Mechanical inspection workflow",
+    body:
+      "Inspections are structured checklists (quick pre-departure, detailed mechanical, or full 2025 template). You’ll open a new inspection, pick a type, rate each line, then submit.",
+  },
+  {
+    id: "insp-new",
+    path: "/inspections",
+    target: "tutorial-inspections-new",
+    title: "1. New inspection",
+    body:
+      "Tap + New inspection to open the form. The list below shows saved inspections once you’ve submitted.",
+    suggestion: "Open the form, then tap Next.",
+  },
+  {
+    id: "insp-tabs",
+    path: "/inspections",
+    target: "tutorial-inspections-tabs",
+    title: "2. Choose checklist type",
+    body:
+      "Use the three tabs: Pre-departure (quick), Detailed mechanical, or 1PWR checklist (2025) full. Switching type clears your draft.",
+  },
+  {
+    id: "insp-form",
+    path: "/inspections",
+    target: "tutorial-inspections-form",
+    title: "3. Vehicle, inspector, and lines",
+    body:
+      "Select vehicle and inspector name. For each row choose Pass, Warn (caution), or Fail. Fail usually requires a note, photo, or body-plan mark before submit.",
+    suggestion: "Any Fail on a new submission can create a high-priority work order for that vehicle.",
+  },
+  {
+    id: "insp-submit",
+    path: "/inspections",
+    target: "tutorial-inspections-submit",
+    title: "4. Submit inspection",
+    body:
+      "When finished, submit. Overall pass requires no Fail lines. Export history later under Reports if needed.",
+  },
+];
+
+/** Request a vehicle from the pool */
+const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
+  {
+    id: "vr-intro",
+    path: "/vehicle-requests",
+    target: "nav-vehicle-requests",
+    title: "Vehicle request workflow",
+    body:
+      "Request a vehicle for a dated mission. Managers approve and may assign a vehicle from the operational pool. Switch to Vehicle Pool to see availability.",
+  },
+  {
+    id: "vr-button",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-request-btn",
+    title: "1. New request",
+    body:
+      "Tap + Request vehicle to open the request form. Stay on the Requests tab to see your team’s submissions.",
+  },
+  {
+    id: "vr-form",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-form",
+    title: "2. Fill the request",
+    body:
+      "Enter who it’s for, purpose, destination, dates, and priority. Submit sends it into the approval flow.",
+  },
+  {
+    id: "vr-pool",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pool-toggle",
+    title: "3. Vehicle pool (managers)",
+    body:
+      "Managers can switch to the Vehicle Pool tab to see operational vehicles and assign after approval.",
+  },
+];
+
+/** Create a work order */
+const WORK_ORDER_STEPS: TutorialStep[] = [
+  {
+    id: "wo-intro",
+    path: "/work-orders",
+    target: "nav-work-orders",
+    title: "Create a work order",
+    body:
+      "Work orders track repair jobs: vehicle, title, description, type, priority, assignment, and repair location.",
+  },
+  {
+    id: "wo-button",
+    path: "/work-orders",
+    target: "tutorial-work-orders-create-btn",
+    title: "1. New work order",
+    body:
+      "Tap + New Work Order to open the creation form. The list below shows existing jobs you can open for detail.",
+  },
+  {
+    id: "wo-form",
+    path: "/work-orders",
+    target: "tutorial-wo-create-form",
+    title: "2. Fill job details",
+    body:
+      "Choose vehicle, title, and description. Set type (corrective, inspection-flagged, etc.), priority, assign a mechanic if known, and repair location (HQ vs third party).",
+  },
+  {
+    id: "wo-after",
+    path: "/work-orders",
+    target: "tutorial-work-orders-header",
+    title: "3. After creation",
+    body:
+      "The new job appears in the list. Open it to post updates, labour, parts links, and status changes through to completion.",
+  },
+];
+
+export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
+  overview: { id: "overview", label: "Full app tour", steps: OVERVIEW_STEPS },
+  driverCheck: { id: "driverCheck", label: "Driver vehicle check", steps: DRIVER_CHECK_STEPS },
+  vehicleInspection: {
+    id: "vehicleInspection",
+    label: "Mechanical inspection",
+    steps: VEHICLE_INSPECTION_STEPS,
+  },
+  vehicleRequest: { id: "vehicleRequest", label: "Request a vehicle", steps: VEHICLE_REQUEST_STEPS },
+  workOrder: { id: "workOrder", label: "Create a work order", steps: WORK_ORDER_STEPS },
+};
+
+export const TUTORIAL_TRACK_ORDER: string[] = [
+  "overview",
+  "driverCheck",
+  "vehicleInspection",
+  "vehicleRequest",
+  "workOrder",
+];
+
+/** @deprecated Use TUTORIAL_TRACKS.overview.steps */
+export const TUTORIAL_STEPS = OVERVIEW_STEPS;
+
+export function getTutorialSteps(trackId: string): TutorialStep[] {
+  return TUTORIAL_TRACKS[trackId]?.steps ?? TUTORIAL_TRACKS.overview.steps;
+}
+
+export function getTutorialTrackLabel(trackId: string): string {
+  return TUTORIAL_TRACKS[trackId]?.label ?? TUTORIAL_TRACKS.overview.label;
+}
 
 /** Sidebar `data-tutorial` id for a nav href (e.g. /vehicles → nav-vehicles). */
 export function navDataTutorialHref(href: string): string {

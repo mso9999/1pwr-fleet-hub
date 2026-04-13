@@ -20,6 +20,12 @@ Environment variables for a future Dropbox integration would typically include `
 
 **Decision:** Stay on **SQLite** until you hit backup/HA requirements or measurable lock contention. Migrating is a **deployment + schema port** task, not a product feature request.
 
+## Asset Management — load-out manifests (trips)
+
+Trips in FM can be associated with **packing lists / load-out manifests** maintained in **am.1pwrafrica.com** (same Firebase project). Specification, Firestore fields, REST API, and UI suggestions:
+
+- **[FM_LOADOUT_MANIFEST_INTEGRATION.md](./FM_LOADOUT_MANIFEST_INTEGRATION.md)**
+
 ## Related scripts
 
 - Phase 0 Excel paths: **`FLEET_DATA_DIR`** — see [PHASE0-MIGRATION.md](./PHASE0-MIGRATION.md).

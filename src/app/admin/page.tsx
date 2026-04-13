@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleCheckApproversAdmin } from "@/components/VehicleCheckApproversAdmin";
+import { PvrRatesAdmin } from "@/components/PvrRatesAdmin";
 
 interface RefItem {
   id: string;
@@ -33,7 +34,8 @@ const REF_TYPES = [
 ];
 
 export default function AdminPage() {
-  const { organizationId } = useAuth();
+  const { organizationId, user } = useAuth();
+  const canEditPvrRates = user?.role === "finance" || user?.role === "superadmin";
   const [items, setItems] = useState<RefItem[]>([]);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [selectedType, setSelectedType] = useState("site");
@@ -160,6 +162,8 @@ export default function AdminPage() {
       )}
 
       <VehicleCheckApproversAdmin organizationId={organizationId} />
+
+      {canEditPvrRates && <PvrRatesAdmin organizationId={organizationId} />}
 
       {/* Type selector */}
       <div className="flex gap-2 flex-wrap">

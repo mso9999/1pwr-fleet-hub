@@ -3,14 +3,31 @@
 import { useCallback, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { TUTORIAL_STEPS } from "@/lib/tutorial-steps";
+import { getTutorialSteps } from "@/lib/tutorial-steps";
 import { TutorialOverlay } from "./TutorialOverlay";
 import { TutorialContext } from "./tutorial-context";
+
+const TUTORIAL_QUERY_MAP: Record<string, string> = {
+  "1": "overview",
+  start: "overview",
+  overview: "overview",
+  tour: "overview",
+  "driver-check": "driverCheck",
+  driverCheck: "driverCheck",
+  "vehicle-inspection": "vehicleInspection",
+  vehicleInspection: "vehicleInspection",
+  inspection: "vehicleInspection",
+  "vehicle-request": "vehicleRequest",
+  vehicleRequest: "vehicleRequest",
+  request: "vehicleRequest",
+  "work-order": "workOrder",
+  workOrder: "workOrder",
+};
 
 function TutorialSearchParamsBootstrap({
   onStart,
 }: {
-  onStart: () => void;
+  onStart: (trackId: string) => void;
 }): null {
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -18,13 +35,15 @@ function TutorialSearchParamsBootstrap({
 
   useEffect(() => {
     if (!user || pathname === "/login") return;
-    if (searchParams.get("tutorial") === "1" || searchParams.get("tutorial") === "start") {
-      onStart();
-      if (typeof window !== "undefined") {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("tutorial");
-        window.history.replaceState({}, "", url.pathname + url.search);
-      }
+    const raw = searchParams.get("tutorial");
+    if (!raw) return;
+    const trackId = TUTORIAL_QUERY_MAP[raw];
+    if (!trackId) return;
+    onStart(trackId);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("tutorial");
+      window.history.replaceState({}, "", url.pathname + url.search);
     }
   }, [searchParams, onStart, user, pathname]);
 
@@ -36,10 +55,12 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
   const pathname = usePathname();
   const { organizationId } = useAuth();
   const [active, setActive] = useState(false);
+  const [trackId, setTrackId] = useState("overview");
   const [stepIndex, setStepIndex] = useState(0);
   const seededRef = useRef<Set<string>>(new Set());
 
-  const totalSteps = TUTORIAL_STEPS.length;
+  const steps = useMemo(() => getTutorialSteps(trackId), [trackId]);
+  const totalSteps = steps.length;
 
   const runCleanup = useCallback(async () => {
     try {
@@ -57,15 +78,21 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
     await runCleanup();
     setActive(false);
     setStepIndex(0);
+    setTrackId("overview");
     seededRef.current = new Set();
   }, [runCleanup]);
 
-  const start = useCallback(() => {
-    setStepIndex(0);
-    setActive(true);
-    seededRef.current = new Set();
-    router.push("/");
-  }, [router]);
+  const start = useCallback(
+    (tid = "overview") => {
+      setTrackId(tid);
+      setStepIndex(0);
+      setActive(true);
+      seededRef.current = new Set();
+      const first = getTutorialSteps(tid)[0];
+      router.push(first.path);
+    },
+    [router]
+  );
 
   const next = useCallback(async () => {
     if (stepIndex >= totalSteps - 1) {
@@ -73,24 +100,24 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
       return;
     }
     const nextIdx = stepIndex + 1;
-    const nextStep = TUTORIAL_STEPS[nextIdx];
+    const nextStep = steps[nextIdx];
     if (nextStep.path !== pathname) {
       router.push(nextStep.path);
     }
     setStepIndex(nextIdx);
-  }, [stepIndex, totalSteps, pathname, router, exit]);
+  }, [stepIndex, totalSteps, pathname, router, exit, steps]);
 
   const prev = useCallback(() => {
     if (stepIndex <= 0) return;
     const prevIdx = stepIndex - 1;
-    const prevStep = TUTORIAL_STEPS[prevIdx];
+    const prevStep = steps[prevIdx];
     if (prevStep.path !== pathname) {
       router.push(prevStep.path);
     }
     setStepIndex(prevIdx);
-  }, [stepIndex, pathname, router]);
+  }, [stepIndex, pathname, router, steps]);
 
-  const step = active ? TUTORIAL_STEPS[stepIndex] : null;
+  const step = active ? steps[stepIndex] : null;
 
   useEffect(() => {
     if (!active || !step?.seedOnEnter || seededRef.current.has(step.id)) return;
@@ -107,14 +134,16 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
   const value = useMemo(
     () => ({
       active,
+      trackId,
       stepIndex,
       totalSteps,
+      steps,
       start,
       next,
       prev,
       exit,
     }),
-    [active, stepIndex, totalSteps, start, next, prev, exit]
+    [active, trackId, stepIndex, totalSteps, steps, start, next, prev, exit]
   );
 
   return (

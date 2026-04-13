@@ -3,17 +3,17 @@
 import { useEffect, useState, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
-import { TUTORIAL_STEPS, pathToNavTarget } from "@/lib/tutorial-steps";
+import { pathToNavTarget } from "@/lib/tutorial-steps";
 import { Button } from "@/components/ui/button";
 import { useTutorial } from "./tutorial-context";
 
 export function TutorialOverlay(): React.ReactElement | null {
-  const { active, stepIndex, next, prev, exit, totalSteps } = useTutorial();
+  const { active, stepIndex, next, prev, exit, totalSteps, steps } = useTutorial();
   const pathname = usePathname();
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [missing, setMissing] = useState(false);
 
-  const step = active ? TUTORIAL_STEPS[stepIndex] : null;
+  const step = active ? steps[stepIndex] : null;
 
   const updateRect = useCallback(() => {
     if (!step || !active) {
@@ -76,7 +76,7 @@ export function TutorialOverlay(): React.ReactElement | null {
 
   if (!active || typeof document === "undefined") return null;
 
-  const stepData = TUTORIAL_STEPS[stepIndex];
+  const stepData = steps[stepIndex];
   const isLast = stepIndex >= totalSteps - 1;
 
   const node = (

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { useTutorial } from "@/components/tutorial/tutorial-context";
 import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 
 interface RequestRow {
@@ -68,6 +69,7 @@ interface RefRow {
 
 export default function VehicleRequestsPage() {
   const { organizationId, user } = useAuth();
+  const { active, trackId, stepIndex } = useTutorial();
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [pool, setPool] = useState<PoolData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -122,6 +124,20 @@ export default function VehicleRequestsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    if (!active || trackId !== "vehicleRequest") return;
+    if (stepIndex >= 3) {
+      setShowForm(false);
+      setView("pool");
+    } else if (stepIndex >= 2) {
+      setShowForm(true);
+      setView("requests");
+    } else {
+      setShowForm(false);
+      setView("requests");
+    }
+  }, [active, trackId, stepIndex]);
+
   const pendingCount = (Array.isArray(requests) ? requests : []).filter((r) => r.status === "requested").length;
 
   return (
@@ -140,7 +156,10 @@ export default function VehicleRequestsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+          <div
+            className="flex rounded-lg border border-zinc-200 overflow-hidden"
+            data-tutorial="tutorial-vr-pool-toggle"
+          >
             <button
               onClick={() => setView("requests")}
               className={`px-4 py-2 text-sm font-medium ${view === "requests" ? "bg-zinc-900 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"}`}
@@ -154,9 +173,11 @@ export default function VehicleRequestsPage() {
               Vehicle Pool
             </button>
           </div>
-          <Button onClick={() => { setShowForm(!showForm); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
-            + Request vehicle
-          </Button>
+          <span data-tutorial="tutorial-vr-request-btn">
+            <Button onClick={() => { setShowForm(!showForm); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
+              + Request vehicle
+            </Button>
+          </span>
         </div>
       </div>
 
@@ -504,7 +525,7 @@ function RequestForm({
   }
 
   return (
-    <Card className="border-emerald-200">
+    <Card className="border-emerald-200" data-tutorial="tutorial-vr-form">
       <CardHeader><CardTitle>Request a Vehicle</CardTitle></CardHeader>
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">

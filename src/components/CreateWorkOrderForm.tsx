@@ -87,7 +87,7 @@ export function CreateWorkOrderForm({
   }
 
   return (
-    <Card className="border-amber-200 bg-amber-50/30">
+    <Card className="border-amber-200 bg-amber-50/30" data-tutorial="tutorial-wo-create-form">
       <CardHeader><CardTitle>New Work Order</CardTitle></CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">

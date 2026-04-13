@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { auth } from "@/lib/firebase";
 import { DriverVehicleCheckForm } from "@/components/DriverVehicleCheckForm";
+import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 interface VehicleOption {
   id: string;
@@ -57,10 +58,16 @@ const EQUIP_KEYS = [
 
 export default function VehicleChecksPage() {
   const { organizationId } = useAuth();
+  const { active, trackId, stepIndex } = useTutorial();
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    if (!active || trackId !== "driverCheck") return;
+    if (stepIndex >= 2) setShowForm(true);
+  }, [active, trackId, stepIndex]);
 
   const loadChecks = useCallback(() => {
     fetch(`/api/driver-vehicle-checks?org=${organizationId}`)

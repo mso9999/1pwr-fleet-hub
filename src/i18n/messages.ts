@@ -106,7 +106,8 @@ const en = {
     sameCredentials: "Same credentials for both systems",
   },
   tutorial: {
-    mode: "Tutorial mode",
+    mode: "Tutorials",
+    chooseTrack: "Choose a tutorial…",
   },
   language: {
     en: "EN",
@@ -251,7 +252,8 @@ const fr: MessageTree = {
     sameCredentials: "Les mêmes identifiants pour les deux systèmes",
   },
   tutorial: {
-    mode: "Mode tutoriel",
+    mode: "Tutoriels",
+    chooseTrack: "Choisir un tutoriel…",
   },
   language: {
     en: "EN",

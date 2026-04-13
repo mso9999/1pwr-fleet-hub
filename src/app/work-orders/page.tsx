@@ -18,6 +18,7 @@ import {
   WORK_ORDER_THIRD_PARTY_SHOPS,
   type VehicleOption,
 } from "@/components/CreateWorkOrderForm";
+import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 interface WorkOrderRow {
   id: string;
@@ -108,6 +109,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 function WorkOrdersPageContent(): React.ReactElement {
   const { organizationId } = useAuth();
+  const { active, trackId, stepIndex } = useTutorial();
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<WorkOrderRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
@@ -120,6 +122,11 @@ function WorkOrdersPageContent(): React.ReactElement {
     const open = searchParams.get("open");
     if (open) setSelectedId(open);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!active || trackId !== "workOrder") return;
+    setShowCreate(stepIndex === 2);
+  }, [active, trackId, stepIndex]);
 
   const loadOrders = useCallback(() => {
     const params = new URLSearchParams();
@@ -170,7 +177,9 @@ function WorkOrdersPageContent(): React.ReactElement {
 
       <div className="flex flex-wrap items-center justify-between gap-3" data-tutorial="tutorial-work-orders-header">
         <span className="text-sm text-zinc-500">{activeOrders.length} active · {closedOrders.length} done</span>
-        <Button onClick={() => setShowCreate(!showCreate)}>+ New Work Order</Button>
+        <span data-tutorial="tutorial-work-orders-create-btn">
+          <Button onClick={() => setShowCreate(!showCreate)}>+ New Work Order</Button>
+        </span>
       </div>
 
       {showCreate && (

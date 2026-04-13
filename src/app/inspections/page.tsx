@@ -15,6 +15,7 @@ import { VehicleBodyDiagram } from "@/components/VehicleBodyDiagram";
 import { isBodyPlanRow, type BodyMark } from "@/lib/inspection-body-diagram";
 import { failEvidenceMessage } from "@/lib/inspection-validation";
 import { uploadInspectionFailPhotos } from "@/lib/upload-inspection-fail-photos";
+import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 type InspectionRow = InspectionEditRow;
 
@@ -75,11 +76,17 @@ const DETAILED_ITEMS = [
 
 export default function InspectionsPage(): React.ReactElement {
   const { organizationId } = useAuth();
+  const { active, trackId, stepIndex } = useTutorial();
   const [inspections, setInspections] = useState<InspectionRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<InspectionRow | null>(null);
+
+  useEffect(() => {
+    if (!active || trackId !== "vehicleInspection") return;
+    if (stepIndex >= 2) setShowForm(true);
+  }, [active, trackId, stepIndex]);
 
   const loadInspections = useCallback(() => {
     fetch(`/api/inspections?org=${organizationId}`)
@@ -105,16 +112,18 @@ export default function InspectionsPage(): React.ReactElement {
             </Link>
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setShowForm(!showForm);
-          }}
-          size="lg"
-          className="touch-manipulation min-h-[48px]"
-        >
-          + New inspection
-        </Button>
+        <span data-tutorial="tutorial-inspections-new">
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setShowForm(!showForm);
+            }}
+            size="lg"
+            className="touch-manipulation min-h-[48px]"
+          >
+            + New inspection
+          </Button>
+        </span>
       </div>
 
       {editing && (
@@ -323,7 +332,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   if (inspType === "driver-proficiency-2025") {
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" data-tutorial="tutorial-inspections-tabs">
           {(
             [
               ["pre-departure", "Pre-departure (quick)"],
@@ -420,7 +429,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   }
 
   return (
-    <Card className="border-emerald-200">
+    <Card className="border-emerald-200" data-tutorial="tutorial-inspections-form">
       <CardHeader>
         <CardTitle>New inspection</CardTitle>
         <p className="text-sm text-zinc-500 font-normal">
@@ -429,7 +438,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
       </CardHeader>
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" data-tutorial="tutorial-inspections-tabs">
             {(
               [
                 ["pre-departure", "Pre-departure (quick)"],
@@ -546,9 +555,11 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button type="submit" disabled={isSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
-              {isSubmitting ? "Submitting..." : "Submit inspection"}
-            </Button>
+            <span data-tutorial="tutorial-inspections-submit" className="inline-flex">
+              <Button type="submit" disabled={isSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
+                {isSubmitting ? "Submitting..." : "Submit inspection"}
+              </Button>
+            </span>
             <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
               Cancel
             </Button>
