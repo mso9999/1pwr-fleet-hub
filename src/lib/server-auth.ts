@@ -1,6 +1,11 @@
 import { getAuth } from "firebase-admin/auth";
 import { getFleetAdminApp } from "@/lib/firebase-admin-init";
 import { getDb } from "@/lib/db";
+import {
+  isExecutiveRole as execRole,
+  isFinanceOrSuperAdmin as financeOrSuper,
+  isFleetManagementRole as fleetMgmt,
+} from "@/lib/fleet-roles";
 
 export async function getVerifiedFleetUser(
   request: Request
@@ -27,10 +32,15 @@ export async function getVerifiedFleetUser(
 }
 
 export function isFleetManagementRole(role: string): boolean {
-  return role === "fleet_lead" || role === "manager" || role === "admin";
+  return fleetMgmt(role);
 }
 
 /** Personal vehicle reimbursement rate policy — only these roles may edit rates in Admin. */
 export function isFinanceOrSuperAdmin(role: string): boolean {
-  return role === "finance" || role === "superadmin";
+  return financeOrSuper(role);
+}
+
+/** C-level / executive sign-off for cross-country transfers (secondment or permanent). */
+export function isExecutiveRole(role: string): boolean {
+  return execRole(role);
 }

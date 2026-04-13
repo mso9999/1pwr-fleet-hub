@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
-export async function GET(): Promise<NextResponse> {
+export function GET(): NextResponse {
   const db = getDb();
-  const rows = db.prepare("SELECT * FROM organizations WHERE active = 1 ORDER BY name").all();
+  const rows = db
+    .prepare("SELECT id, name, code, country, currency FROM organizations WHERE active = 1 ORDER BY name")
+    .all() as Array<{ id: string; name: string; code: string; country: string; currency: string }>;
   return NextResponse.json(rows);
 }

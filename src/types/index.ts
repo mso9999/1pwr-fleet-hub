@@ -185,6 +185,11 @@ export interface Vehicle {
   // Timestamps
   createdAt: string;
   updatedAt: string;
+  /** Set server-side when request includes Firebase Bearer token */
+  createdById?: string;
+  createdByName?: string;
+  updatedById?: string;
+  updatedByName?: string;
 }
 
 // ── Trips ──
@@ -509,6 +514,13 @@ export const MEDIA_CATEGORY = {
   DOCUMENT: "document",
   INSURANCE: "insurance",
   MILEAGE_EVIDENCE: "mileage-evidence",
+  /** Driver vehicle check — exterior angles */
+  DVC_EXTERIOR_FRONT: "dvc-exterior-front",
+  DVC_EXTERIOR_REAR: "dvc-exterior-rear",
+  DVC_EXTERIOR_LEFT: "dvc-exterior-left",
+  DVC_EXTERIOR_RIGHT: "dvc-exterior-right",
+  /** Driver vehicle check — odometer matches typed km */
+  DVC_ODOMETER: "dvc-odometer",
 } as const;
 
 export type MediaCategory = (typeof MEDIA_CATEGORY)[keyof typeof MEDIA_CATEGORY];
@@ -648,6 +660,8 @@ export interface DriverVehicleCheck {
   visualDoors: string;
   failureDescriptions: string;
   remarks: string;
+  /** SIM / contact number for the 1PWR handset checked in with the vehicle */
+  travelPhoneNumber: string;
   // Equipment (1 = yes, 0 = no)
   equipJack: number;
   equipSpareWheel: number;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 
 export async function GET(
   _request: NextRequest,
@@ -20,6 +21,7 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -90,14 +92,21 @@ export async function PATCH(
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
+  if (user) {
+    fields.push("updated_by_id = ?", "updated_by_name = ?");
+    values.push(user.id, user.name || user.email);
+  }
+
   fields.push("updated_at = ?");
   values.push(now);
   values.push(id);
 
+  const statusActor = user?.name || user?.email || String(body.changedBy || "");
+
   if (body.status && body.status !== existing.status) {
     db.prepare(
       "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("vehicle", id, existing.status, body.status, body.changedBy || "", now);
+    ).run("vehicle", id, existing.status, body.status, statusActor, now);
   }
 
   db.prepare(`UPDATE vehicles SET ${fields.join(", ")} WHERE id = ?`).run(...values);

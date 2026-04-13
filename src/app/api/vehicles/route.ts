@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -46,6 +47,9 @@ export function GET(request: NextRequest): NextResponse {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const body = await request.json();
+  const user = await getVerifiedFleetUser(request);
+  const createdById = user?.id ?? "";
+  const createdByName = user ? user.name || user.email : "";
 
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -58,6 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       fuel_type, transmission, drivetrain, engine_capacity_cc, seating_capacity, payload_capacity_kg,
       total_mileage_km, expected_service_life_km, expected_service_life_years,
       service_interval_km, service_interval_months, pool, assigned_team,
+      created_by_id, created_by_name, updated_by_id, updated_by_name,
       created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -65,6 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?,
+      ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?
     )
@@ -105,6 +111,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.serviceIntervalMonths || 6,
     body.pool || "general",
     body.assignedTeam || "",
+    createdById,
+    createdByName,
+    createdById,
+    createdByName,
     now,
     now
   );

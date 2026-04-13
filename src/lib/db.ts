@@ -178,6 +178,8 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateFieldIssueTicketing(db);
   migrateVehicleGpsSnapshots(db);
   migrateTripsPhase1(db);
+  migrateDriverVehicleChecksTravelPhone(db);
+  migrateDriverVehicleChecksApprovedById(db);
 
   const hasScheduledMaintenance = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_maintenance' LIMIT 1")
@@ -519,6 +521,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleGpsSnapshots", () => migrateVehicleGpsSnapshots(db)],
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
+    ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
     ["migrateWorkOrderLaborPhase3", () => migrateWorkOrderLaborPhase3(db)],
@@ -672,6 +675,11 @@ function migrateVehiclesPhase1(db: Database.Database): void {
     // Pool / assignment
     ["pool", "TEXT DEFAULT 'general'"],
     ["assigned_team", "TEXT DEFAULT ''"],
+    // Audit (server-filled when Firebase user present)
+    ["created_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["created_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["updated_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["updated_by_name", "TEXT NOT NULL DEFAULT ''"],
   ];
 
   for (const [col, def] of additions) {
@@ -679,6 +687,63 @@ function migrateVehiclesPhase1(db: Database.Database): void {
       db.exec(`ALTER TABLE vehicles ADD COLUMN ${col} ${def}`);
     }
   }
+}
+
+function migrateDriverVehicleChecksTravelPhone(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === "travel_phone_number")) return;
+
+  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN travel_phone_number TEXT NOT NULL DEFAULT ''");
+}
+
+function migrateDriverVehicleChecksApprovedById(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === "approved_by_id")) return;
+
+  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN approved_by_id TEXT NOT NULL DEFAULT ''");
+}
+
+function migrateVehicleCountryChangeWorkflow(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_country_change_requests (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+      from_organization_id TEXT NOT NULL,
+      to_organization_id TEXT NOT NULL,
+      change_kind TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      effective_date TEXT DEFAULT '',
+      expected_return_date TEXT DEFAULT '',
+      transfer_summary TEXT DEFAULT '',
+      mission_trip_id TEXT DEFAULT '',
+      mechanical_inspection_id TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending_fleet',
+      requested_by_id TEXT NOT NULL DEFAULT '',
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      reviewed_by_id TEXT DEFAULT '',
+      reviewed_by_name TEXT DEFAULT '',
+      reviewed_at TEXT DEFAULT '',
+      executive_signed_by_id TEXT DEFAULT '',
+      executive_signed_by_name TEXT DEFAULT '',
+      executive_signed_at TEXT DEFAULT '',
+      rejection_reason TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_vccr_vehicle ON vehicle_country_change_requests(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_vccr_status ON vehicle_country_change_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_vccr_from_org ON vehicle_country_change_requests(from_organization_id);
+  `);
 }
 
 function migrateTripsPhase1(db: Database.Database): void {
@@ -752,6 +817,9 @@ function createPhase1Tables(db: Database.Database): void {
       -- Remarks
       remarks TEXT NOT NULL DEFAULT '',
 
+      -- 1PWR handset — number on SIM / contact (paired with equip_phone_charger)
+      travel_phone_number TEXT NOT NULL DEFAULT '',
+
       -- Equipment availability (1 = yes, 0 = no)
       equip_jack INTEGER NOT NULL DEFAULT 1,
       equip_spare_wheel INTEGER NOT NULL DEFAULT 1,
@@ -772,6 +840,7 @@ function createPhase1Tables(db: Database.Database): void {
       has_exceptions INTEGER NOT NULL DEFAULT 0,
       exception_items TEXT NOT NULL DEFAULT '[]',
       exception_approved INTEGER NOT NULL DEFAULT 0,
+      approved_by_id TEXT NOT NULL DEFAULT '',
       approved_by TEXT DEFAULT '',
       approved_at TEXT DEFAULT NULL,
       approval_method TEXT DEFAULT '',

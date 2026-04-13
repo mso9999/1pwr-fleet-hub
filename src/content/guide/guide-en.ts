@@ -11,9 +11,14 @@ export const guideEn: GuideContent = {
     tutorialTitle: "Interactive tutorial",
     tutorialBody: [
       [
-        "Step through the main workflows with on-screen highlights: dashboard, vehicles, trips, checks, work orders, map, analytics, reports, and daily update. A temporary demo vehicle (code starting with ",
+        "Step through the main workflows with on-screen highlights: dashboard, vehicles, trips (including load-out manifests from Asset Management), checks, work orders, map, analytics, reports, and daily update. A temporary demo vehicle (code starting with ",
         B("TUT-"),
         ") is created for the register walkthrough and removed when you finish or exit.",
+      ],
+      [
+        "Focused tracks cover driver checks, mechanical inspections, vehicle requests, work orders, and ",
+        B("load-out manifests (AM)"),
+        " — linking packing lists to trips.",
       ],
     ],
     tutorialButton: "Tutorial mode",
@@ -28,7 +33,7 @@ export const guideEn: GuideContent = {
       {
         href: "/guide/daily-workflows",
         title: "Common daily workflows",
-        description: "Trips, vehicle checks, reporting issues, work orders, daily update, and reports.",
+        description: "Trips (including AM load-out manifests), vehicle checks, reporting issues, work orders, daily update, and reports.",
       },
       {
         href: "/guide/fleet-and-map",
@@ -168,6 +173,19 @@ export const guideEn: GuideContent = {
             " to check out a vehicle: odometer start, destination, mission type, and optional load details. When you return, complete ",
             B("check-in"),
             " with end odometer and any issues so distance and fleet status stay accurate.",
+          ],
+          [
+            "Load-out manifests (AM): operations prepare packing lists in ",
+            B("Asset Management"),
+            " (am.1pwrafrica.com). On each trip, the ",
+            B("Load-out manifests (AM)"),
+            " section lists manifests linked to that trip and offers ",
+            B("Open in AM"),
+            " for the full list. To associate a manifest, paste its document ID from Asset Management (optional trip label). ",
+            B("Link"),
+            " and ",
+            B("Unlink"),
+            " require Manager-level permission; details and line items stay in Asset Management.",
           ],
         ],
       },
@@ -392,6 +410,13 @@ export const guideEn: GuideContent = {
             "Use ",
             L("/trips", "Trips"),
             " to log journeys. Vehicle checks are often required before the first trip of the day—see the vehicle checks guide.",
+          ],
+          [
+            "Link load-out packing lists from Asset Management under each trip’s ",
+            B("Load-out manifests (AM)"),
+            " section (see ",
+            L("/guide/daily-workflows", "Common daily workflows"),
+            ").",
           ],
         ],
       },

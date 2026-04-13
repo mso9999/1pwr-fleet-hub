@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 
 export async function GET(
   _request: NextRequest,
@@ -26,9 +27,21 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const existingStatus = (existing as Record<string, unknown>).status as string;
+  if (
+    user &&
+    body.status !== undefined &&
+    body.status !== existingStatus &&
+    ["approved", "rejected", "assigned"].includes(String(body.status))
+  ) {
+    body.approvedById = user.id;
+    body.approvedByName = user.name || user.email;
+  }
 
   const allowed: Record<string, string> = {
     status: "status",
@@ -66,9 +79,11 @@ export async function PATCH(
   db.prepare(`UPDATE vehicle_requests SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
   if (body.status && body.status !== (existing as Record<string, unknown>).status) {
+    const actor =
+      user?.name || user?.email || String(body.approvedByName || body.changedBy || "");
     db.prepare(
       "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("vehicle_request", id, (existing as Record<string, unknown>).status, body.status, body.approvedByName || body.changedBy || "", now);
+    ).run("vehicle_request", id, (existing as Record<string, unknown>).status, body.status, actor, now);
   }
 
   const updated = db.prepare(`

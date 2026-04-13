@@ -1,11 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { MEDIA_CATEGORY } from "@/types";
+import { uploadDriverVehicleCheckPhotos } from "@/lib/upload-driver-vehicle-check-photos";
+
+const DVC_PHOTO_SLOTS = [
+  { id: "exterior_front", label: "Front", category: MEDIA_CATEGORY.DVC_EXTERIOR_FRONT },
+  { id: "exterior_rear", label: "Rear", category: MEDIA_CATEGORY.DVC_EXTERIOR_REAR },
+  { id: "exterior_left", label: "Left side", category: MEDIA_CATEGORY.DVC_EXTERIOR_LEFT },
+  { id: "exterior_right", label: "Right side", category: MEDIA_CATEGORY.DVC_EXTERIOR_RIGHT },
+  { id: "odometer", label: "Odometer (photo of gauge)", category: MEDIA_CATEGORY.DVC_ODOMETER },
+] as const;
+
+const EXTERIOR_PHOTO_SLOTS = DVC_PHOTO_SLOTS.filter((s) => s.id !== "odometer");
+const ODOMETER_PHOTO_SLOT = DVC_PHOTO_SLOTS.find((s) => s.id === "odometer")!;
 
 interface VehicleOption {
   id: string;
@@ -65,7 +78,7 @@ const EQUIP_ITEMS: EquipItem[] = [
   { key: "equipTriangle", label: "Triangle (2x)", group: "Equipment" },
   { key: "equipJumpLeads", label: "Jump leads", group: "Equipment" },
   { key: "equipFireExtinguisher", label: "Fire extinguisher (operational?)", group: "Equipment" },
-  { key: "equipPhoneCharger", label: "Phone with charger", group: "Equipment" },
+  { key: "equipPhoneCharger", label: "1PWR phone in vehicle (with charger)", group: "Equipment" },
   { key: "equipFirstAidKit", label: "First aid kit", group: "Equipment" },
   { key: "equipFlashlight", label: "Flashlight with batteries", group: "Equipment" },
   { key: "equipToolWheelSpanners", label: "Wheel spanners", group: "Basic Tools" },
@@ -85,6 +98,29 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [remarks, setRemarks] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [photoFiles, setPhotoFiles] = useState<Partial<Record<string, File>>>({});
+  const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const urls: Record<string, string> = {};
+    for (const s of DVC_PHOTO_SLOTS) {
+      const f = photoFiles[s.id];
+      if (f) urls[s.id] = URL.createObjectURL(f);
+    }
+    setPhotoPreviewUrls(urls);
+    return () => {
+      Object.values(urls).forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [photoFiles]);
+
+  function setPhotoSlot(slotId: string, file: File | null): void {
+    setPhotoFiles((prev) => {
+      const next = { ...prev };
+      if (file) next[slotId] = file;
+      else delete next[slotId];
+      return next;
+    });
+  }
 
   const failedItems = Object.entries(statusRatings).filter(([, v]) => v === "fail");
   const hasFails = failedItems.length > 0;
@@ -113,6 +149,20 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       return;
     }
 
+    const mileageRaw = (fd.get("mileageKm") as string)?.trim() ?? "";
+    const mileageKm = mileageRaw ? parseInt(mileageRaw, 10) : NaN;
+    if (!Number.isFinite(mileageKm) || mileageKm < 0) {
+      setFormError("Enter a valid odometer reading (km).");
+      return;
+    }
+
+    for (const s of DVC_PHOTO_SLOTS) {
+      if (!photoFiles[s.id]) {
+        setFormError(`Add a photo: ${s.label}.`);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     const payload: Record<string, unknown> = {
@@ -120,11 +170,12 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       vehicleId: fd.get("vehicleId"),
       driverId: user?.id || "",
       driverName: fd.get("driverName") || user?.name || "",
-      mileageKm: fd.get("mileageKm") ? parseInt(fd.get("mileageKm") as string, 10) : null,
+      mileageKm,
       routeFrom: fd.get("routeFrom") || "",
       routeTo: fd.get("routeTo") || "",
       direction,
       remarks,
+      travelPhoneNumber: (fd.get("travelPhoneNumber") as string) || "",
       failureDescriptions: failureDescs,
     };
 
@@ -135,6 +186,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       payload[item.key] = equipChecks[item.key] ?? 1;
     }
 
+    let createdId: string | null = null;
     try {
       const res = await fetch("/api/driver-vehicle-checks", {
         method: "POST",
@@ -147,9 +199,38 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         setIsSubmitting(false);
         return;
       }
+      const created = (await res.json()) as { id: string };
+      createdId = created.id;
+
+      const uploadItems = DVC_PHOTO_SLOTS.map((s) => ({
+        file: photoFiles[s.id]!,
+        category: s.category,
+        caption: s.label,
+      }));
+      await uploadDriverVehicleCheckPhotos(
+        created.id,
+        uploadItems,
+        user?.id ?? "",
+        user?.name || user?.email || ""
+      );
       onComplete();
-    } catch {
-      setFormError("Network error — please try again.");
+    } catch (err) {
+      if (createdId) {
+        try {
+          await fetch(
+            `/api/driver-vehicle-checks/${createdId}?org=${encodeURIComponent(organizationId)}`,
+            { method: "DELETE" }
+          );
+        } catch {
+          /* best-effort rollback */
+        }
+      }
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setFormError(
+        createdId
+          ? `Could not upload verification photos (${msg}). The draft check was discarded — try again.`
+          : "Network error — please try again."
+      );
       setIsSubmitting(false);
     }
   }
@@ -186,7 +267,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           </div>
 
           {/* Header fields */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Select name="vehicleId" label="Vehicle *" required>
               <option value="">Select vehicle…</option>
               {vehicles.map((v) => (
@@ -194,9 +275,71 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               ))}
             </Select>
             <Input name="driverName" label="Driver *" required placeholder="Your name" defaultValue={user?.name || ""} />
-            <Input name="mileageKm" label="Mileage (km)" type="number" placeholder="ODO reading" />
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>
+
+          <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4" data-tutorial="tutorial-dvc-photos">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Input
+                  name="mileageKm"
+                  label="Odometer reading (km) *"
+                  type="number"
+                  min={0}
+                  step={1}
+                  required
+                  placeholder="Type current ODO"
+                />
+                <p className="text-xs text-zinc-500">
+                  Enter the reading from the gauge, then take a photo of the odometer for verification.
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2">
+                <div className="text-sm font-medium text-zinc-800">{ODOMETER_PHOTO_SLOT.label} *</div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="block w-full text-xs text-zinc-600"
+                  onChange={(e) => setPhotoSlot("odometer", e.target.files?.[0] ?? null)}
+                />
+                {photoPreviewUrls.odometer && (
+                  <img
+                    src={photoPreviewUrls.odometer}
+                    alt="Odometer preview"
+                    className="w-full max-h-40 object-contain rounded-md border border-zinc-100 bg-zinc-50"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+            <div className="text-sm font-semibold text-zinc-900">Exterior photos *</div>
+            <p className="text-xs text-zinc-500">Front, rear, and both sides of the vehicle (one photo each).</p>
+            <div className="grid grid-cols-2 gap-3">
+              {EXTERIOR_PHOTO_SLOTS.map((s) => (
+                <div key={s.id} className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2">
+                  <div className="text-sm font-medium text-zinc-800">{s.label}</div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="block w-full text-xs text-zinc-600"
+                    onChange={(e) => setPhotoSlot(s.id, e.target.files?.[0] ?? null)}
+                  />
+                  {photoPreviewUrls[s.id] && (
+                    <img
+                      src={photoPreviewUrls[s.id]}
+                      alt=""
+                      className="w-full h-28 object-cover rounded-md border border-zinc-100"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Input name="routeFrom" label="Route from" placeholder="Departure location" />
             <Input name="routeTo" label="Route to" placeholder="Destination" />
@@ -323,6 +466,22 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                       </button>
                     </div>
                   </div>
+                  {item.key === "equipPhoneCharger" && (
+                    <div className="px-4 py-3 border-t border-blue-100 bg-blue-50/50 space-y-1.5">
+                      <Input
+                        name="travelPhoneNumber"
+                        label="1PWR phone number"
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="Number on the SIM or handset label (e.g. +266 …)"
+                        className="max-w-md"
+                      />
+                      <p className="text-xs text-zinc-500">
+                        Record the contact number for the 1PWR phone traveling with this vehicle.
+                      </p>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -358,7 +517,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               Cancel
             </Button>
             <span className="text-xs text-zinc-500 self-center">
-              {STATUS_ITEMS.length} check items · {EQUIP_ITEMS.length} equipment items
+              {STATUS_ITEMS.length} check items · {EQUIP_ITEMS.length} equipment · 5 verification photos
             </span>
           </div>
         </form>

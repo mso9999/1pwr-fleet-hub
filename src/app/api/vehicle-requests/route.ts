@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -49,6 +50,9 @@ export function GET(request: NextRequest): NextResponse {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const body = await request.json();
+  const user = await getVerifiedFleetUser(request);
+  const requestedById = user?.id ?? String(body.requestedById || "");
+  const requestedByName = user ? user.name || user.email : String(body.requestedByName || "");
   const id = uuidv4();
   const now = new Date().toISOString();
 
@@ -62,8 +66,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   `).run(
     id,
     body.organizationId || "1pwr_lesotho",
-    body.requestedById || "",
-    body.requestedByName || "",
+    requestedById,
+    requestedByName,
     body.requestedFor || "",
     body.vehicleId || null,
     body.purpose || "",

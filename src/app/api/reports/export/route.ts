@@ -221,7 +221,8 @@ export function GET(request: NextRequest): NextResponse {
     let q = `
       SELECT dvc.id, v.code as vehicle_code, dvc.driver_name, dvc.check_date, dvc.direction,
              dvc.mileage_km, dvc.route_from, dvc.route_to, dvc.overall_pass,
-             dvc.has_exceptions, dvc.exception_approved, dvc.approved_by, dvc.remarks, dvc.created_at
+             dvc.has_exceptions, dvc.exception_approved, dvc.approved_by, dvc.remarks,
+             dvc.travel_phone_number, dvc.created_at
       FROM driver_vehicle_checks dvc JOIN vehicles v ON dvc.vehicle_id = v.id
       WHERE dvc.organization_id = ?
     `;
@@ -230,7 +231,7 @@ export function GET(request: NextRequest): NextResponse {
     if (to) { q += ` AND dvc.check_date <= ?`; params.push(to); }
     q += ` ORDER BY dvc.created_at DESC`;
     const rows = db.prepare(q).all(...params) as Record<string, unknown>[];
-    csv = rowsToCsv(["id","vehicle_code","driver_name","check_date","direction","mileage_km","route_from","route_to","overall_pass","has_exceptions","exception_approved","approved_by","remarks","created_at"], rows);
+    csv = rowsToCsv(["id","vehicle_code","driver_name","check_date","direction","mileage_km","route_from","route_to","overall_pass","has_exceptions","exception_approved","approved_by","remarks","travel_phone_number","created_at"], rows);
     filename = `vehicle-checks-${org}.csv`;
   } else if (type === "scheduled-maintenance") {
     const rows = db.prepare(`

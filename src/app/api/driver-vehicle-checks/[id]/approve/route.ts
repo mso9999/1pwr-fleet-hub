@@ -42,9 +42,12 @@ export async function POST(
     );
   }
 
+  const approverName = user.name || user.email;
+
   db.prepare(`
     UPDATE driver_vehicle_checks
     SET exception_approved = 1,
+        approved_by_id = ?,
         approved_by = ?,
         approved_at = ?,
         approval_method = ?,
@@ -52,7 +55,8 @@ export async function POST(
         updated_at = ?
     WHERE id = ?
   `).run(
-    body.approvedBy || "",
+    user.id,
+    approverName,
     now,
     body.approvalMethod || "in-app",
     now,
@@ -61,7 +65,7 @@ export async function POST(
 
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("driver_vehicle_check", id, "exceptions_pending", "exceptions_approved", body.approvedBy || "", now);
+  ).run("driver_vehicle_check", id, "exceptions_pending", "exceptions_approved", approverName, now);
 
   const updated = db.prepare(`
     SELECT dvc.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model

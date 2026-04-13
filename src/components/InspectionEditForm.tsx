@@ -135,7 +135,9 @@ export function InspectionEditForm({
   const typeLabel =
     inspection.type === "driver-proficiency-2025"
       ? "1PWR checklist (2025)"
-      : inspection.type.replace(/-/g, " ");
+      : inspection.type === "mechanical-transfer"
+        ? "Mechanical (cross-border transfer)"
+        : inspection.type.replace(/-/g, " ");
 
   return (
     <Card className="border-amber-200 shadow-md">

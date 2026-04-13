@@ -8,6 +8,86 @@ import { useAuth } from "@/lib/auth-context";
 import { auth } from "@/lib/firebase";
 import { DriverVehicleCheckForm } from "@/components/DriverVehicleCheckForm";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
+import { MediaUpload } from "@/components/MediaUpload";
+
+interface MediaRow {
+  id: string;
+  mime_type: string;
+  file_name: string;
+  category: string;
+  caption: string;
+}
+
+function dvcPhotoLabel(category: string): string {
+  const m: Record<string, string> = {
+    "dvc-exterior-front": "Front",
+    "dvc-exterior-rear": "Rear",
+    "dvc-exterior-left": "Left",
+    "dvc-exterior-right": "Right",
+    "dvc-odometer": "Odometer",
+  };
+  return m[category] || category;
+}
+
+function DriverCheckVerificationPhotos({ checkId }: { checkId: string }): React.ReactElement {
+  const [items, setItems] = useState<MediaRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/media?entityType=driver_vehicle_check&entityId=${encodeURIComponent(checkId)}`)
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        if (!cancelled && Array.isArray(d)) setItems(d as MediaRow[]);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkId]);
+
+  const images = items.filter((a) => a.mime_type?.startsWith("image/"));
+
+  if (loading) {
+    return <p className="text-xs text-zinc-400">Loading photos…</p>;
+  }
+  if (images.length === 0) {
+    return (
+      <p className="text-xs text-amber-700">
+        No verification photos on file for this check (older checks may pre-date this requirement).
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <div className="text-xs font-bold text-zinc-500 uppercase mb-2">Verification photos</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {images.map((a) => (
+          <a
+            key={a.id}
+            href={`/uploads/driver_vehicle_check/${checkId}/${a.file_name}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg border border-zinc-200 overflow-hidden bg-zinc-50 hover:ring-2 hover:ring-blue-400/50"
+          >
+            <img
+              src={`/uploads/driver_vehicle_check/${checkId}/${a.file_name}`}
+              alt={dvcPhotoLabel(a.category)}
+              className="w-full h-24 object-cover"
+            />
+            <div className="px-2 py-1 text-[10px] text-zinc-600 truncate">{dvcPhotoLabel(a.category)}</div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface VehicleOption {
   id: string;
@@ -92,7 +172,7 @@ export default function VehicleChecksPage() {
             {checks.length} vehicle check{checks.length !== 1 ? "s" : ""} recorded
           </p>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Required before each vehicle deployment. Complete the checklist, then check out a vehicle under Trips.
+            Includes typed odometer + odometer photo, front/rear/sides photos, then the checklist. Complete before deployment; check out under Trips.
           </p>
         </div>
         <span data-tutorial="tutorial-vehicle-checks-new">
@@ -282,6 +362,21 @@ function CheckCard({
             <div className="text-sm text-zinc-600">Mileage: <strong>{check.mileage_km.toLocaleString()} km</strong></div>
           )}
 
+          <DriverCheckVerificationPhotos checkId={check.id} />
+
+          {user && (
+            <div className="pt-2 border-t border-zinc-100">
+              <p className="text-xs text-zinc-500 mb-2">Add or replace photos</p>
+              <MediaUpload
+                entityType="driver_vehicle_check"
+                entityId={check.id}
+                uploadedById={user.id}
+                uploadedByName={user.name || user.email || ""}
+                defaultCategory="dvc-exterior-front"
+              />
+            </div>
+          )}
+
           {/* Status items */}
           <div>
             <div className="text-xs font-bold text-zinc-500 uppercase mb-2">Status checks</div>
@@ -304,7 +399,10 @@ function CheckCard({
             <div className="text-xs font-bold text-zinc-500 uppercase mb-2">Equipment</div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1">
               {EQUIP_KEYS.map((k) => {
-                const label = k.replace(/^equip_(tool_)?/, "").replace(/_/g, " ");
+                const label =
+                  k === "equip_phone_charger"
+                    ? "1pwr phone in vehicle"
+                    : k.replace(/^equip_(tool_)?/, "").replace(/_/g, " ");
                 const val = check[k];
                 return (
                   <div key={k} className={`text-xs px-2 py-1 rounded ${val === 0 ? "bg-amber-50 text-amber-800" : "text-zinc-600"}`}>
@@ -314,6 +412,12 @@ function CheckCard({
                 );
               })}
             </div>
+            {typeof check.travel_phone_number === "string" && check.travel_phone_number.trim() !== "" && (
+              <div className="mt-2 text-sm text-zinc-700">
+                <span className="font-medium">1PWR phone #:</span>{" "}
+                <span className="text-zinc-600">{check.travel_phone_number}</span>
+              </div>
+            )}
           </div>
 
           {check.remarks && (

@@ -10,6 +10,7 @@ import { VehicleStatusBadge } from "@/components/StatusBadge";
 import type { VehicleStatus, AssetClass } from "@/types";
 import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, assetClassLabel } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 
 interface VehicleRow {
   id: string;
@@ -228,7 +229,7 @@ function AddVehicleForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: 
 
     const res = await fetch("/api/vehicles", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify(body),
     });
 

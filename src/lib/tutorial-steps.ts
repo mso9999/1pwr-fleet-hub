@@ -93,6 +93,16 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     suggestion: "Example: HQ → MAS, mission site delivery, odometer from the vehicle check.",
   },
   {
+    id: "trips-loadout",
+    path: "/trips",
+    target: "tutorial-trips-loadout-manifests",
+    title: "Load-out manifests (Asset Management)",
+    body:
+      "Packing lists are created in Asset Management (am.1pwrafrica.com). Link a manifest to this trip by pasting its document ID from AM, or open a linked manifest in AM for the full list. Managers can unlink when the association changes.",
+    suggestion:
+      "Scroll to Load-out manifests (AM) on an active trip or expand a completed trip in Trip History. Link/unlink requires Manager-level access.",
+  },
+  {
     id: "nav-checks",
     path: "/trips",
     target: "nav-vehicle-checks",
@@ -209,7 +219,7 @@ const DRIVER_CHECK_STEPS: TutorialStep[] = [
     target: "tutorial-dvc-form",
     title: "2. The checklist form",
     body:
-      "Everything below is one submission: direction, vehicle and driver, route, pass/fail lines, equipment, remarks, then Submit.",
+      "Everything below is one submission: direction, vehicle and driver, odometer with photo, four exterior photos, route, pass/fail lines, equipment, remarks, then Submit.",
   },
   {
     id: "dvc-direction",
@@ -220,10 +230,18 @@ const DRIVER_CHECK_STEPS: TutorialStep[] = [
       "Choose whether the vehicle is leaving HQ or returning. This sets context for the deployment.",
   },
   {
+    id: "dvc-photos",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-photos",
+    title: "4. Odometer and exterior photos",
+    body:
+      "Enter the odometer reading (km), photograph the gauge, then add front, rear, left, and right exterior photos. These document mileage and vehicle condition at the time of the check.",
+  },
+  {
     id: "dvc-lines",
     path: "/vehicle-checks",
     target: "tutorial-dvc-status-grid",
-    title: "4. Rate each status line",
+    title: "5. Rate each status line",
     body:
       "Tap ✓ for pass or ✗ for fail on electrics, fluids, driveability, and visual items. If you fail a line, describe it in the text box that appears.",
   },
@@ -231,7 +249,7 @@ const DRIVER_CHECK_STEPS: TutorialStep[] = [
     id: "dvc-equip",
     path: "/vehicle-checks",
     target: "tutorial-dvc-equipment",
-    title: "5. Equipment (Yes / No)",
+    title: "6. Equipment (Yes / No)",
     body:
       "Confirm jack, spare, triangle, tools, and other required items. Missing kit may be logged for follow-up.",
   },
@@ -239,7 +257,7 @@ const DRIVER_CHECK_STEPS: TutorialStep[] = [
     id: "dvc-submit",
     path: "/vehicle-checks",
     target: "tutorial-dvc-submit",
-    title: "6. Submit",
+    title: "7. Submit",
     body:
       "When complete, tap Submit vehicle check. Failures may require manager approval before deployment—your org’s policy applies.",
   },
@@ -327,6 +345,27 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
   },
 ];
 
+/** Link AM load-out manifests to trips */
+const LOADOUT_MANIFEST_STEPS: TutorialStep[] = [
+  {
+    id: "loadout-intro",
+    path: "/trips",
+    target: "tutorial-trips-checkout",
+    title: "Trips and AM load-outs",
+    body:
+      "Fleet Hub records check-out and check-in. Operations build packing lists in Asset Management (am.1pwrafrica.com). Use the section below to tie those manifests to a trip.",
+    suggestion: "Open Trips from the sidebar if you are not already here.",
+  },
+  {
+    id: "loadout-section",
+    path: "/trips",
+    target: "tutorial-trips-loadout-manifests",
+    title: "Load-out manifests (AM)",
+    body:
+      "Listed manifests are linked by trip ID. Open in AM shows the full packing list. Paste a manifest document ID from Asset Management to link (optional trip label). Unlink clears the association. Line items and editing stay in AM; link/unlink needs Manager-level permission.",
+  },
+];
+
 /** Create a work order */
 const WORK_ORDER_STEPS: TutorialStep[] = [
   {
@@ -373,6 +412,11 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
   },
   vehicleRequest: { id: "vehicleRequest", label: "Request a vehicle", steps: VEHICLE_REQUEST_STEPS },
   workOrder: { id: "workOrder", label: "Create a work order", steps: WORK_ORDER_STEPS },
+  loadoutManifest: {
+    id: "loadoutManifest",
+    label: "Load-out manifests (AM)",
+    steps: LOADOUT_MANIFEST_STEPS,
+  },
 };
 
 export const TUTORIAL_TRACK_ORDER: string[] = [
@@ -381,6 +425,7 @@ export const TUTORIAL_TRACK_ORDER: string[] = [
   "vehicleInspection",
   "vehicleRequest",
   "workOrder",
+  "loadoutManifest",
 ];
 
 /** @deprecated Use TUTORIAL_TRACKS.overview.steps */

@@ -39,6 +39,7 @@ export async function PATCH(
     routeTo: "route_to",
     direction: "direction",
     remarks: "remarks",
+    travelPhoneNumber: "travel_phone_number",
     failureDescriptions: "failure_descriptions",
     electricsFrontLights: "electrics_front_lights",
     electricsRearLights: "electrics_rear_lights",

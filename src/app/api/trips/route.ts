@@ -9,16 +9,17 @@ export function GET(request: NextRequest): NextResponse {
   const active = searchParams.get("active");
 
   const org = searchParams.get("org") || "1pwr_lesotho";
+  const allOrgs = searchParams.get("allOrgs") === "true" && vehicleId;
 
   let query = `
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM trips t
     JOIN vehicles v ON t.vehicle_id = v.id
-    WHERE t.organization_id = ?
+    WHERE ${allOrgs ? "t.vehicle_id = ?" : "t.organization_id = ?"}
   `;
-  const params: string[] = [org];
+  const params: string[] = allOrgs ? [vehicleId as string] : [org];
 
-  if (vehicleId) {
+  if (!allOrgs && vehicleId) {
     query += " AND t.vehicle_id = ?";
     params.push(vehicleId);
   }

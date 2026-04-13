@@ -11,9 +11,14 @@ export const guideFr: GuideContent = {
     tutorialTitle: "Tutoriel interactif",
     tutorialBody: [
       [
-        "Parcourez les flux principaux avec des surbrillances à l’écran : tableau de bord, véhicules, trajets, contrôles, ordres de travail, carte, analyses, rapports et point quotidien. Un véhicule de démonstration (code commençant par ",
+        "Parcourez les flux principaux avec des surbrillances à l’écran : tableau de bord, véhicules, trajets (y compris les manifests de chargement depuis la gestion d’actifs), contrôles, ordres de travail, carte, analyses, rapports et point quotidien. Un véhicule de démonstration (code commençant par ",
         B("TUT-"),
         ") est créé pour la visite guidée et supprimé à la fin ou à la sortie.",
+      ],
+      [
+        "Des parcours ciblés couvrent les contrôles conducteur, les inspections mécaniques, les demandes de véhicules, les ordres de travail et ",
+        B("les manifests de chargement (AM)"),
+        " — liaison des listes de colisage aux trajets.",
       ],
     ],
     tutorialButton: "Mode tutoriel",
@@ -28,7 +33,7 @@ export const guideFr: GuideContent = {
       {
         href: "/guide/daily-workflows",
         title: "Flux quotidiens courants",
-        description: "Trajets, contrôles véhicule, signalements, ordres de travail, point quotidien et rapports.",
+        description: "Trajets (y compris manifests de chargement AM), contrôles véhicule, signalements, ordres de travail, point quotidien et rapports.",
       },
       {
         href: "/guide/fleet-and-map",
@@ -167,6 +172,19 @@ export const guideFr: GuideContent = {
             " pour un départ : odomètre de début, destination, type de mission, chargement. Au retour, finalisez l’",
             B("arrivée"),
             " avec odomètre de fin et anomalies pour garder distances et statuts à jour.",
+          ],
+          [
+            "Manifests de chargement (AM) : les listes de colisage sont préparées dans ",
+            B("Asset Management"),
+            " (am.1pwrafrica.com). Pour chaque trajet, la section ",
+            B("Load-out manifests (AM)"),
+            " liste les manifests liés et propose ",
+            B("Open in AM"),
+            " pour la vue complète. Pour associer un manifest, collez son identifiant document depuis Asset Management (libellé de trajet facultatif). ",
+            B("Link"),
+            " et ",
+            B("Unlink"),
+            " nécessitent un profil Manager ; le détail des lignes reste dans Asset Management.",
           ],
         ],
       },
@@ -390,6 +408,13 @@ export const guideFr: GuideContent = {
             "Utilisez ",
             L("/trips", "Trajets"),
             " pour journaliser les missions. Un contrôle véhicule est souvent requis avant le premier départ — voir le guide des contrôles.",
+          ],
+          [
+            "Liez les listes de chargement depuis Asset Management dans la section ",
+            B("Load-out manifests (AM)"),
+            " de chaque trajet (voir ",
+            L("/guide/daily-workflows", "Flux quotidiens courants"),
+            ").",
           ],
         ],
       },

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 
@@ -246,7 +247,7 @@ function RequestCard({
     setIsActing(true);
     await fetch(`/api/vehicle-requests/${r.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ status, approvedByName: approverName, ...extra }),
     });
     setIsActing(false);
@@ -258,7 +259,7 @@ function RequestCard({
     setIsActing(true);
     await fetch(`/api/vehicle-requests/${r.id}/assign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ vehicleId: assignVehicleId, approvedByName: approverName }),
     });
     setIsActing(false);
@@ -499,7 +500,7 @@ function RequestForm({
     setIsSubmitting(true);
     const res = await fetch("/api/vehicle-requests", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({
         organizationId,
         requestedById: userId,

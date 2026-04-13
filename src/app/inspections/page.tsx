@@ -216,7 +216,9 @@ function InspectionCard({
               <div className="font-medium capitalize">
                 {inspection.type === "driver-proficiency-2025"
                   ? "1PWR checklist (2025)"
-                  : `${inspection.type.replace(/-/g, " ")} inspection`}
+                  : inspection.type === "mechanical-transfer"
+                    ? "Mechanical (cross-border transfer)"
+                    : `${inspection.type.replace(/-/g, " ")} inspection`}
               </div>
               <div className="text-xs text-zinc-500 mt-0.5">
                 By {inspection.inspector_name || "Unknown"} · {new Date(inspection.created_at).toLocaleString()}
@@ -312,8 +314,15 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   onCancel: () => void;
 }): React.ReactElement {
   const { user } = useAuth();
-  const [inspType, setInspType] = useState<"pre-departure" | "detailed" | "driver-proficiency-2025">("pre-departure");
-  const templateItems = inspType === "pre-departure" ? PRE_DEPARTURE_ITEMS : inspType === "detailed" ? DETAILED_ITEMS : [];
+  const [inspType, setInspType] = useState<
+    "pre-departure" | "detailed" | "mechanical-transfer" | "driver-proficiency-2025"
+  >("pre-departure");
+  const templateItems =
+    inspType === "pre-departure"
+      ? PRE_DEPARTURE_ITEMS
+      : inspType === "detailed" || inspType === "mechanical-transfer"
+        ? DETAILED_ITEMS
+        : [];
   const [ratings, setRatings] = useState<Record<number, InspectionRating>>({});
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [bodyMarksByIdx, setBodyMarksByIdx] = useState<Record<number, BodyMark[]>>({});
@@ -337,6 +346,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
             [
               ["pre-departure", "Pre-departure (quick)"],
               ["detailed", "Detailed mechanical"],
+              ["mechanical-transfer", "Mechanical (cross-border transfer)"],
               ["driver-proficiency-2025", "1PWR checklist (2025) — full"],
             ] as const
           ).map(([value, label]) => (
@@ -443,6 +453,7 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
               [
                 ["pre-departure", "Pre-departure (quick)"],
                 ["detailed", "Detailed mechanical"],
+                ["mechanical-transfer", "Mechanical (cross-border transfer)"],
                 ["driver-proficiency-2025", "1PWR checklist (2025) — full"],
               ] as const
             ).map(([value, label]) => (

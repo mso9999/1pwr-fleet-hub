@@ -15,9 +15,13 @@ import { CreateWorkOrderForm } from "@/components/CreateWorkOrderForm";
 import { PriorityBadge } from "@/components/StatusBadge";
 import type { WorkOrderPriority } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { auth } from "@/lib/firebase";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
+import { VehicleCountryChangeDialog } from "@/components/VehicleCountryChangeDialog";
 
 interface VehicleDetail {
   id: string;
+  organization_id: string;
   code: string;
   make: string;
   model: string;
@@ -39,6 +43,10 @@ interface VehicleDetail {
   tracker_status: TrackerStatus;
   created_at: string;
   updated_at: string;
+  created_by_id?: string;
+  created_by_name?: string;
+  updated_by_id?: string;
+  updated_by_name?: string;
 }
 
 interface TrackingReport {
@@ -95,6 +103,14 @@ interface VehicleWorkOrderRow {
   created_at: string;
 }
 
+interface CountryReqRow {
+  id: string;
+  status: string;
+  change_kind: string;
+  to_organization_id: string;
+  created_at: string;
+}
+
 function buildVehicleWorkOrderRemarks(v: VehicleDetail): string {
   const lines = [
     `Vehicle: ${v.code} — ${v.make} ${v.model}${v.year ? ` (${v.year})` : ""}`,
@@ -122,6 +138,28 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   const [workOrders, setWorkOrders] = useState<VehicleWorkOrderRow[]>([]);
   const [workOrdersLoading, setWorkOrdersLoading] = useState(false);
   const [showCreateWorkOrder, setShowCreateWorkOrder] = useState(false);
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string; country: string }>>([]);
+  const [countryChangeRequests, setCountryChangeRequests] = useState<CountryReqRow[]>([]);
+  const [showCountryDialog, setShowCountryDialog] = useState(false);
+
+  const loadCountryChangeRequests = useCallback(() => {
+    void (async () => {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        setCountryChangeRequests([]);
+        return;
+      }
+      try {
+        const r = await fetch(`/api/vehicles/${id}/country-change-requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json();
+        setCountryChangeRequests(Array.isArray(d) ? (d as CountryReqRow[]) : []);
+      } catch {
+        setCountryChangeRequests([]);
+      }
+    })();
+  }, [id]);
 
   const loadWorkOrders = useCallback(() => {
     setWorkOrdersLoading(true);
@@ -145,6 +183,19 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   }, [loadWorkOrders]);
 
   useEffect(() => {
+    fetch("/api/organizations")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        setOrganizations(Array.isArray(d) ? (d as typeof organizations) : []);
+      })
+      .catch(() => setOrganizations([]));
+  }, []);
+
+  useEffect(() => {
+    loadCountryChangeRequests();
+  }, [loadCountryChangeRequests]);
+
+  useEffect(() => {
     fetch(`/api/vehicles/${id}`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setVehicle(d); setIsLoading(false); })
@@ -163,7 +214,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   async function handleStatusChange(newStatus: string): Promise<void> {
     const res = await fetch(`/api/vehicles/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ status: newStatus }),
     });
     if (res.ok) {
@@ -190,7 +241,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
 
     const res = await fetch(`/api/vehicles/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify(body),
     });
     if (res.ok) {
@@ -214,7 +265,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
 
     const res = await fetch(`/api/vehicles/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify(body),
     });
     if (res.ok) {
@@ -256,11 +307,85 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
         <div className="flex-1">
           <h2 className="text-2xl font-bold">{vehicle.code}</h2>
           <p className="text-sm text-zinc-500">{vehicle.make} {vehicle.model} {vehicle.year || ""}</p>
+          {(vehicle.created_by_name || vehicle.updated_by_name) && (
+            <p className="text-xs text-zinc-400 mt-1">
+              {vehicle.created_by_name
+                ? `Added by ${vehicle.created_by_name}`
+                : null}
+              {vehicle.created_by_name && vehicle.updated_by_name ? " · " : null}
+              {vehicle.updated_by_name
+                ? `Last edited by ${vehicle.updated_by_name}`
+                : null}
+            </p>
+          )}
         </div>
         <VehicleStatusBadge status={vehicle.status} />
       </div>
 
       <VehicleDashboardTabs vehicleId={vehicle.id} vehicleCode={vehicle.code} />
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Country / organization</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowCountryDialog(true)}>
+              Request change…
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-sm">
+            <span className="text-zinc-500">Registered to: </span>
+            <span className="font-medium text-zinc-900">
+              {organizations.find((o) => o.id === vehicle.organization_id)?.name || vehicle.organization_id}
+            </span>
+            <span className="text-zinc-500">
+              {" "}
+              (
+              {organizations.find((o) => o.id === vehicle.organization_id)?.country || "—"})
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500">
+            Use <strong>Request change</strong> to fix a wrong country on create, or to record a secondment or permanent
+            transfer (with mission, mechanical inspection, and executive approval as required).
+          </p>
+          {countryChangeRequests.filter((r) => r.status === "pending_fleet" || r.status === "pending_executive").length >
+            0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Pending country change request(s). Approvers can review on the{" "}
+              <button
+                type="button"
+                className="text-amber-950 underline font-medium"
+                onClick={() => router.push("/vehicle-country-changes")}
+              >
+                Country transfers
+              </button>{" "}
+              page.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <VehicleCountryChangeDialog
+        open={showCountryDialog}
+        onClose={() => setShowCountryDialog(false)}
+        vehicleId={vehicle.id}
+        vehicleCode={vehicle.code}
+        fromOrganizationId={vehicle.organization_id}
+        fromOrganizationName={
+          organizations.find((o) => o.id === vehicle.organization_id)?.name || vehicle.organization_id
+        }
+        onSubmitted={() => {
+          loadCountryChangeRequests();
+          fetch(`/api/vehicles/${id}`)
+            .then((r) => {
+              if (!r.ok) throw new Error();
+              return r.json();
+            })
+            .then((d) => setVehicle(d))
+            .catch(() => {});
+        }}
+      />
 
       <Card>
         <CardHeader>

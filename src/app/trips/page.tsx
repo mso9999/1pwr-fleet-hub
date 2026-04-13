@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { MediaUpload } from "@/components/MediaUpload";
+import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
 
 interface TripRow {
   id: string;
@@ -159,6 +160,14 @@ function TripsPageContent(): React.ReactElement {
 
   return (
     <div className="space-y-6">
+      <p
+        className="text-xs sm:text-sm text-zinc-600 rounded-lg border border-zinc-200 bg-zinc-50/90 px-3 py-2.5 leading-relaxed"
+        data-tutorial="tutorial-trips-loadout-manifests"
+      >
+        <span className="font-medium text-zinc-800">Load-out manifests (AM): </span>
+        Packing lists are built in Asset Management (am.1pwrafrica.com). On each trip below, use the section{" "}
+        <span className="whitespace-nowrap font-medium">Load-out manifests (AM)</span> to link or open a manifest; expand a completed trip to see it.
+      </p>
       <div className="flex items-center justify-between">
         <p className="text-sm text-zinc-500">{activeTrips.length} active · {completedTrips.length} completed</p>
         <span data-tutorial="tutorial-trips-checkout">
@@ -195,24 +204,32 @@ function TripsPageContent(): React.ReactElement {
                 <div
                   key={trip.id}
                   id={`trip-active-${trip.id}`}
-                  className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/50 p-4 scroll-mt-24"
+                  className="rounded-lg border border-blue-100 bg-blue-50/50 scroll-mt-24"
                 >
-                  <div>
-                    <div className="flex items-center gap-2 font-medium">
-                      <Badge variant="info">{trip.vehicle_code}</Badge>
-                      {trip.vehicle_make} {trip.vehicle_model}
+                  <div className="flex items-center justify-between p-4">
+                    <div>
+                      <div className="flex items-center gap-2 font-medium">
+                        <Badge variant="info">{trip.vehicle_code}</Badge>
+                        {trip.vehicle_make} {trip.vehicle_model}
+                      </div>
+                      <div className="text-sm text-zinc-600 mt-1">
+                        {trip.departure_location} → {trip.destination}
+                        {trip.load_out && <span className="ml-2 text-xs text-amber-600">Load: {trip.load_out}</span>}
+                      </div>
+                      <div className="text-xs text-zinc-400 mt-1">
+                        Driver: {trip.driver_name || "—"} · ODO: {trip.odo_start.toLocaleString()} km
+                        · Out: {new Date(trip.checkout_at).toLocaleString()}
+                        {trip.source !== "manual" && <Badge variant="secondary" className="ml-2 text-[10px]">{trip.source}</Badge>}
+                      </div>
                     </div>
-                    <div className="text-sm text-zinc-600 mt-1">
-                      {trip.departure_location} → {trip.destination}
-                      {trip.load_out && <span className="ml-2 text-xs text-amber-600">Load: {trip.load_out}</span>}
-                    </div>
-                    <div className="text-xs text-zinc-400 mt-1">
-                      Driver: {trip.driver_name || "—"} · ODO: {trip.odo_start.toLocaleString()} km
-                      · Out: {new Date(trip.checkout_at).toLocaleString()}
-                      {trip.source !== "manual" && <Badge variant="secondary" className="ml-2 text-[10px]">{trip.source}</Badge>}
-                    </div>
+                    <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
                   </div>
-                  <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
+                  <div className="px-4 pb-4">
+                    <LoadoutManifestsSection
+                      tripId={trip.id}
+                      tripLabel={`${trip.vehicle_code} · ${trip.departure_location} → ${trip.destination} · ${new Date(trip.checkout_at).toLocaleDateString()}`}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -588,6 +605,11 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
                     <div className="text-xs font-medium text-zinc-500 uppercase mb-2">Photos & Documents</div>
                     <MediaUpload entityType="trip" entityId={trip.id} />
                   </div>
+
+                  <LoadoutManifestsSection
+                    tripId={trip.id}
+                    tripLabel={`${trip.vehicle_code} · ${new Date(trip.checkout_at).toLocaleDateString()}`}
+                  />
 
                   <div className="flex gap-2 pt-2 border-t border-zinc-200">
                     <Button size="sm" variant="outline" onClick={onEdit}>Edit Trip</Button>

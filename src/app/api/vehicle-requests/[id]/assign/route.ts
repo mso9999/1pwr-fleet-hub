@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
@@ -15,6 +16,9 @@ export async function POST(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
+  const approverId = user?.id ?? String(body.approvedById || "");
+  const approverName = user ? user.name || user.email : String(body.approvedByName || "");
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -39,15 +43,15 @@ export async function POST(
     WHERE id = ?
   `).run(
     body.vehicleId,
-    body.approvedById || "",
-    body.approvedByName || "",
+    approverId,
+    approverName,
     now,
     id
   );
 
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("vehicle_request", id, oldStatus, "assigned", body.approvedByName || "", now);
+  ).run("vehicle_request", id, oldStatus, "assigned", approverName, now);
 
   const updated = db.prepare(`
     SELECT vr.*,
