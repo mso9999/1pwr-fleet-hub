@@ -4,11 +4,14 @@ import { useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
+import { useLocaleContext } from "@/i18n/locale-context";
+import { LanguageToggle } from "@/components/LanguageToggle";
 
 const PR_SYSTEM_URL = "https://pr.1pwrafrica.com";
 
 export default function LoginPage() {
   const { signIn, isLoading, error } = useAuth();
+  const { t } = useLocaleContext();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,13 +32,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 relative">
+      <div className="absolute top-4 right-4">
+        <LanguageToggle />
+      </div>
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <div className="text-center mb-8">
             <Image src="/logo.png" alt="1PWR" width={80} height={80} className="mx-auto mb-3" />
             <h1 className="text-3xl font-bold text-slate-900">1PWR</h1>
-            <p className="text-slate-500 mt-1">Sign in to continue</p>
+            <p className="text-slate-500 mt-1">{t("login.signInContinue")}</p>
           </div>
 
           {/* Destination Toggle */}
@@ -49,7 +55,7 @@ export default function LoginPage() {
                   : "text-slate-600 hover:text-slate-800"
               }`}
             >
-              🚛 Fleet Management
+              🚛 {t("login.fleetManagement")}
             </button>
             <button
               type="button"
@@ -60,25 +66,25 @@ export default function LoginPage() {
                   : "text-slate-600 hover:text-slate-800"
               }`}
             >
-              📋 PR System
+              📋 {t("login.prSystem")}
             </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{t("login.email")}</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
-                placeholder="name@1pwr.com"
+                placeholder={t("login.emailPlaceholder")}
                 required
                 autoComplete="email"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">{t("login.password")}</label>
               <input
                 type="password"
                 value={password}
@@ -106,16 +112,14 @@ export default function LoginPage() {
               } disabled:opacity-50`}
             >
               {isLoading
-                ? "Signing in..."
+                ? t("login.signingIn")
                 : destination === "fleet"
-                  ? "Open Fleet Hub"
-                  : "Open PR System"}
+                  ? t("login.openFleetHub")
+                  : t("login.openPRSystem")}
             </button>
           </form>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
-            Same credentials for both systems
-          </p>
+          <p className="text-center text-xs text-slate-400 mt-6">{t("login.sameCredentials")}</p>
         </div>
       </div>
     </div>

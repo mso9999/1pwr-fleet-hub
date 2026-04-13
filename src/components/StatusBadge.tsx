@@ -2,47 +2,70 @@
 
 import { Badge } from "@/components/ui/badge";
 import type { VehicleStatus, WorkOrderStatus, WorkOrderPriority } from "@/types";
+import { useT } from "@/i18n/locale-context";
 
-const vehicleStatusConfig: Record<string, { label: string; variant: "success" | "info" | "warning" | "destructive" | "secondary" | "default" }> = {
-  operational: { label: "Operational", variant: "success" },
-  deployed: { label: "Deployed", variant: "info" },
-  "maintenance-hq": { label: "Maint. HQ", variant: "warning" },
-  "maintenance-3rdparty": { label: "Maint. 3rd Party", variant: "warning" },
-  "awaiting-parts": { label: "Awaiting Parts", variant: "destructive" },
-  grounded: { label: "Grounded", variant: "destructive" },
-  "written-off": { label: "Written Off", variant: "secondary" },
+const vehicleStatusVariants: Record<
+  string,
+  "success" | "info" | "warning" | "destructive" | "secondary" | "default"
+> = {
+  operational: "success",
+  deployed: "info",
+  "maintenance-hq": "warning",
+  "maintenance-3rdparty": "warning",
+  "awaiting-parts": "destructive",
+  grounded: "destructive",
+  "written-off": "secondary",
 };
 
-const workOrderStatusConfig: Record<string, { label: string; variant: "success" | "info" | "warning" | "destructive" | "secondary" | "default" }> = {
-  submitted: { label: "Submitted", variant: "info" },
-  queued: { label: "Queued", variant: "default" },
-  "in-progress": { label: "In Progress", variant: "warning" },
-  "awaiting-parts": { label: "Awaiting Parts", variant: "destructive" },
-  completed: { label: "Completed", variant: "success" },
-  closed: { label: "Closed", variant: "secondary" },
-  "return-repair": { label: "Return & Repair", variant: "warning" },
-  cancelled: { label: "Cancelled", variant: "secondary" },
-  rejected: { label: "Rejected", variant: "destructive" },
+const workOrderStatusVariants: Record<
+  string,
+  "success" | "info" | "warning" | "destructive" | "secondary" | "default"
+> = {
+  submitted: "info",
+  queued: "default",
+  "in-progress": "warning",
+  "awaiting-parts": "destructive",
+  completed: "success",
+  closed: "secondary",
+  "return-repair": "warning",
+  cancelled: "secondary",
+  rejected: "destructive",
 };
 
-const priorityConfig: Record<string, { label: string; variant: "success" | "info" | "warning" | "destructive" | "secondary" | "default" }> = {
-  critical: { label: "Critical", variant: "destructive" },
-  high: { label: "High", variant: "warning" },
-  medium: { label: "Medium", variant: "info" },
-  low: { label: "Low", variant: "secondary" },
+const priorityVariants: Record<
+  string,
+  "success" | "info" | "warning" | "destructive" | "secondary" | "default"
+> = {
+  critical: "destructive",
+  high: "warning",
+  medium: "info",
+  low: "secondary",
 };
+
+function tr(
+  t: (path: string) => string,
+  kind: "vehicle" | "workOrder" | "priority",
+  key: string
+): string {
+  const path = `status.${kind}.${key}`;
+  const s = t(path);
+  return s === path ? key : s;
+}
 
 export function VehicleStatusBadge({ status }: { status: VehicleStatus }): React.ReactElement {
-  const config = vehicleStatusConfig[status] || { label: status, variant: "default" as const };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  const t = useT();
+  const variant = vehicleStatusVariants[status] ?? "default";
+  return <Badge variant={variant}>{tr(t, "vehicle", status)}</Badge>;
 }
 
 export function WorkOrderStatusBadge({ status }: { status: WorkOrderStatus }): React.ReactElement {
-  const config = workOrderStatusConfig[status] || { label: status, variant: "default" as const };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  const t = useT();
+  const variant = workOrderStatusVariants[status] ?? "default";
+  return <Badge variant={variant}>{tr(t, "workOrder", status)}</Badge>;
 }
 
 export function PriorityBadge({ priority }: { priority: WorkOrderPriority }): React.ReactElement {
-  const config = priorityConfig[priority] || { label: priority, variant: "default" as const };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  const t = useT();
+  const variant = priorityVariants[priority] ?? "default";
+  return <Badge variant={variant}>{tr(t, "priority", priority)}</Badge>;
 }

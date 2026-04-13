@@ -5,7 +5,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
 
-type ExportType = "work-orders" | "vehicles" | "trips" | "cost-summary" | "inspections" | "tco" | "vehicle-checks" | "scheduled-maintenance" | "vehicle-requests";
+type ExportType =
+  | "work-orders"
+  | "vehicles"
+  | "trips"
+  | "cost-summary"
+  | "inspections"
+  | "tco"
+  | "vehicle-checks"
+  | "scheduled-maintenance"
+  | "vehicle-requests"
+  | "personal-vehicle-reimbursements";
 
 export default function ReportsPage(): React.ReactElement {
   const { organizationId } = useAuth();
@@ -59,6 +69,7 @@ export default function ReportsPage(): React.ReactElement {
             ["vehicle-checks", "Driver vehicle checks (pre-deployment)"],
             ["scheduled-maintenance", "Scheduled maintenance (intervals, overdue status)"],
             ["vehicle-requests", "Vehicle allocation requests"],
+            ["personal-vehicle-reimbursements", "Personal vehicle reimbursement claims (finance)"],
           ] as const
         ).map(([type, label]) => (
           <a

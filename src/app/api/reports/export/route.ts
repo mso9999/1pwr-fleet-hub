@@ -252,9 +252,57 @@ export function GET(request: NextRequest): NextResponse {
     `).all(org) as Record<string, unknown>[];
     csv = rowsToCsv(["id","requested_by_name","requested_for","purpose","destination","departure_date","return_date","priority","status","approved_by_name","assigned_vehicle","created_at"], rows);
     filename = `vehicle-requests-${org}.csv`;
+  } else if (type === "personal-vehicle-reimbursements") {
+    let q = `
+      SELECT id, trip_date, requested_by_name, destination, trip_reason, personal_vehicle_justification,
+             rate_band, fee_type, total_km, reimbursement_lsl, currency, status,
+             approved_by_name, approved_at, rejection_reason, finance_reference,
+             pool_operational_count_snapshot, created_at, updated_at
+      FROM personal_vehicle_reimbursement_requests
+      WHERE organization_id = ?
+    `;
+    const params: string[] = [org];
+    if (from) {
+      q += ` AND date(created_at) >= date(?)`;
+      params.push(from);
+    }
+    if (to) {
+      q += ` AND date(created_at) <= date(?)`;
+      params.push(to);
+    }
+    q += ` ORDER BY created_at DESC`;
+    const rows = db.prepare(q).all(...params) as Record<string, unknown>[];
+    csv = rowsToCsv(
+      [
+        "id",
+        "trip_date",
+        "requested_by_name",
+        "destination",
+        "trip_reason",
+        "personal_vehicle_justification",
+        "rate_band",
+        "fee_type",
+        "total_km",
+        "reimbursement_lsl",
+        "currency",
+        "status",
+        "approved_by_name",
+        "approved_at",
+        "rejection_reason",
+        "finance_reference",
+        "pool_operational_count_snapshot",
+        "created_at",
+        "updated_at",
+      ],
+      rows
+    );
+    filename = `personal-vehicle-reimbursements-${org}.csv`;
   } else {
     return NextResponse.json(
-      { error: "Invalid type — use work-orders, vehicles, trips, cost-summary, inspections, tco, vehicle-checks, scheduled-maintenance, or vehicle-requests" },
+      {
+        error:
+          "Invalid type — use work-orders, vehicles, trips, cost-summary, inspections, tco, vehicle-checks, scheduled-maintenance, vehicle-requests, or personal-vehicle-reimbursements",
+      },
       { status: 400 }
     );
   }

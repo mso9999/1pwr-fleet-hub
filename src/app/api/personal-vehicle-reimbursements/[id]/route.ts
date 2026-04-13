@@ -1,0 +1,61 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  const { id } = await params;
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM personal_vehicle_reimbursement_requests WHERE id = ?").get(id);
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(row);
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  const { id } = await params;
+  const db = getDb();
+  const body = await request.json();
+  const now = new Date().toISOString();
+
+  const existing = db.prepare("SELECT * FROM personal_vehicle_reimbursement_requests WHERE id = ?").get(id);
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const allowed: Record<string, string> = {
+    status: "status",
+    approvedById: "approved_by_id",
+    approvedByName: "approved_by_name",
+    rejectionReason: "rejection_reason",
+    financeReference: "finance_reference",
+    notes: "notes",
+  };
+
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  for (const [jsKey, dbCol] of Object.entries(allowed)) {
+    if (body[jsKey] !== undefined) {
+      fields.push(`${dbCol} = ?`);
+      values.push(body[jsKey]);
+    }
+  }
+
+  if (body.status === "approved" || body.status === "rejected") {
+    fields.push("approved_at = ?");
+    values.push(now);
+  }
+
+  if (fields.length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+
+  fields.push("updated_at = ?");
+  values.push(now);
+  values.push(id);
+
+  db.prepare(`UPDATE personal_vehicle_reimbursement_requests SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+
+  const updated = db.prepare("SELECT * FROM personal_vehicle_reimbursement_requests WHERE id = ?").get(id);
+  return NextResponse.json(updated);
+}

@@ -507,6 +507,8 @@ export const MEDIA_CATEGORY = {
   RECEIPT: "receipt",
   INSPECTION: "inspection",
   DOCUMENT: "document",
+  INSURANCE: "insurance",
+  MILEAGE_EVIDENCE: "mileage-evidence",
 } as const;
 
 export type MediaCategory = (typeof MEDIA_CATEGORY)[keyof typeof MEDIA_CATEGORY];

@@ -96,9 +96,83 @@ function migrateVehicleRequestsSchema(db: Database.Database): void {
  * Ensures phase-1 vehicle columns and tables exist. Idempotent and safe to run on every getDb().
  * Fixes "no such column: pool" / "no such table: scheduled_maintenance" when an older DB missed migrations.
  */
+function ensurePersonalVehicleReimbursementTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS personal_vehicle_reimbursement_requests (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      trip_date TEXT NOT NULL DEFAULT '',
+      requested_by_id TEXT NOT NULL DEFAULT '',
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      destination TEXT NOT NULL DEFAULT '',
+      trip_reason TEXT NOT NULL DEFAULT '',
+      personal_vehicle_justification TEXT NOT NULL DEFAULT '',
+      rate_band TEXT NOT NULL,
+      fee_type TEXT NOT NULL,
+      total_km REAL,
+      reimbursement_lsl REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'LSL',
+      rate_snapshot_json TEXT NOT NULL DEFAULT '{}',
+      pool_operational_count_snapshot INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'submitted',
+      approved_by_id TEXT DEFAULT '',
+      approved_by_name TEXT DEFAULT '',
+      approved_at TEXT DEFAULT '',
+      rejection_reason TEXT DEFAULT '',
+      finance_reference TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pvr_org ON personal_vehicle_reimbursement_requests(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_pvr_status ON personal_vehicle_reimbursement_requests(status);
+  `);
+}
+
+function migratePersonalVehicleReimbursementSchema(db: Database.Database): void {
+  const exists = db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='personal_vehicle_reimbursement_requests' LIMIT 1"
+    )
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(personal_vehicle_reimbursement_requests)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["finance_reference", "TEXT DEFAULT ''"],
+    ["notes", "TEXT DEFAULT ''"],
+    ["approved_at", "TEXT DEFAULT ''"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE personal_vehicle_reimbursement_requests ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
+function ensurePvrRateSettingsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pvr_rate_settings (
+      organization_id TEXT PRIMARY KEY,
+      full_per_km_lsl REAL NOT NULL,
+      half_per_km_lsl REAL NOT NULL,
+      hq_basis_km REAL NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by_id TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT ''
+    );
+  `);
+}
+
 function ensurePhase1Schema(db: Database.Database): void {
   ensureVehicleRequestsTable(db);
   migrateVehicleRequestsSchema(db);
+  ensurePersonalVehicleReimbursementTable(db);
+  migratePersonalVehicleReimbursementSchema(db);
+  ensurePvrRateSettingsTable(db);
   migrateVehiclesPhase1(db);
   migrateAssetClassCategories(db);
   migrateFieldIssueTicketing(db);
@@ -443,6 +517,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateAssetClassCategories", () => migrateAssetClassCategories(db)],
     ["migrateFieldIssueTicketing", () => migrateFieldIssueTicketing(db)],
     ["migrateVehicleGpsSnapshots", () => migrateVehicleGpsSnapshots(db)],
+    ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
@@ -526,6 +601,22 @@ function migrateFieldIssueTicketing(db: Database.Database): void {
   }
 
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_field_reports_ticket_uid ON field_issue_reports(ticket_uid)`);
+}
+
+function migrateVehicleCheckOverrideApprovers(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_check_override_approvers (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      hr_user_id INTEGER,
+      hr_employee_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (organization_id, email)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vc_approvers_org ON vehicle_check_override_approvers(organization_id);
+  `);
 }
 
 function migrateVehicleGpsSnapshots(db: Database.Database): void {

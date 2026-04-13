@@ -6,6 +6,20 @@ import { AppShell } from "@/components/AppShell";
 import { TutorialProvider } from "@/components/tutorial/TutorialProvider";
 import { AppVersionConsole } from "@/components/AppVersionConsole";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { LocaleProvider, useLocaleContext } from "@/i18n/locale-context";
+import { LocaleHtmlLang } from "@/components/LocaleHtmlLang";
+
+function AuthLoadingScreen(): React.ReactElement {
+  const { t } = useLocaleContext();
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">{t("common.loading")}</p>
+      </div>
+    </div>
+  );
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,14 +30,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">Loading...</p>
-        </div>
-      </div>
-    );
+    return <AuthLoadingScreen />;
   }
 
   if (!user) {
@@ -42,10 +49,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <AppVersionConsole />
-      <ServiceWorkerRegister />
-      <AuthGate>{children}</AuthGate>
-    </AuthProvider>
+    <LocaleProvider>
+      <LocaleHtmlLang />
+      <AuthProvider>
+        <AppVersionConsole />
+        <ServiceWorkerRegister />
+        <AuthGate>{children}</AuthGate>
+      </AuthProvider>
+    </LocaleProvider>
   );
 }

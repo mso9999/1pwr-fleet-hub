@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { VehicleStatusBadge, WorkOrderStatusBadge, PriorityBadge } from "@/components/StatusBadge";
 import type { VehicleStatus, WorkOrderStatus, WorkOrderPriority } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { useLocaleContext } from "@/i18n/locale-context";
+import { DashboardMetricHint } from "@/components/DashboardMetricHint";
 
 interface Alert {
   type: string;
@@ -60,11 +62,29 @@ interface DashboardData {
   recentActivity: ActivityEvent[];
 }
 
-function KpiCard({ label, value, unit, color }: { label: string; value: string | number; unit?: string; color: string }) {
+function KpiCard({
+  label,
+  value,
+  unit,
+  color,
+  hintKey,
+}: {
+  label: string;
+  value: string | number;
+  unit?: string;
+  color: string;
+  hintKey?: string;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{label}</div>
+        {hintKey ? (
+          <DashboardMetricHint hintKey={hintKey}>
+            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{label}</div>
+          </DashboardMetricHint>
+        ) : (
+          <div className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{label}</div>
+        )}
         <div className={`text-2xl font-bold mt-1 ${color}`}>
           {value}{unit && <span className="text-sm font-normal ml-0.5">{unit}</span>}
         </div>
@@ -73,12 +93,28 @@ function KpiCard({ label, value, unit, color }: { label: string; value: string |
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+  hintKey,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  hintKey?: string;
+}) {
   return (
     <Card>
       <CardContent className="p-3 text-center">
         <div className={`text-2xl font-bold ${color}`}>{value}</div>
-        <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
+        {hintKey ? (
+          <DashboardMetricHint hintKey={hintKey} align="center">
+            <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
+          </DashboardMetricHint>
+        ) : (
+          <div className="text-xs text-zinc-500 mt-0.5">{label}</div>
+        )}
       </CardContent>
     </Card>
   );
@@ -99,6 +135,7 @@ const EVENT_ICONS: Record<string, string> = {
 
 export default function DashboardPage(): React.ReactElement {
   const { organizationId } = useAuth();
+  const { t } = useLocaleContext();
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -110,46 +147,71 @@ export default function DashboardPage(): React.ReactElement {
       .catch(() => setIsLoading(false));
   }, [organizationId]);
 
-  if (isLoading) return <div className="flex items-center justify-center h-64 text-zinc-500">Loading dashboard…</div>;
-  if (!data) return <div className="flex items-center justify-center h-64 text-red-500">Failed to load dashboard</div>;
+  if (isLoading) return <div className="flex items-center justify-center h-64 text-zinc-500">{t("common.loadingDashboard")}</div>;
+  if (!data) return <div className="flex items-center justify-center h-64 text-red-500">{t("common.failedDashboard")}</div>;
 
   return (
     <div className="space-y-6">
       {/* Header + KPI row */}
       <div>
-        <h2 className="text-2xl font-bold text-zinc-900">Fleet Overview</h2>
-        <p className="text-sm text-zinc-500">Real-time fleet status, KPIs, and alerts</p>
+        <h2 className="text-2xl font-bold text-zinc-900">{t("dashboard.fleetOverview")}</h2>
+        <p className="text-sm text-zinc-500">{t("dashboard.subtitle")}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" data-tutorial="tutorial-dashboard-kpis">
         <KpiCard
-          label="Fleet Uptime"
+          label={t("dashboard.fleetUptime")}
           value={data.fleetUptimePct}
           unit="%"
           color={data.fleetUptimePct >= 70 ? "text-emerald-600" : data.fleetUptimePct >= 50 ? "text-amber-600" : "text-red-600"}
+          hintKey="fleetUptime"
         />
-        <KpiCard label="MTTR" value={data.avgRepairDays} unit="days" color="text-zinc-900" />
-        <KpiCard label="MTBF" value={data.mtbfDays} unit="days" color="text-zinc-900" />
-        <KpiCard label="Open WOs" value={data.openWorkOrders} color={data.openWorkOrders > 10 ? "text-red-600" : "text-zinc-900"} />
-        <KpiCard label="Active Trips" value={data.activeTrips.length} color="text-blue-600" />
+        <KpiCard
+          label={t("dashboard.mttr")}
+          value={data.avgRepairDays}
+          unit={t("dashboard.daysUnit")}
+          color="text-zinc-900"
+          hintKey="mttr"
+        />
+        <KpiCard
+          label={t("dashboard.mtbf")}
+          value={data.mtbfDays}
+          unit={t("dashboard.daysUnit")}
+          color="text-zinc-900"
+          hintKey="mtbf"
+        />
+        <KpiCard
+          label={t("dashboard.openWOs")}
+          value={data.openWorkOrders}
+          color={data.openWorkOrders > 10 ? "text-red-600" : "text-zinc-900"}
+          hintKey="openWOs"
+        />
+        <KpiCard
+          label={t("dashboard.activeTrips")}
+          value={data.activeTrips.length}
+          color="text-blue-600"
+          hintKey="activeTrips"
+        />
       </div>
 
       {/* Vehicle status grid */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" data-tutorial="tutorial-dashboard-status">
-        <StatCard label="Total" value={data.totalVehicles} color="text-zinc-900" />
-        <StatCard label="Operational" value={data.operational} color="text-emerald-600" />
-        <StatCard label="Deployed" value={data.deployed} color="text-blue-600" />
-        <StatCard label="Maint. HQ" value={data.maintenanceHq} color="text-amber-600" />
-        <StatCard label="Maint. 3rd" value={data.maintenance3rd} color="text-amber-500" />
-        <StatCard label="Awaiting Parts" value={data.awaitingParts} color="text-red-600" />
-        <StatCard label="Grounded" value={data.grounded} color="text-red-800" />
+        <StatCard label={t("dashboard.total")} value={data.totalVehicles} color="text-zinc-900" />
+        <StatCard label={t("dashboard.operational")} value={data.operational} color="text-emerald-600" />
+        <StatCard label={t("dashboard.deployed")} value={data.deployed} color="text-blue-600" />
+        <StatCard label={t("dashboard.maintHq")} value={data.maintenanceHq} color="text-amber-600" hintKey="maintHq" />
+        <StatCard label={t("dashboard.maint3rd")} value={data.maintenance3rd} color="text-amber-500" hintKey="maint3rd" />
+        <StatCard label={t("dashboard.awaitingParts")} value={data.awaitingParts} color="text-red-600" />
+        <StatCard label={t("dashboard.grounded")} value={data.grounded} color="text-red-800" />
       </div>
 
       {/* Alerts panel */}
       {data.alerts.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Alerts ({data.alerts.length})</CardTitle>
+            <CardTitle className="text-base">
+              {t("dashboard.alerts")} ({data.alerts.length})
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {data.alerts.map((alert, i) => (
@@ -166,13 +228,15 @@ export default function DashboardPage(): React.ReactElement {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle>Active Trips ({data.activeTrips.length})</CardTitle>
-              <Link href="/trips" className="text-sm text-blue-600 hover:underline">View all</Link>
+              <CardTitle>
+                {t("dashboard.activeTripsTitle")} ({data.activeTrips.length})
+              </CardTitle>
+              <Link href="/trips" className="text-sm text-blue-600 hover:underline">{t("dashboard.viewAll")}</Link>
             </div>
           </CardHeader>
           <CardContent>
             {data.activeTrips.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4 text-center">No active trips</p>
+              <p className="text-sm text-zinc-500 py-4 text-center">{t("dashboard.noActiveTrips")}</p>
             ) : (
               <div className="space-y-2">
                 {data.activeTrips.map((trip) => (
@@ -184,10 +248,15 @@ export default function DashboardPage(): React.ReactElement {
                       </div>
                       <div className="text-xs text-zinc-500 mt-0.5">
                         {trip.driver_name} · {new Date(trip.checkout_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        {trip.expected_return_at && <span> · Return: {new Date(trip.expected_return_at).toLocaleDateString()}</span>}
+                        {trip.expected_return_at && (
+                          <span>
+                            {" "}
+                            · {t("dashboard.returnLabel")}: {new Date(trip.expected_return_at).toLocaleDateString()}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    {trip.mission_priority === "high" && <Badge variant="destructive">High</Badge>}
+                    {trip.mission_priority === "high" && <Badge variant="destructive">{t("dashboard.high")}</Badge>}
                   </div>
                 ))}
               </div>
@@ -199,13 +268,15 @@ export default function DashboardPage(): React.ReactElement {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle>Open Work Orders ({data.openWorkOrders})</CardTitle>
-              <Link href="/work-orders" className="text-sm text-blue-600 hover:underline">View all</Link>
+              <CardTitle>
+                {t("dashboard.openWorkOrdersTitle")} ({data.openWorkOrders})
+              </CardTitle>
+              <Link href="/work-orders" className="text-sm text-blue-600 hover:underline">{t("dashboard.viewAll")}</Link>
             </div>
           </CardHeader>
           <CardContent>
             {data.recentWorkOrders.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4 text-center">No open work orders</p>
+              <p className="text-sm text-zinc-500 py-4 text-center">{t("dashboard.noOpenWorkOrders")}</p>
             ) : (
               <div className="space-y-2">
                 {data.recentWorkOrders.map((wo) => (
@@ -223,7 +294,8 @@ export default function DashboardPage(): React.ReactElement {
                     </div>
                     <div className="text-right shrink-0 ml-2">
                       <div className={`text-sm font-bold ${wo.days_open > 7 ? "text-red-600" : wo.days_open > 3 ? "text-amber-600" : "text-zinc-600"}`}>
-                        {wo.days_open}d
+                        {wo.days_open}
+                        {t("dashboard.daysShort")}
                       </div>
                     </div>
                   </div>
@@ -238,7 +310,7 @@ export default function DashboardPage(): React.ReactElement {
       {data.recentActivity && data.recentActivity.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Recent Activity (7 days)</CardTitle>
+            <CardTitle className="text-base">{t("dashboard.recentActivity")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1.5 max-h-80 overflow-y-auto">
@@ -264,8 +336,8 @@ export default function DashboardPage(): React.ReactElement {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle>All Vehicles</CardTitle>
-            <Link href="/vehicles" className="text-sm text-blue-600 hover:underline">Manage</Link>
+            <CardTitle>{t("dashboard.allVehicles")}</CardTitle>
+            <Link href="/vehicles" className="text-sm text-blue-600 hover:underline">{t("dashboard.manage")}</Link>
           </div>
         </CardHeader>
         <CardContent>
@@ -278,6 +350,7 @@ export default function DashboardPage(): React.ReactElement {
 
 function VehicleQuickList() {
   const { organizationId } = useAuth();
+  const { t } = useLocaleContext();
   const [vehicles, setVehicles] = useState<Array<{
     id: string;
     code: string;
@@ -294,7 +367,7 @@ function VehicleQuickList() {
       .catch(() => {});
   }, [organizationId]);
 
-  if (vehicles.length === 0) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (vehicles.length === 0) return <p className="text-sm text-zinc-500">{t("common.loadingEllipsis")}</p>;
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">

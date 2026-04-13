@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { VehicleCheckApproversAdmin } from "@/components/VehicleCheckApproversAdmin";
 
 interface RefItem {
   id: string;
@@ -157,6 +158,8 @@ export default function AdminPage() {
           {syncMessage}
         </p>
       )}
+
+      <VehicleCheckApproversAdmin organizationId={organizationId} />
 
       {/* Type selector */}
       <div className="flex gap-2 flex-wrap">

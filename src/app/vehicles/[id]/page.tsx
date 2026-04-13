@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,10 @@ import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, TRACKER_STATUS, assetC
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
 import { MediaUpload } from "@/components/MediaUpload";
 import { VehicleDashboardTabs } from "@/components/VehicleDashboardTabs";
+import { CreateWorkOrderForm } from "@/components/CreateWorkOrderForm";
+import { PriorityBadge } from "@/components/StatusBadge";
+import type { WorkOrderPriority } from "@/types";
+import { useAuth } from "@/lib/auth-context";
 
 interface VehicleDetail {
   id: string;
@@ -68,9 +72,45 @@ const TRACKER_STATUS_COLORS: Record<string, string> = {
   unknown: "bg-yellow-100 text-yellow-800",
 };
 
+const WO_STATUS_COLORS: Record<string, string> = {
+  submitted: "bg-blue-100 text-blue-800",
+  queued: "bg-indigo-100 text-indigo-800",
+  "in-progress": "bg-amber-100 text-amber-800",
+  "awaiting-parts": "bg-red-100 text-red-800",
+  completed: "bg-emerald-100 text-emerald-800",
+  closed: "bg-zinc-200 text-zinc-700",
+  "return-repair": "bg-orange-100 text-orange-800",
+  cancelled: "bg-zinc-100 text-zinc-500",
+  rejected: "bg-red-200 text-red-900",
+};
+
+interface VehicleWorkOrderRow {
+  id: string;
+  title: string;
+  status: string;
+  priority: WorkOrderPriority;
+  assigned_to: string;
+  total_cost: number;
+  downtime_start: string;
+  created_at: string;
+}
+
+function buildVehicleWorkOrderRemarks(v: VehicleDetail): string {
+  const lines = [
+    `Vehicle: ${v.code} — ${v.make} ${v.model}${v.year ? ` (${v.year})` : ""}`,
+    v.license_plate ? `License plate: ${v.license_plate}` : null,
+    v.vin ? `VIN: ${v.vin}` : null,
+    `Engine: ${v.engine_number || "—"}`,
+    `Home / current location: ${v.home_location} / ${v.current_location}`,
+    `Asset class: ${v.asset_class}`,
+  ].filter(Boolean) as string[];
+  return lines.join("\n");
+}
+
 export default function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }): React.ReactElement {
   const { id } = use(params);
   const router = useRouter();
+  const { organizationId } = useAuth();
   const [vehicle, setVehicle] = useState<VehicleDetail | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingTracker, setIsEditingTracker] = useState(false);
@@ -79,6 +119,30 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   const [isLoadingReports, setIsLoadingReports] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateMsg, setGenerateMsg] = useState("");
+  const [workOrders, setWorkOrders] = useState<VehicleWorkOrderRow[]>([]);
+  const [workOrdersLoading, setWorkOrdersLoading] = useState(false);
+  const [showCreateWorkOrder, setShowCreateWorkOrder] = useState(false);
+
+  const loadWorkOrders = useCallback(() => {
+    setWorkOrdersLoading(true);
+    const params = new URLSearchParams();
+    params.set("org", organizationId);
+    params.set("vehicleId", id);
+    fetch(`/api/work-orders?${params}`)
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        setWorkOrders(Array.isArray(d) ? (d as VehicleWorkOrderRow[]) : []);
+        setWorkOrdersLoading(false);
+      })
+      .catch(() => {
+        setWorkOrders([]);
+        setWorkOrdersLoading(false);
+      });
+  }, [id, organizationId]);
+
+  useEffect(() => {
+    loadWorkOrders();
+  }, [loadWorkOrders]);
 
   useEffect(() => {
     fetch(`/api/vehicles/${id}`)
@@ -197,6 +261,64 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       <VehicleDashboardTabs vehicleId={vehicle.id} vehicleCode={vehicle.code} />
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Work orders</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateWorkOrder((s) => !s)}>
+              {showCreateWorkOrder ? "Cancel" : "+ New work order"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showCreateWorkOrder && (
+            <CreateWorkOrderForm
+              vehicles={[{ id: vehicle.id, code: vehicle.code, make: vehicle.make, model: vehicle.model }]}
+              organizationId={organizationId}
+              defaultVehicleId={vehicle.id}
+              lockVehicle
+              defaultRemarks={buildVehicleWorkOrderRemarks(vehicle)}
+              onCreated={() => {
+                setShowCreateWorkOrder(false);
+                loadWorkOrders();
+              }}
+              onCancel={() => setShowCreateWorkOrder(false)}
+            />
+          )}
+          {workOrdersLoading ? (
+            <p className="text-sm text-zinc-500">Loading work orders…</p>
+          ) : workOrders.length === 0 ? (
+            <p className="text-sm text-zinc-500">No work orders for this vehicle yet.</p>
+          ) : (
+            <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
+              {workOrders.map((wo) => (
+                <li key={wo.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-sm hover:bg-zinc-50/80">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-zinc-900 truncate">{wo.title}</div>
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${WO_STATUS_COLORS[wo.status] || "bg-zinc-100 text-zinc-700"}`}>
+                        {wo.status}
+                      </span>
+                      <PriorityBadge priority={wo.priority} />
+                      {wo.assigned_to ? <span className="text-xs text-zinc-500">{wo.assigned_to}</span> : null}
+                      {wo.total_cost > 0 ? (
+                        <span className="text-xs text-zinc-500">· R{wo.total_cost.toFixed(0)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-zinc-400">{new Date(wo.created_at).toLocaleDateString()}</span>
+                    <Button type="button" variant="outline" size="sm" onClick={() => router.push(`/work-orders?open=${wo.id}`)}>
+                      Open
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

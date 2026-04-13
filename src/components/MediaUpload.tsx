@@ -23,6 +23,8 @@ interface MediaUploadProps {
   entityId: string;
   uploadedByName?: string;
   uploadedById?: string;
+  /** Pre-select category for uploads (e.g. insurance vs mileage evidence). */
+  defaultCategory?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -39,13 +41,13 @@ function fileUrl(a: Attachment): string {
   return `/uploads/${a.entity_type}/${a.entity_id}/${a.file_name}`;
 }
 
-export function MediaUpload({ entityType, entityId, uploadedByName = "", uploadedById = "" }: MediaUploadProps): React.ReactElement {
+export function MediaUpload({ entityType, entityId, uploadedByName = "", uploadedById = "", defaultCategory = "general" }: MediaUploadProps): React.ReactElement {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [caption, setCaption] = useState("");
-  const [category, setCategory] = useState("general");
+  const [category, setCategory] = useState(defaultCategory);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 

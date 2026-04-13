@@ -10,40 +10,27 @@
  * 6. If Firestore is unreachable, the function returns gracefully with an error flag.
  */
 
-import { initializeApp, cert, getApps, type App } from "firebase-admin/app";
 import {
   getFirestore,
   type Firestore,
   type QuerySnapshot,
 } from "firebase-admin/firestore";
 import { getDb } from "./db";
-import fs from "fs";
+import { getFleetAdminApp } from "./firebase-admin-init";
 
-const SERVICE_ACCOUNT_PATH =
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "";
-
-let adminApp: App | null = null;
 let adminFirestore: Firestore | null = null;
 
 function getAdminFirestore(): Firestore | null {
   if (adminFirestore) return adminFirestore;
-
-  if (!SERVICE_ACCOUNT_PATH || !fs.existsSync(SERVICE_ACCOUNT_PATH)) {
+  const app = getFleetAdminApp();
+  if (!app) {
     console.warn(
       "[firestore-sync] FIREBASE_SERVICE_ACCOUNT_PATH not set or file missing — sync disabled"
     );
     return null;
   }
-
   try {
-    const existing = getApps();
-    if (existing.length > 0 && existing.find((a) => a?.name === "fleet-sync")) {
-      adminApp = existing.find((a) => a?.name === "fleet-sync")!;
-    } else {
-      const sa = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, "utf-8"));
-      adminApp = initializeApp({ credential: cert(sa) }, "fleet-sync");
-    }
-    adminFirestore = getFirestore(adminApp);
+    adminFirestore = getFirestore(app);
     return adminFirestore;
   } catch (err) {
     console.error("[firestore-sync] Failed to initialize Firebase Admin:", err);

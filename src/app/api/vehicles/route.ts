@@ -7,6 +7,9 @@ export function GET(request: NextRequest): NextResponse {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const assetClass = searchParams.get("assetClass");
+  const pool = searchParams.get("pool");
+  const currentLocation = searchParams.get("currentLocation");
+  const homeLocation = searchParams.get("homeLocation");
 
   const org = searchParams.get("org") || "1pwr_lesotho";
 
@@ -20,6 +23,18 @@ export function GET(request: NextRequest): NextResponse {
   if (assetClass) {
     query += " AND asset_class = ?";
     params.push(assetClass);
+  }
+  if (pool) {
+    query += " AND pool = ?";
+    params.push(pool);
+  }
+  if (currentLocation) {
+    query += " AND current_location = ?";
+    params.push(currentLocation);
+  }
+  if (homeLocation) {
+    query += " AND home_location = ?";
+    params.push(homeLocation);
   }
 
   query += " ORDER BY code ASC";

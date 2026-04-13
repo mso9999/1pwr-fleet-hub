@@ -24,36 +24,139 @@ interface VehicleRow {
   status: VehicleStatus;
 }
 
+interface VehicleFilterOptions {
+  assetClasses: string[];
+  currentLocations: string[];
+  homeLocations: string[];
+  pools: string[];
+}
+
 export default function VehiclesPage(): React.ReactElement {
   const { organizationId } = useAuth();
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterAssetClass, setFilterAssetClass] = useState("");
+  const [filterPool, setFilterPool] = useState("");
+  const [filterCurrentLocation, setFilterCurrentLocation] = useState("");
+  const [filterHomeLocation, setFilterHomeLocation] = useState("");
+  const [filterOptions, setFilterOptions] = useState<VehicleFilterOptions>({
+    assetClasses: [],
+    currentLocations: [],
+    homeLocations: [],
+    pools: [],
+  });
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   const loadVehicles = useCallback(() => {
     const params = new URLSearchParams();
     params.set("org", organizationId);
     if (filterStatus) params.set("status", filterStatus);
+    if (filterAssetClass) params.set("assetClass", filterAssetClass);
+    if (filterPool) params.set("pool", filterPool);
+    if (filterCurrentLocation) params.set("currentLocation", filterCurrentLocation);
+    if (filterHomeLocation) params.set("homeLocation", filterHomeLocation);
     fetch(`/api/vehicles?${params}`)
       .then((r) => r.json())
       .then((d) => { setVehicles(d); setIsLoading(false); })
       .catch(() => setIsLoading(false));
-  }, [filterStatus, organizationId]);
+  }, [
+    filterStatus,
+    filterAssetClass,
+    filterPool,
+    filterCurrentLocation,
+    filterHomeLocation,
+    organizationId,
+  ]);
 
   useEffect(() => { loadVehicles(); }, [loadVehicles]);
+
+  useEffect(() => {
+    fetch(`/api/vehicles/filter-options?org=${encodeURIComponent(organizationId)}`)
+      .then((r) => r.json())
+      .then((d: VehicleFilterOptions) => {
+        setFilterOptions({
+          assetClasses: Array.isArray(d.assetClasses) ? d.assetClasses : [],
+          currentLocations: Array.isArray(d.currentLocations) ? d.currentLocations : [],
+          homeLocations: Array.isArray(d.homeLocations) ? d.homeLocations : [],
+          pools: Array.isArray(d.pools) ? d.pools : [],
+        });
+      })
+      .catch(() => {});
+  }, [organizationId]);
+
+  const hasActiveFilters =
+    !!filterStatus ||
+    !!filterAssetClass ||
+    !!filterPool ||
+    !!filterCurrentLocation ||
+    !!filterHomeLocation;
+
+  function clearFilters(): void {
+    setFilterStatus("");
+    setFilterAssetClass("");
+    setFilterPool("");
+    setFilterCurrentLocation("");
+    setFilterHomeLocation("");
+  }
+
+  const assetClassFilterOptions =
+    filterOptions.assetClasses.length > 0
+      ? filterOptions.assetClasses
+      : (Object.values(ASSET_CLASS) as string[]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3" data-tutorial="tutorial-vehicles-header">
-        <div className="flex items-center gap-3">
-          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-            <option value="">All Statuses</option>
+        <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+          <Select label="Status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="min-w-[140px]">
+            <option value="">All</option>
             {Object.values(VEHICLE_STATUS).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </Select>
-          <span className="text-sm text-zinc-500">{vehicles.length} vehicles</span>
+          <Select label="Category" value={filterAssetClass} onChange={(e) => setFilterAssetClass(e.target.value)} className="min-w-[180px]">
+            <option value="">All</option>
+            {assetClassFilterOptions.map((c) => (
+              <option key={c} value={c}>{assetClassLabel(c)}</option>
+            ))}
+          </Select>
+          <Select
+            label="Current location"
+            value={filterCurrentLocation}
+            onChange={(e) => setFilterCurrentLocation(e.target.value)}
+            className="min-w-[140px]"
+          >
+            <option value="">All</option>
+            {filterOptions.currentLocations.map((loc) => (
+              <option key={loc} value={loc}>{loc}</option>
+            ))}
+          </Select>
+          <Select
+            label="Home location"
+            value={filterHomeLocation}
+            onChange={(e) => setFilterHomeLocation(e.target.value)}
+            className="min-w-[140px]"
+          >
+            <option value="">All</option>
+            {filterOptions.homeLocations.map((loc) => (
+              <option key={loc} value={loc}>{loc}</option>
+            ))}
+          </Select>
+          {filterOptions.pools.length > 0 && (
+            <Select label="Pool" value={filterPool} onChange={(e) => setFilterPool(e.target.value)} className="min-w-[120px]">
+              <option value="">All</option>
+              {filterOptions.pools.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </Select>
+          )}
+          {hasActiveFilters && (
+            <Button type="button" variant="outline" size="sm" className="mb-0.5" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          )}
+          <span className="text-sm text-zinc-500 pb-2 sm:ml-1">{vehicles.length} vehicles</span>
         </div>
         <span data-tutorial="tutorial-vehicles-add">
           <Button onClick={() => setIsAddOpen(!isAddOpen)}>

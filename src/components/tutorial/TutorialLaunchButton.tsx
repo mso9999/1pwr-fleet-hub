@@ -1,9 +1,11 @@
 "use client";
 
+import { useLocaleContext } from "@/i18n/locale-context";
 import { useTutorial } from "./tutorial-context";
 
 export function TutorialLaunchButton({ className }: { className?: string }): React.ReactElement {
   const { active, start } = useTutorial();
+  const { t } = useLocaleContext();
   if (active) return <></>;
   return (
     <button
@@ -14,7 +16,7 @@ export function TutorialLaunchButton({ className }: { className?: string }): Rea
         "text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
       }
     >
-      Tutorial mode
+      {t("tutorial.mode")}
     </button>
   );
 }

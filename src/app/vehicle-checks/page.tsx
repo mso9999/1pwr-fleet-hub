@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import { auth } from "@/lib/firebase";
 import { DriverVehicleCheckForm } from "@/components/DriverVehicleCheckForm";
 
 interface VehicleOption {
@@ -143,11 +144,42 @@ function CheckCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [approveGate, setApproveGate] = useState<boolean | null>(null);
 
   const failCount = STATUS_KEYS.filter((k) => check[k] === "fail").length;
   const missingEquip = EQUIP_KEYS.filter((k) => check[k] === 0).length;
   const needsApproval = check.has_exceptions === 1 && check.exception_approved === 0;
-  const canApprove = user && (user.role === "fleet_lead" || user.role === "manager" || user.role === "admin");
+  const roleCanApprove =
+    !!user &&
+    (user.role === "fleet_lead" || user.role === "manager" || user.role === "admin");
+  const canApprove =
+    approveGate !== null ? approveGate : roleCanApprove;
+
+  useEffect(() => {
+    if (!user) {
+      setApproveGate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch(
+          `/api/me/vehicle-check-can-approve?org=${encodeURIComponent(organizationId)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { canApprove?: boolean };
+        if (!cancelled) setApproveGate(!!data.canApprove);
+      } catch {
+        if (!cancelled) setApproveGate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, organizationId]);
 
   async function handleDelete() {
     if (!window.confirm("Delete this vehicle check permanently?")) return;
@@ -162,9 +194,13 @@ function CheckCard({
 
   async function handleApprove() {
     setIsApproving(true);
+    const token = await auth.currentUser?.getIdToken();
     const res = await fetch(`/api/driver-vehicle-checks/${check.id}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         approvedBy: user?.name || user?.email || "",
         approvalMethod: "in-app",

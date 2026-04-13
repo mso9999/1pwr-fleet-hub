@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { canApproveVehicleCheckExceptions } from "@/lib/vehicle-check-approvers";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const db = getDb();
   const body = await request.json();
@@ -16,6 +23,16 @@ export async function POST(
 
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const orgId = String(existing.organization_id ?? "1pwr_lesotho");
+  if (
+    !canApproveVehicleCheckExceptions(db, orgId, user.email, user.role)
+  ) {
+    return NextResponse.json(
+      { error: "Not authorized to approve vehicle check exceptions" },
+      { status: 403 }
+    );
   }
 
   if (!existing.has_exceptions) {

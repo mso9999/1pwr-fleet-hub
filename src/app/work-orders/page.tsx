@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { WorkOrderStatusBadge, PriorityBadge } from "@/components/StatusBadge";
-import { WORK_ORDER_STATUS, WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
+import { WORK_ORDER_STATUS, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import type { WorkOrderStatus, WorkOrderPriority } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { MediaUpload } from "@/components/MediaUpload";
+import {
+  CreateWorkOrderForm,
+  WORK_ORDER_MECHANICS,
+  WORK_ORDER_THIRD_PARTY_SHOPS,
+  type VehicleOption,
+} from "@/components/CreateWorkOrderForm";
 
 interface WorkOrderRow {
   id: string;
@@ -75,16 +82,6 @@ interface WorkOrderDetail extends WorkOrderRow {
   parts: Array<{ id: string; description: string; quantity: number; unit_cost: number; supplier: string; pr_status: string }>;
 }
 
-interface VehicleOption {
-  id: string;
-  code: string;
-  make: string;
-  model: string;
-}
-
-const MECHANICS = ["Tebesi", "Kola", "Thene", "Molefe", "Khanare", "Seutloali", "Kubutu", "Kelebone"];
-const THIRD_PARTY_SHOPS = ["BFN", "Delter", "ECU Express Germiston", "John Williams", "Midas", "Lesotho Nissan", "Selematsela", "KET"];
-
 const VALID_TRANSITIONS: Record<string, string[]> = {
   "submitted": ["queued", "rejected", "cancelled"],
   "queued": ["in-progress", "cancelled"],
@@ -109,14 +106,20 @@ const STATUS_COLORS: Record<string, string> = {
   "rejected": "bg-red-200 text-red-900",
 };
 
-export default function WorkOrdersPage(): React.ReactElement {
+function WorkOrdersPageContent(): React.ReactElement {
   const { organizationId } = useAuth();
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<WorkOrderRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const open = searchParams.get("open");
+    if (open) setSelectedId(open);
+  }, [searchParams]);
 
   const loadOrders = useCallback(() => {
     const params = new URLSearchParams();
@@ -209,6 +212,14 @@ export default function WorkOrdersPage(): React.ReactElement {
         </div>
       )}
     </div>
+  );
+}
+
+export default function WorkOrdersPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div className="text-zinc-500 text-center py-12">Loading...</div>}>
+      <WorkOrdersPageContent />
+    </Suspense>
   );
 }
 
@@ -459,7 +470,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
           </Select>
           <Select label="Assigned To" value={detail.assigned_to} onChange={(e) => updateField("assignedTo", e.target.value)}>
             <option value="">Unassigned</option>
-            {MECHANICS.map((m) => (
+            {WORK_ORDER_MECHANICS.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </Select>
@@ -471,7 +482,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
           {detail.repair_location === "3rd-party" && (
             <Select label="3rd Party Shop" value={detail.third_party_shop} onChange={(e) => updateField("thirdPartyShop", e.target.value)}>
               <option value="">Select shop...</option>
-              {THIRD_PARTY_SHOPS.map((s) => (
+              {WORK_ORDER_THIRD_PARTY_SHOPS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </Select>
@@ -511,7 +522,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
             <form onSubmit={addLabor} className="grid gap-2 sm:grid-cols-5 mb-3 p-3 bg-white rounded-lg border">
               <Select name="workerName" label="Worker" required>
                 <option value="">Select...</option>
-                {MECHANICS.map((m) => <option key={m} value={m}>{m}</option>)}
+                {WORK_ORDER_MECHANICS.map((m) => <option key={m} value={m}>{m}</option>)}
               </Select>
               <Input name="hours" label="Hours" type="number" step="0.5" min="0" required placeholder="8" />
               <Input name="ratePerHour" label="Rate/hr (LSL)" type="number" step="1" placeholder="0" />
@@ -716,114 +727,6 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
           Created: {new Date(detail.created_at).toLocaleDateString()} · Downtime: {new Date(detail.downtime_start).toLocaleDateString()}
           {detail.downtime_end && ` — ${new Date(detail.downtime_end).toLocaleDateString()}`}
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function CreateWorkOrderForm({ vehicles, organizationId, onCreated, onCancel }: {
-  vehicles: VehicleOption[];
-  organizationId: string;
-  onCreated: () => void;
-  onCancel: () => void;
-}): React.ReactElement {
-  const { user } = useAuth();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [repairLoc, setRepairLoc] = useState("hq");
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const fd = new FormData(e.currentTarget);
-    const body = {
-      organizationId,
-      vehicleId: fd.get("vehicleId"),
-      title: fd.get("title"),
-      description: fd.get("description"),
-      type: fd.get("type"),
-      priority: fd.get("priority"),
-      assignedTo: fd.get("assignedTo"),
-      repairLocation: fd.get("repairLocation"),
-      thirdPartyShop: fd.get("thirdPartyShop") || "",
-      remarks: fd.get("remarks"),
-      reportedBy: user?.name || "",
-      reportedById: user?.id || "",
-    };
-
-    const res = await fetch("/api/work-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) onCreated();
-    else setIsSubmitting(false);
-  }
-
-  return (
-    <Card className="border-amber-200 bg-amber-50/30">
-      <CardHeader><CardTitle>New Work Order</CardTitle></CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
-          <Select name="vehicleId" label="Vehicle *" required>
-            <option value="">Select vehicle...</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-            ))}
-          </Select>
-          <Input name="title" label="Title *" required placeholder="e.g. Engine rebuild" />
-          <div className="sm:col-span-2">
-            <label className="text-sm font-medium text-zinc-700">Description</label>
-            <textarea
-              name="description"
-              rows={2}
-              className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-              placeholder="Detailed description of the issue and work needed"
-            />
-          </div>
-          <Select name="type" label="Type *" required>
-            {Object.values(WORK_ORDER_TYPE).map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </Select>
-          <Select name="priority" label="Priority *" required>
-            {Object.values(WORK_ORDER_PRIORITY).map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </Select>
-          <Select name="assignedTo" label="Assign To">
-            <option value="">Unassigned</option>
-            {MECHANICS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
-          <Select name="repairLocation" label="Repair Location" value={repairLoc} onChange={(e) => setRepairLoc(e.target.value)}>
-            {Object.values(REPAIR_LOCATION).map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </Select>
-          {repairLoc === "3rd-party" && (
-            <Select name="thirdPartyShop" label="3rd Party Shop">
-              <option value="">Select shop...</option>
-              {THIRD_PARTY_SHOPS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </Select>
-          )}
-          <div className="sm:col-span-2">
-            <label className="text-sm font-medium text-zinc-700">Remarks</label>
-            <textarea
-              name="remarks"
-              rows={2}
-              className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-            />
-          </div>
-          <div className="sm:col-span-2 flex gap-3">
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Submit Work Order"}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-          </div>
-        </form>
       </CardContent>
     </Card>
   );

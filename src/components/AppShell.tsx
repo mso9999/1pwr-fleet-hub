@@ -8,26 +8,44 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { navDataTutorialHref } from "@/lib/tutorial-steps";
 import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
+import { useLocaleContext } from "@/i18n/locale-context";
+import { LanguageToggle } from "@/components/LanguageToggle";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: "grid" },
-  { href: "/map", label: "Fleet Map", icon: "map" },
-  { href: "/vehicles", label: "Vehicles", icon: "truck" },
-  { href: "/trips", label: "Trips", icon: "route" },
-  { href: "/vehicle-checks", label: "Vehicle Checks", icon: "shield" },
-  { href: "/work-orders", label: "Work Orders", icon: "wrench" },
-  { href: "/maintenance", label: "Maintenance", icon: "calendar" },
-  { href: "/mechanics", label: "Mechanics", icon: "users" },
-  { href: "/triage", label: "Triage", icon: "scale" },
-  { href: "/vehicle-requests", label: "Requests", icon: "inbox" },
-  { href: "/daily-update", label: "Daily Update", icon: "document" },
-  { href: "/tco", label: "TCO & Analytics", icon: "trending" },
-  { href: "/reports", label: "Reports", icon: "chart" },
-  { href: "/inspections", label: "Inspections", icon: "clipboard" },
-  { href: "/guide", label: "User guide", icon: "book" },
-  { href: "/report-issue", label: "Report Issue", icon: "alert" },
-  { href: "/admin", label: "Admin", icon: "settings" },
-];
+  { href: "/", labelKey: "nav.dashboard", icon: "grid" },
+  { href: "/map", labelKey: "nav.fleetMap", icon: "map" },
+  { href: "/vehicles", labelKey: "nav.vehicles", icon: "truck" },
+  { href: "/trips", labelKey: "nav.trips", icon: "route" },
+  { href: "/vehicle-checks", labelKey: "nav.vehicleChecks", icon: "shield" },
+  { href: "/work-orders", labelKey: "nav.workOrders", icon: "wrench" },
+  { href: "/maintenance", labelKey: "nav.maintenance", icon: "calendar" },
+  { href: "/mechanics", labelKey: "nav.mechanics", icon: "users" },
+  { href: "/triage", labelKey: "nav.triage", icon: "scale" },
+  { href: "/vehicle-requests", labelKey: "nav.requests", icon: "inbox" },
+  {
+    href: "/personal-vehicle-reimbursement",
+    labelKey: "nav.personalVehicleReimbursement",
+    icon: "wallet",
+  },
+  { href: "/daily-update", labelKey: "nav.dailyUpdate", icon: "document" },
+  { href: "/tco", labelKey: "nav.tcoAnalytics", icon: "trending" },
+  { href: "/reports", labelKey: "nav.reports", icon: "chart" },
+  { href: "/inspections", labelKey: "nav.inspections", icon: "clipboard" },
+  { href: "/guide", labelKey: "nav.userGuide", icon: "book" },
+  { href: "/report-issue", labelKey: "nav.reportIssue", icon: "alert" },
+  { href: "/admin", labelKey: "nav.admin", icon: "settings" },
+] as const;
+
+function navItemMatchesPath(
+  pathname: string,
+  item: (typeof NAV_ITEMS)[number]
+): boolean {
+  return (
+    item.href === pathname ||
+    (item.href !== "/" &&
+      (item.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(item.href)))
+  );
+}
 
 function NavIcon({ icon, className }: { icon: string; className?: string }): React.ReactElement {
   const c = cn("w-5 h-5", className);
@@ -81,6 +99,12 @@ function NavIcon({ icon, className }: { icon: string; className?: string }): Rea
       return (
         <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+        </svg>
+      );
+    case "wallet":
+      return (
+        <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
         </svg>
       );
     case "trending":
@@ -149,10 +173,32 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const { user, organizationId, setOrganizationId, signOut } = useAuth();
   const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const { t } = useLocaleContext();
 
   useEffect(() => {
     fetch("/api/organizations").then((r) => r.json()).then(setOrgs).catch(() => {});
   }, []);
+
+  const navMatch = NAV_ITEMS.find((i) => navItemMatchesPath(pathname, i));
+  const pageTitle = pathname.startsWith("/guide/inspections")
+    ? t("header.guideInspections")
+    : pathname.startsWith("/guide/getting-started")
+      ? t("header.guideGettingStarted")
+      : pathname.startsWith("/guide/daily-workflows")
+        ? t("header.guideDailyWorkflows")
+        : pathname.startsWith("/guide/vehicle-checks")
+          ? t("header.guideVehicleChecks")
+          : pathname.startsWith("/guide/fleet-and-map")
+            ? t("header.guideFleetAndMap")
+            : pathname.startsWith("/guide/maintenance-and-work")
+              ? t("header.guideMaintenanceAndWork")
+              : pathname.startsWith("/guide/insights-and-field")
+                ? t("header.guideInsightsAndField")
+                : pathname.startsWith("/guide")
+                  ? t("header.guide")
+                  : navMatch
+                    ? t(navMatch.labelKey)
+                    : t("nav.dashboard");
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -172,18 +218,15 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
         <div className="flex h-16 items-center gap-3 border-b border-slate-700 px-5">
           <Image src="/logo.png" alt="1PWR" width={36} height={36} className="rounded-lg" />
           <div>
-            <div className="font-semibold text-white text-sm">1PWR Fleet Hub</div>
-            <div className="text-xs text-slate-400">Vehicle Management</div>
+            <div className="font-semibold text-white text-sm">{t("brand.title")}</div>
+            <div className="text-xs text-slate-400">{t("brand.subtitle")}</div>
           </div>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
             {NAV_ITEMS.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/" &&
-                  (item.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(item.href)));
+              const isActive = navItemMatchesPath(pathname, item);
               return (
                 <li key={item.href}>
                   <Link
@@ -198,7 +241,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                     )}
                   >
                     <NavIcon icon={item.icon} />
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 </li>
               );
@@ -220,7 +263,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
           )}
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-slate-500">Signed in as</div>
+              <div className="text-xs text-slate-500">{t("auth.signedInAs")}</div>
               <div className="text-sm font-medium text-slate-300 truncate max-w-[140px]">
                 {user?.name || user?.email || "—"}
               </div>
@@ -229,7 +272,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
               onClick={() => signOut()}
               className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-700"
             >
-              Sign out
+              {t("auth.signOut")}
             </button>
           </div>
         </div>
@@ -247,23 +290,11 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold text-zinc-900 flex-1">
-            {pathname.startsWith("/guide/inspections")
-              ? "User guide · Inspections"
-              : pathname.startsWith("/guide/getting-started")
-                ? "User guide · Getting started"
-                : pathname.startsWith("/guide/daily-workflows")
-                  ? "User guide · Daily workflows"
-                  : pathname.startsWith("/guide")
-                    ? "User guide"
-                    : NAV_ITEMS.find(
-                        (i) =>
-                          i.href === pathname ||
-                          (i.href !== "/" &&
-                            (i.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(i.href)))
-                      )?.label || "Dashboard"}
-          </h1>
-          <TutorialLaunchButton />
+          <h1 className="text-lg font-semibold text-zinc-900 flex-1">{pageTitle}</h1>
+          <div className="flex items-center gap-3 shrink-0">
+            <LanguageToggle />
+            <TutorialLaunchButton />
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 md:p-6" data-tutorial="main-content">
