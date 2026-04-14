@@ -293,10 +293,26 @@ export default function DashboardPage(): React.ReactElement {
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-2">
-                      <div className={`text-sm font-bold ${wo.days_open > 7 ? "text-red-600" : wo.days_open > 3 ? "text-amber-600" : "text-zinc-600"}`}>
-                        {wo.days_open}
-                        {t("dashboard.daysShort")}
-                      </div>
+                      {(() => {
+                        const d = Number(wo.days_open);
+                        const ok = Number.isFinite(d);
+                        return (
+                          <div
+                            className={`text-sm font-bold ${
+                              ok && d > 7 ? "text-red-600" : ok && d > 3 ? "text-amber-600" : "text-zinc-600"
+                            }`}
+                          >
+                            {ok ? (
+                              <>
+                                {d}
+                                {t("dashboard.daysShort")}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}

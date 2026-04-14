@@ -59,7 +59,10 @@ export function GET(request: NextRequest): NextResponse {
   const recentWorkOrders = db.prepare(`
     SELECT wo.id, wo.title, wo.status, wo.priority, wo.assigned_to, wo.created_at,
            v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model,
-           CAST((julianday('now') - julianday(wo.downtime_start)) AS INTEGER) as days_open
+           CASE
+             WHEN wo.downtime_start IS NULL OR trim(wo.downtime_start) = '' THEN 0
+             ELSE CAST((julianday('now') - julianday(wo.downtime_start)) AS INTEGER)
+           END as days_open
     FROM work_orders wo JOIN vehicles v ON wo.vehicle_id = v.id
     WHERE wo.organization_id = ? AND wo.status NOT IN ('completed', 'validated', 'closed', 'cancelled')
     ORDER BY CASE wo.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, wo.created_at DESC
