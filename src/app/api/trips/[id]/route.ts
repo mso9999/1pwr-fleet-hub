@@ -44,6 +44,7 @@ export async function PATCH(
     destination: "destination",
     arrivalLocation: "arrival_location",
     missionType: "mission_type",
+    missionProfile: "mission_profile",
     passengers: "passengers",
     loadOut: "load_out",
     loadIn: "load_in",

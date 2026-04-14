@@ -184,10 +184,14 @@ export default function VehiclesPage(): React.ReactElement {
               </tr>
             </thead>
             <tbody>
-              {vehicles.map((v) => (
+              {vehicles.map((v, idx) => (
                 <tr key={v.id} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
                   <td className="py-3 pr-4">
-                    <Link href={`/vehicles/${v.id}`} className="font-bold text-blue-600 hover:underline text-base">
+                    <Link
+                      href={`/vehicles/${v.id}`}
+                      className="font-bold text-blue-600 hover:underline text-base"
+                      data-tutorial={idx === 0 ? "tutorial-vehicles-first-link" : undefined}
+                    >
                       {v.code}
                     </Link>
                   </td>

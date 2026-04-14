@@ -759,6 +759,7 @@ function migrateTripsPhase1(db: Database.Database): void {
     ["approval_status", "TEXT DEFAULT 'auto-approved'"],
     ["approved_by", "TEXT DEFAULT ''"],
     ["am_allocation_ids", "TEXT DEFAULT '[]'"],
+    ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
   ];
 
   for (const [col, def] of additions) {

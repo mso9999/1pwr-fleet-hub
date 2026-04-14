@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useAuth } from "@/lib/auth-context";
+import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 
 interface HistoryTrailPoint {
   hoursAgo: number;
@@ -136,6 +138,7 @@ interface FleetMapProps {
 }
 
 export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapProps): React.ReactElement {
+  const { organizationId } = useAuth();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
   const trailsLayerRef = useRef<L.LayerGroup | null>(null);
@@ -150,6 +153,7 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
   const [rewindHours, setRewindHours] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const skipFetchLoadingRef = useRef(false);
+  const prevOrgMapViewRef = useRef<string | undefined>(undefined);
   const [measureMode, setMeasureMode] = useState(false);
   const measurePointsRef = useRef<Array<{ lat: number; lng: number }>>([]);
   const measureModeRef = useRef(false);
@@ -162,11 +166,19 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
     measureModeRef.current = measureMode;
   }, [measureMode]);
 
+  /** Reset “soft” loading skip when org changes so we refetch and show loading for the new country. */
+  useEffect(() => {
+    skipFetchLoadingRef.current = false;
+  }, [organizationId]);
+
   useEffect(() => {
     if (!skipFetchLoadingRef.current) {
       setIsLoading(true);
     }
-    fetch(`/api/vehicles/locations?rewindHours=${rewindHours}`)
+    const params = new URLSearchParams();
+    params.set("rewindHours", String(rewindHours));
+    params.set("organizationId", organizationId);
+    fetch(`/api/vehicles/locations?${params}`)
       .then((r) => r.json())
       .then((data) => {
         setVehicles(data.vehicles);
@@ -178,7 +190,7 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
         setIsLoading(false);
         skipFetchLoadingRef.current = true;
       });
-  }, [rewindHours]);
+  }, [rewindHours, organizationId]);
 
   const handleMeasureClick = useCallback((e: L.LeafletMouseEvent) => {
     if (!measureModeRef.current || !measureLayerRef.current) return;
@@ -231,9 +243,10 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
     if (!mapRef.current || isLoading) return;
 
     if (!leafletMap.current) {
+      const { center, zoom } = getDefaultMapViewForOrganization(organizationId);
       const map = L.map(mapRef.current, {
-        center: [-29.5, 27.8],
-        zoom: 8,
+        center,
+        zoom,
         zoomControl: true,
       });
 
@@ -442,8 +455,25 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
     if (boundsPoints.length > 0) {
       const bounds = L.latLngBounds(boundsPoints);
       leafletMap.current!.fitBounds(bounds, { padding: [48, 48], maxZoom: 12 });
+    } else {
+      const { center, zoom } = getDefaultMapViewForOrganization(organizationId);
+      leafletMap.current!.setView(center, zoom);
     }
-  }, [vehicles, sites, filter, isLoading, handleMeasureClick, rewindHours]);
+  }, [vehicles, sites, filter, isLoading, handleMeasureClick, rewindHours, organizationId]);
+
+  /**
+   * When the header organisation (country) selector changes, reframe the map on that country.
+   * Skips the first run so the marker effect can still fit the fleet on initial load.
+   */
+  useEffect(() => {
+    if (!leafletMap.current) return;
+    const prev = prevOrgMapViewRef.current;
+    if (prev === organizationId) return;
+    prevOrgMapViewRef.current = organizationId;
+    if (prev === undefined) return;
+    const { center, zoom } = getDefaultMapViewForOrganization(organizationId);
+    leafletMap.current.setView(center, zoom);
+  }, [organizationId]);
 
   useEffect(() => {
     return () => {

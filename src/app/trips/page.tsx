@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { MediaUpload } from "@/components/MediaUpload";
 import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
+import { MISSION_PROFILE } from "@/lib/trip-readiness";
 
 interface TripRow {
   id: string;
@@ -24,6 +26,7 @@ interface TripRow {
   destination: string;
   arrival_location: string;
   mission_type: string;
+  mission_profile?: string;
   passengers: string;
   load_out: string;
   load_in: string;
@@ -98,6 +101,7 @@ function TripsPageContent(): React.ReactElement {
       destination: fd.get("destination"),
       arrivalLocation: fd.get("arrivalLocation"),
       missionType: fd.get("missionType"),
+      missionProfile: fd.get("missionProfile"),
       passengers: fd.get("passengers"),
       loadOut: fd.get("loadOut"),
       loadIn: fd.get("loadIn"),
@@ -164,8 +168,11 @@ function TripsPageContent(): React.ReactElement {
         className="text-xs sm:text-sm text-zinc-600 rounded-lg border border-zinc-200 bg-zinc-50/90 px-3 py-2.5 leading-relaxed"
         data-tutorial="tutorial-trips-loadout-manifests"
       >
-        <span className="font-medium text-zinc-800">Load-out manifests (AM): </span>
-        Packing lists are built in Asset Management (am.1pwrafrica.com). On each trip below, use the section{" "}
+        <span className="font-medium text-zinc-800">Trip readiness: </span>
+        Choose <strong>Local / in-town</strong> for short runs, or <strong>Field deployment</strong> for trips that need a recent detailed mechanical inspection.
+        Both require today&apos;s <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">departing driver checklist</Link>{" "}
+        before check-out. <span className="font-medium text-zinc-800">Load-out manifests (AM): </span>
+        Packing lists are built in Asset Management (am.1pwrafrica.com). On each trip below, use{" "}
         <span className="whitespace-nowrap font-medium">Load-out manifests (AM)</span> to link or open a manifest; expand a completed trip to see it.
       </p>
       <div className="flex items-center justify-between">
@@ -208,8 +215,13 @@ function TripsPageContent(): React.ReactElement {
                 >
                   <div className="flex items-center justify-between p-4">
                     <div>
-                      <div className="flex items-center gap-2 font-medium">
+                      <div className="flex items-center gap-2 font-medium flex-wrap">
                         <Badge variant="info">{trip.vehicle_code}</Badge>
+                        {(trip.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? (
+                          <Badge variant="destructive" className="text-[10px]">Field deployment</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px]">Local</Badge>
+                        )}
                         {trip.vehicle_make} {trip.vehicle_model}
                       </div>
                       <div className="text-sm text-zinc-600 mt-1">
@@ -253,6 +265,7 @@ function TripsPageContent(): React.ReactElement {
                     <th className="pb-3 pr-3">Route</th>
                     <th className="pb-3 pr-3 hidden sm:table-cell">Driver</th>
                     <th className="pb-3 pr-3 hidden md:table-cell">Mission</th>
+                    <th className="pb-3 pr-3 hidden lg:table-cell">Kind</th>
                     <th className="pb-3 pr-3">Distance</th>
                     <th className="pb-3 pr-3 hidden sm:table-cell">Date</th>
                     <th className="pb-3 w-8"></th>
@@ -293,6 +306,12 @@ export default function TripsPage(): React.ReactElement {
   );
 }
 
+interface ReadinessResponse {
+  ok: boolean;
+  missionProfile: string;
+  gates: Array<{ id: string; label: string; status: string; detail: string }>;
+}
+
 function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplete, onCancel }: {
   vehicles: VehicleOption[];
   sites: RefItem[];
@@ -302,8 +321,41 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
   onCancel: () => void;
 }): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutVehicleId, setCheckoutVehicleId] = useState("");
+  const [missionProfile, setMissionProfile] = useState<string>(MISSION_PROFILE.LOCAL);
+  const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isMultiStop, setIsMultiStop] = useState(false);
   const [stops, setStops] = useState<StopInput[]>([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+
+  useEffect(() => {
+    if (!checkoutVehicleId) {
+      setReadiness(null);
+      return;
+    }
+    let cancelled = false;
+    setReadinessLoading(true);
+    const q = new URLSearchParams({
+      org: organizationId,
+      vehicleId: checkoutVehicleId,
+      missionProfile,
+    });
+    fetch(`/api/trips/readiness?${q}`)
+      .then((r) => r.json())
+      .then((data: ReadinessResponse) => {
+        if (!cancelled) {
+          setReadiness(data);
+          setReadinessLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setReadinessLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutVehicleId, missionProfile, organizationId]);
 
   function addStop(): void {
     setStops([...stops, { location: "", loadOut: "", loadIn: "", notes: "" }]);
@@ -321,6 +373,7 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
+    setCheckoutError(null);
     setIsSubmitting(true);
     const fd = new FormData(e.currentTarget);
     const body: Record<string, unknown> = {
@@ -331,6 +384,7 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
       departureLocation: fd.get("departureLocation"),
       destination: fd.get("destination"),
       missionType: fd.get("missionType"),
+      missionProfile,
       passengers: fd.get("passengers"),
       loadOut: fd.get("loadOut"),
     };
@@ -341,8 +395,20 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
 
     const res = await fetch("/api/trips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (res.ok) onComplete();
-    else setIsSubmitting(false);
+    else {
+      const data = (await res.json().catch(() => ({}))) as { error?: string; gates?: ReadinessResponse["gates"] };
+      setCheckoutError(data.error || "Check-out failed. Fix the items below and try again.");
+      if (data.gates && Array.isArray(data.gates)) {
+        setReadiness({ ok: false, missionProfile, gates: data.gates });
+      }
+      setIsSubmitting(false);
+    }
   }
+
+  const submitBlocked =
+    !checkoutVehicleId ||
+    readinessLoading ||
+    (readiness !== null && !readiness.ok);
 
   return (
     <Card className="border-blue-200 bg-blue-50/30">
@@ -350,12 +416,30 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Select name="vehicleId" label="Vehicle *" required>
+            <Select
+              name="vehicleId"
+              label="Vehicle *"
+              required
+              value={checkoutVehicleId}
+              onChange={(e) => setCheckoutVehicleId(e.target.value)}
+            >
               <option value="">Select vehicle...</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model} ({v.current_location})</option>
               ))}
             </Select>
+            <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
+              <label className="text-sm font-medium text-zinc-700">Trip kind *</label>
+              <p className="text-xs text-zinc-500 -mt-0.5 mb-0">Local = errands around town. Field = deployments needing a recent detailed inspection.</p>
+              <select
+                value={missionProfile}
+                onChange={(e) => setMissionProfile(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              >
+                <option value={MISSION_PROFILE.LOCAL}>Local / in-town</option>
+                <option value={MISSION_PROFILE.FIELD}>Field deployment</option>
+              </select>
+            </div>
             <Input name="driverName" label="Driver Name *" required placeholder="Your name" />
             <Input name="odoStart" label="ODO Reading (km) *" type="number" required placeholder="e.g. 271964" />
             <Select name="departureLocation" label="Departing From *" required>
@@ -374,6 +458,43 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
               <textarea name="loadOut" rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" placeholder="e.g. 20x panels, 5x batteries, tools" />
             </div>
           </div>
+
+          {checkoutVehicleId && (
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 space-y-2">
+              <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">Trip readiness</div>
+              {readinessLoading && <p className="text-sm text-zinc-500">Checking requirements…</p>}
+              {!readinessLoading && readiness && (
+                <ul className="space-y-2">
+                  {readiness.gates.map((g) => (
+                    <li key={g.id} className="flex gap-2 text-sm">
+                      <span className={g.status === "satisfied" ? "text-emerald-600 shrink-0" : "text-amber-600 shrink-0"}>
+                        {g.status === "satisfied" ? "✓" : "!"}
+                      </span>
+                      <div>
+                        <div className="font-medium text-zinc-800">{g.label}</div>
+                        <div className="text-zinc-600 text-xs">{g.detail}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!readinessLoading && readiness && !readiness.ok && (
+                <p className="text-xs text-zinc-500 pt-1">
+                  Open{" "}
+                  <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">Vehicle checks</Link>
+                  {" "}or{" "}
+                  <Link href="/inspections" className="text-blue-600 underline font-medium">Inspections</Link>
+                  {" "}as needed, then return here.
+                </p>
+              )}
+            </div>
+          )}
+
+          {checkoutError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {checkoutError}
+            </div>
+          )}
 
           {/* Multi-stop toggle */}
           <div className="flex items-center gap-2">
@@ -406,9 +527,14 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
             </div>
           )}
 
-          <div className="flex gap-3">
-            <Button type="submit" disabled={isSubmitting} size="lg">{isSubmitting ? "Checking out..." : "Confirm Check-Out"}</Button>
+          <div className="flex gap-3 flex-wrap items-center">
+            <Button type="submit" disabled={isSubmitting || submitBlocked} size="lg">
+              {isSubmitting ? "Checking out..." : "Confirm Check-Out"}
+            </Button>
             <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+            {submitBlocked && checkoutVehicleId && !readinessLoading && (
+              <span className="text-xs text-amber-700">Complete all requirements above to enable check-out.</span>
+            )}
           </div>
         </form>
       </CardContent>
@@ -493,6 +619,9 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
         <td className="py-2.5 pr-3 text-zinc-600">{trip.departure_location} → {trip.arrival_location || trip.destination}</td>
         <td className="py-2.5 pr-3 hidden sm:table-cell text-zinc-600">{trip.driver_name || "—"}</td>
         <td className="py-2.5 pr-3 hidden md:table-cell text-zinc-600 capitalize">{(trip.mission_type || "").replace(/-/g, " ")}</td>
+        <td className="py-2.5 pr-3 hidden lg:table-cell text-zinc-600 text-xs">
+          {(trip.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? "Field" : "Local"}
+        </td>
         <td className="py-2.5 pr-3 font-medium">{trip.distance ? `${trip.distance} km` : "—"}</td>
         <td className="py-2.5 pr-3 hidden sm:table-cell text-zinc-400 text-xs">{new Date(trip.checkout_at).toLocaleDateString()}</td>
         <td className="py-2.5 text-zinc-400 text-xs">{isExpanded ? "▲" : "▼"}</td>
@@ -500,7 +629,7 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
 
       {isExpanded && (
         <tr>
-          <td colSpan={7} className="p-0">
+          <td colSpan={8} className="p-0">
             <div className="border-t border-blue-100 bg-blue-50/20 p-4 space-y-4">
               {isEditing ? (
                 <form onSubmit={onSave} className="space-y-4">
@@ -520,6 +649,10 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
                     </Select>
                     <Select name="missionType" label="Mission Type" defaultValue={trip.mission_type}>
                       {missionTypes.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+                    </Select>
+                    <Select name="missionProfile" label="Trip kind" defaultValue={trip.mission_profile || MISSION_PROFILE.LOCAL}>
+                      <option value={MISSION_PROFILE.LOCAL}>Local / in-town</option>
+                      <option value={MISSION_PROFILE.FIELD}>Field deployment</option>
                     </Select>
                     <Input name="passengers" label="Passengers" defaultValue={trip.passengers} />
                     <div>
@@ -554,6 +687,10 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Mission</div>
                       <div className="capitalize">{(trip.mission_type || "").replace(/-/g, " ")}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-500 uppercase font-medium">Trip kind</div>
+                      <div>{(trip.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? "Field deployment" : "Local / in-town"}</div>
                     </div>
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Distance</div>

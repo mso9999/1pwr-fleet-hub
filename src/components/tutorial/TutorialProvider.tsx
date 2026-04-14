@@ -22,6 +22,12 @@ const TUTORIAL_QUERY_MAP: Record<string, string> = {
   request: "vehicleRequest",
   "work-order": "workOrder",
   workOrder: "workOrder",
+  loadout: "loadoutManifest",
+  loadoutManifest: "loadoutManifest",
+  manifest: "loadoutManifest",
+  "country-transfer": "countryTransfer",
+  countryTransfer: "countryTransfer",
+  "country-transfers": "countryTransfer",
 };
 
 function TutorialSearchParamsBootstrap({

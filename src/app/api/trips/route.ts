@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { evaluateTripReadiness } from "@/lib/trip-readiness";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -38,18 +39,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.json();
   const id = uuidv4();
   const now = new Date().toISOString();
+  const organizationId = body.organizationId || "1pwr_lesotho";
+
+  const readiness = evaluateTripReadiness(db, {
+    organizationId,
+    vehicleId: body.vehicleId,
+    missionProfile: body.missionProfile,
+    checkDate: now.slice(0, 10),
+    referenceNow: new Date(now),
+  });
+
+  if (!readiness.ok) {
+    return NextResponse.json(
+      {
+        error: "Trip readiness requirements are not met. Complete the items below, then try again.",
+        gates: readiness.gates,
+        missionProfile: readiness.missionProfile,
+      },
+      { status: 400 }
+    );
+  }
 
   db.prepare(`
     INSERT INTO trips (
       id, organization_id, vehicle_id, driver_id, driver_name, odo_start,
-      departure_location, destination, mission_type, passengers, load_out, load_in, checkout_at,
+      departure_location, destination, mission_type, mission_profile, passengers, load_out, load_in, checkout_at,
       authorized_driver_verified, approved_drivers, loadout_manifest,
       expected_return_at, mission_priority, approval_status, approved_by, am_allocation_ids
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    organizationId,
     body.vehicleId,
     body.driverId || "",
     body.driverName || "",
@@ -57,6 +78,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.departureLocation,
     body.destination,
     body.missionType || "other",
+    readiness.missionProfile,
     body.passengers || "",
     body.loadOut || "",
     body.loadIn || "",

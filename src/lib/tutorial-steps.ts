@@ -151,12 +151,44 @@ const OVERVIEW_STEPS: TutorialStep[] = [
       "Teams request vehicles; managers approve and assign from the operational pool. Use the pool view for capacity.",
   },
   {
-    id: "nav-map",
+    id: "nav-inspections",
     path: "/vehicle-requests",
+    target: "nav-inspections",
+    title: "Inspections",
+    body:
+      "Structured checklists: quick pre-departure, detailed mechanical, cross-border transfer prep, or the full 2025 template. Inspections support compliance and can raise work orders when items fail.",
+  },
+  {
+    id: "inspections-peek",
+    path: "/inspections",
+    target: "tutorial-inspections-new",
+    title: "Inspection checklists",
+    body:
+      "Create inspections from the button below; past checklists appear in the list. For international moves, use Detailed mechanical or Mechanical (cross-border transfer) with an overall pass.",
+  },
+  {
+    id: "nav-country-transfers",
+    path: "/inspections",
+    target: "nav-vehicle-country-changes",
+    title: "Country transfers",
+    body:
+      "Use this area to approve queue items. To submit a change, open any vehicle and use Country / organization → Request change (corrections vs real transfers).",
+  },
+  {
+    id: "country-transfers-peek",
+    path: "/vehicle-country-changes",
+    target: "tutorial-country-transfers-page",
+    title: "Transfer approvals",
+    body:
+      "Fleet leads approve data-entry corrections; executives approve secondments and permanent moves that include mission and mechanical inspection evidence.",
+  },
+  {
+    id: "nav-map",
+    path: "/vehicle-country-changes",
     target: "nav-map",
     title: "Fleet map",
     body:
-      "Live or last-known GPS positions (where trackers are fitted). From a marker you can open the vehicle or active trip.",
+      "Live or last-known GPS positions (where trackers are fitted). From a marker you can open the vehicle or active trip. The map frames the country selected in the header.",
   },
   {
     id: "nav-tco",
@@ -271,7 +303,7 @@ const VEHICLE_INSPECTION_STEPS: TutorialStep[] = [
     target: "nav-inspections",
     title: "Mechanical inspection workflow",
     body:
-      "Inspections are structured checklists (quick pre-departure, detailed mechanical, or full 2025 template). You’ll open a new inspection, pick a type, rate each line, then submit.",
+      "Inspections are structured checklists: pre-departure, detailed mechanical, mechanical (cross-border transfer), or the full 2025 template. You’ll open a new inspection, pick a type, rate each line, then submit.",
   },
   {
     id: "insp-new",
@@ -288,7 +320,7 @@ const VEHICLE_INSPECTION_STEPS: TutorialStep[] = [
     target: "tutorial-inspections-tabs",
     title: "2. Choose checklist type",
     body:
-      "Use the three tabs: Pre-departure (quick), Detailed mechanical, or 1PWR checklist (2025) full. Switching type clears your draft.",
+      "Choose a checklist type: Pre-departure (quick), Detailed mechanical, Mechanical (cross-border transfer) for international moves, or 1PWR checklist (2025) full. The driver-proficiency option opens a separate full form. Switching tab clears your draft.",
   },
   {
     id: "insp-form",
@@ -366,6 +398,53 @@ const LOADOUT_MANIFEST_STEPS: TutorialStep[] = [
   },
 ];
 
+/** Country / organisation changes (vehicle record vs approvals) */
+const COUNTRY_TRANSFER_STEPS: TutorialStep[] = [
+  {
+    id: "ct-intro",
+    path: "/vehicles",
+    target: "nav-vehicle-country-changes",
+    title: "Country & organisation transfers",
+    body:
+      "Vehicles are registered to an organisation (country). Use this workflow to fix a wrong assignment or to record a secondment or permanent transfer—with the right approvals.",
+    suggestion: "Open Country transfers from the sidebar, or start from any vehicle’s detail page.",
+  },
+  {
+    id: "ct-approvals",
+    path: "/vehicle-country-changes",
+    target: "tutorial-country-transfers-page",
+    title: "Approval queue",
+    body:
+      "Pending requests appear here. Fleet leads approve simple corrections; C-level approves real cross-border transfers that include mission and inspection evidence.",
+  },
+  {
+    id: "ct-open-vehicle",
+    path: "/vehicles",
+    target: "tutorial-vehicles-first-link",
+    title: "Open a vehicle",
+    body:
+      "From the register, open any vehicle code to reach its detail page. Submissions start from the vehicle, not from the approvals queue.",
+    suggestion: "Tap Next after you navigate to Vehicles, then open a row if you want to follow along.",
+  },
+  {
+    id: "ct-vehicle-card",
+    path: "/vehicles",
+    target: "tutorial-vehicle-country-card",
+    title: "Country / organisation on the vehicle",
+    body:
+      "The card shows the current registration. Request change opens a form: choose data correction, secondment, or permanent transfer, explain why, and attach mission and mechanical inspection when required.",
+    suggestion: "Stay on a vehicle detail page for this step—the highlight targets the Country / organisation card.",
+  },
+  {
+    id: "ct-inspection",
+    path: "/vehicles",
+    target: "nav-inspections",
+    title: "Mechanical inspection for transfers",
+    body:
+      "Real transfers need a passed mechanical checklist (Detailed or Cross-border transfer type) and a linked trip. Complete inspections under Inspections before submitting.",
+  },
+];
+
 /** Create a work order */
 const WORK_ORDER_STEPS: TutorialStep[] = [
   {
@@ -417,6 +496,11 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
     label: "Load-out manifests (AM)",
     steps: LOADOUT_MANIFEST_STEPS,
   },
+  countryTransfer: {
+    id: "countryTransfer",
+    label: "Country / organisation transfers",
+    steps: COUNTRY_TRANSFER_STEPS,
+  },
 };
 
 export const TUTORIAL_TRACK_ORDER: string[] = [
@@ -424,6 +508,7 @@ export const TUTORIAL_TRACK_ORDER: string[] = [
   "driverCheck",
   "vehicleInspection",
   "vehicleRequest",
+  "countryTransfer",
   "workOrder",
   "loadoutManifest",
 ];

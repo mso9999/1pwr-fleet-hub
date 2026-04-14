@@ -324,13 +324,15 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
 
       <VehicleDashboardTabs vehicleId={vehicle.id} vehicleCode={vehicle.code} />
 
-      <Card>
+      <Card data-tutorial="tutorial-vehicle-country-card">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>Country / organization</CardTitle>
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowCountryDialog(true)}>
-              Request change…
-            </Button>
+            <span data-tutorial="tutorial-vehicle-country-request-btn">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowCountryDialog(true)}>
+                Request change…
+              </Button>
+            </span>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">

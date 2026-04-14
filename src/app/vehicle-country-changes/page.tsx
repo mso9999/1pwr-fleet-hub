@@ -105,7 +105,7 @@ export default function VehicleCountryChangesPage(): React.ReactElement {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
+      <div data-tutorial="tutorial-country-transfers-page">
         <h2 className="text-2xl font-bold">Country / organization transfers</h2>
         <p className="text-sm text-zinc-500 mt-1">
           Approve data corrections (fleet leadership) or cross-border transfers (C-level).{" "}

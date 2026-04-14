@@ -223,6 +223,8 @@ export interface Trip {
   destination: string;
   arrivalLocation: string;
   missionType: string;
+  /** local = short in-town; field = multi-day / substantive deployment (stricter gates). */
+  missionProfile?: string;
   passengers: string;
   loadOut: string;
   loadIn: string;
