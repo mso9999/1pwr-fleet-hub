@@ -50,6 +50,8 @@ export function MediaUpload({ entityType, entityId, uploadedByName = "", uploade
   const [category, setCategory] = useState(defaultCategory);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Opens device camera on phones/tablets (rear camera when available). */
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const fetchAttachments = useCallback(() => {
     setIsLoading(true);
@@ -105,6 +107,17 @@ export function MediaUpload({ entityType, entityId, uploadedByName = "", uploade
         className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isDragging ? "border-blue-500 bg-blue-50" : "border-zinc-200 hover:border-zinc-300"}`}
       >
         <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) handleUpload(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
           ref={fileRef}
           type="file"
           multiple
@@ -117,9 +130,28 @@ export function MediaUpload({ entityType, entityId, uploadedByName = "", uploade
             {isDragging ? "Drop files here" : "Drag & drop files or"}
           </p>
           {!isDragging && (
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={isUploading}>
-              {isUploading ? "Uploading..." : "Choose Files"}
-            </Button>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="min-h-11 touch-manipulation sm:min-h-9"
+                onClick={() => cameraRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? "Uploading…" : "Take photo"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11 touch-manipulation sm:min-h-9"
+                onClick={() => fileRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? "Uploading…" : "Choose files"}
+              </Button>
+            </div>
           )}
           <div className="flex items-center justify-center gap-2 flex-wrap">
             <input
@@ -139,7 +171,9 @@ export function MediaUpload({ entityType, entityId, uploadedByName = "", uploade
               ))}
             </select>
           </div>
-          <p className="text-xs text-zinc-400">Images, PDFs, docs up to 20MB</p>
+          <p className="text-xs text-zinc-400">
+            On a phone, <strong>Take photo</strong> opens the camera. <strong>Choose files</strong> picks from gallery or documents. Max 20MB per file.
+          </p>
         </div>
       </div>
 

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { fetchHrEmployeeDirectory } from "@/lib/hr-directory-client";
-import { getVerifiedFleetUser, isFleetManagementRole } from "@/lib/server-auth";
+import {
+  getVerifiedFleetUser,
+  isFleetManagementRole,
+  canViewEhsApprovedDrivers,
+} from "@/lib/server-auth";
 
 export async function GET(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || !isFleetManagementRole(user.role)) {
+  if (
+    !user ||
+    (!isFleetManagementRole(user.role) && !canViewEhsApprovedDrivers(user.role, user.department))
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const country = new URL(request.url).searchParams.get("country") || undefined;

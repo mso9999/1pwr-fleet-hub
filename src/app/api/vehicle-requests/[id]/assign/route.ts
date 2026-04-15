@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
@@ -52,6 +53,8 @@ export async function POST(
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run("vehicle_request", id, oldStatus, "assigned", approverName, now);
+
+  await recalculateVehicleRequestFuel(db, id);
 
   const updated = db.prepare(`
     SELECT vr.*,

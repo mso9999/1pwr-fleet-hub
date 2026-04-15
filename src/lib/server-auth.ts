@@ -2,14 +2,22 @@ import { getAuth } from "firebase-admin/auth";
 import { getFleetAdminApp } from "@/lib/firebase-admin-init";
 import { getDb } from "@/lib/db";
 import {
+  canManageEhsApprovedDrivers as manageEhsDrivers,
   isExecutiveRole as execRole,
   isFinanceOrSuperAdmin as financeOrSuper,
   isFleetManagementRole as fleetMgmt,
+  canViewEhsApprovedDrivers as viewEhsDrivers,
 } from "@/lib/fleet-roles";
 
-export async function getVerifiedFleetUser(
-  request: Request
-): Promise<{ id: string; email: string; role: string; name: string } | null> {
+export type VerifiedFleetUser = {
+  id: string;
+  email: string;
+  role: string;
+  name: string;
+  department: string;
+};
+
+export async function getVerifiedFleetUser(request: Request): Promise<VerifiedFleetUser | null> {
   const app = getFleetAdminApp();
   if (!app) return null;
   const authHeader = request.headers.get("authorization");
@@ -20,11 +28,9 @@ export async function getVerifiedFleetUser(
     const db = getDb();
     const row = db
       .prepare(
-        "SELECT id, email, role, name FROM users WHERE firebase_uid = ? AND is_active = 1"
+        "SELECT id, email, role, name, IFNULL(department, '') AS department FROM users WHERE firebase_uid = ? AND is_active = 1"
       )
-      .get(decoded.uid) as
-      | { id: string; email: string; role: string; name: string }
-      | undefined;
+      .get(decoded.uid) as VerifiedFleetUser | undefined;
     return row ?? null;
   } catch {
     return null;
@@ -43,4 +49,15 @@ export function isFinanceOrSuperAdmin(role: string): boolean {
 /** C-level / executive sign-off for cross-country transfers (secondment or permanent). */
 export function isExecutiveRole(role: string): boolean {
   return execRole(role);
+}
+
+export function canManageEhsApprovedDrivers(
+  role: string,
+  department?: string | null
+): boolean {
+  return manageEhsDrivers(role, department);
+}
+
+export function canViewEhsApprovedDrivers(role: string, department?: string | null): boolean {
+  return viewEhsDrivers(role, department);
 }

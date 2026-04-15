@@ -148,7 +148,7 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "nav-vehicle-requests",
     title: "Vehicle requests",
     body:
-      "Teams request vehicles; managers approve and assign from the operational pool. Use the pool view for capacity.",
+      "Teams request vehicles; managers approve and assign from the operational pool. Site destinations get a mapped driving-distance hint; fuel estimates appear after assignment.",
   },
   {
     id: "nav-inspections",
@@ -368,10 +368,19 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
       "Enter who it’s for, purpose, destination, dates, and priority. Submit sends it into the approval flow.",
   },
   {
+    id: "vr-route",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-route-estimate",
+    title: "3. Route distance and fuel",
+    body:
+      "Choosing a destination from the site list shows an estimated one-way driving distance (mapped roads). After a vehicle is assigned, the request shows fuel (L) and efficiency from that vehicle’s consumption—manual L/100 km on the vehicle if set, otherwise a typical value from the reference table. Admins set GPS per site and the fleet HQ start under Admin.",
+    suggestion: "Select a site in the destination dropdown to see the distance update.",
+  },
+  {
     id: "vr-pool",
     path: "/vehicle-requests",
     target: "tutorial-vr-pool-toggle",
-    title: "3. Vehicle pool (managers)",
+    title: "4. Vehicle pool (managers)",
     body:
       "Managers can switch to the Vehicle Pool tab to see operational vehicles and assign after approval.",
   },

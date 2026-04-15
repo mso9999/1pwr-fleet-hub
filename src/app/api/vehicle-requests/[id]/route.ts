@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 
 export async function GET(
   _request: NextRequest,
@@ -77,6 +78,14 @@ export async function PATCH(
   values.push(id);
 
   db.prepare(`UPDATE vehicle_requests SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+
+  if (
+    body.destination !== undefined ||
+    body.assignedVehicleId !== undefined ||
+    (body.status !== undefined && String(body.status) === "assigned")
+  ) {
+    await recalculateVehicleRequestFuel(db, id);
+  }
 
   if (body.status && body.status !== (existing as Record<string, unknown>).status) {
     const actor =

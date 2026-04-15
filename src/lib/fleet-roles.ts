@@ -12,3 +12,28 @@ export function isExecutiveRole(role: string): boolean {
 export function isFinanceOrSuperAdmin(role: string): boolean {
   return role === "finance" || role === "superadmin";
 }
+
+/**
+ * True when the user’s department (synced from PR) is EHS — same option as in the PR system.
+ * Uses a word match so values like "EHS" or "EHS & Security" count.
+ */
+export function isEhsDepartment(department: string | null | undefined): boolean {
+  const d = String(department ?? "").trim();
+  if (!d) return false;
+  return /\behs\b/i.test(d);
+}
+
+/**
+ * Create/update/delete rows on the EHS approved driver register (license scans + test dates).
+ * Admins, superadmins, optional ehs_manager role, or anyone with EHS as their PR department.
+ */
+export function canManageEhsApprovedDrivers(role: string, department?: string | null): boolean {
+  const r = (role || "").toLowerCase();
+  if (r === "admin" || r === "superadmin" || r === "ehs_manager") return true;
+  return isEhsDepartment(department);
+}
+
+/** View the register (fleet management read-only; EHS staff can edit via canManage). */
+export function canViewEhsApprovedDrivers(role: string, department?: string | null): boolean {
+  return canManageEhsApprovedDrivers(role, department) || isFleetManagementRole(role);
+}

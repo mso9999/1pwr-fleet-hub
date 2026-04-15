@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { navDataTutorialHref } from "@/lib/tutorial-steps";
+import { canViewEhsApprovedDrivers } from "@/lib/fleet-roles";
 import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
 import { useLocaleContext } from "@/i18n/locale-context";
 import { LanguageToggle } from "@/components/LanguageToggle";
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/vehicles", labelKey: "nav.vehicles", icon: "truck" },
   { href: "/trips", labelKey: "nav.trips", icon: "route" },
   { href: "/vehicle-checks", labelKey: "nav.vehicleChecks", icon: "shield" },
+  { href: "/ehs-approved-drivers", labelKey: "nav.ehsApprovedDrivers", icon: "idCard" },
   { href: "/work-orders", labelKey: "nav.workOrders", icon: "wrench" },
   { href: "/maintenance", labelKey: "nav.maintenance", icon: "calendar" },
   { href: "/mechanics", labelKey: "nav.mechanics", icon: "users" },
@@ -46,6 +48,16 @@ function navItemMatchesPath(
     (item.href !== "/" &&
       (item.href === "/guide" ? pathname.startsWith("/guide") : pathname.startsWith(item.href)))
   );
+}
+
+function navItemVisible(
+  item: (typeof NAV_ITEMS)[number],
+  user: { role: string; department?: string } | null
+): boolean {
+  if (item.href === "/ehs-approved-drivers") {
+    return !!user && canViewEhsApprovedDrivers(user.role, user.department);
+  }
+  return true;
 }
 
 function NavIcon({ icon, className }: { icon: string; className?: string }): React.ReactElement {
@@ -112,6 +124,13 @@ function NavIcon({ icon, className }: { icon: string; className?: string }): Rea
       return (
         <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+      );
+    case "idCard":
+      return (
+        <svg className={c} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 012-2h4a2 2 0 012 2v1m-4 0a2 2 0 012 2v0a2 2 0 01-2 2h-2a2 2 0 01-2-2v0a2 2 0 012-2z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 14h.01M12 14h.01M16 14h.01M8 18h8" />
         </svg>
       );
     case "clipboard":
@@ -186,8 +205,11 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
     fetch("/api/organizations").then((r) => r.json()).then(setOrgs).catch(() => {});
   }, []);
 
-  const navMatch = NAV_ITEMS.find((i) => navItemMatchesPath(pathname, i));
-  const pageTitle = pathname.startsWith("/guide/inspections")
+  const visibleNavItems = NAV_ITEMS.filter((i) => navItemVisible(i, user));
+  const navMatch = visibleNavItems.find((i) => navItemMatchesPath(pathname, i));
+  const pageTitle = pathname.startsWith("/ehs-approved-drivers")
+    ? t("header.ehsApprovedDrivers")
+    : pathname.startsWith("/guide/inspections")
     ? t("header.guideInspections")
     : pathname.startsWith("/guide/getting-started")
       ? t("header.guideGettingStarted")
@@ -232,7 +254,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = navItemMatchesPath(pathname, item);
               return (
                 <li key={item.href}>

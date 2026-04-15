@@ -25,8 +25,10 @@ const en = {
     userGuide: "User guide",
     reportIssue: "Report Issue",
     admin: "Admin",
+    ehsApprovedDrivers: "Approved drivers (EHS)",
   },
   header: {
+    ehsApprovedDrivers: "Approved drivers (EHS)",
     guide: "User guide",
     guideInspections: "User guide · Inspections",
     guideGettingStarted: "User guide · Getting started",
@@ -172,8 +174,10 @@ const fr: MessageTree = {
     userGuide: "Guide utilisateur",
     reportIssue: "Signaler un problème",
     admin: "Administration",
+    ehsApprovedDrivers: "Conducteurs agréés (EHS)",
   },
   header: {
+    ehsApprovedDrivers: "Conducteurs agréés (EHS)",
     guide: "Guide utilisateur",
     guideInspections: "Guide utilisateur · Inspections",
     guideGettingStarted: "Guide utilisateur · Premiers pas",

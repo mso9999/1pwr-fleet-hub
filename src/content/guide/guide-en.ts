@@ -16,7 +16,7 @@ export const guideEn: GuideContent = {
         ") is created for the register walkthrough and removed when you finish or exit.",
       ],
       [
-        "Focused tracks cover driver checks, mechanical inspections, vehicle requests, work orders, and ",
+        "Focused tracks cover driver checks, mechanical inspections, vehicle requests (including route and fuel hints), work orders, and ",
         B("load-out manifests (AM)"),
         " — linking packing lists to trips.",
       ],
@@ -33,7 +33,8 @@ export const guideEn: GuideContent = {
       {
         href: "/guide/daily-workflows",
         title: "Common daily workflows",
-        description: "Trips (including AM load-out manifests), vehicle checks, reporting issues, work orders, daily update, and reports.",
+        description:
+          "Trips (including AM load-out manifests), vehicle checks, reporting issues, work orders, vehicle requests (route and fuel hints), daily update, and reports.",
       },
       {
         href: "/guide/fleet-and-map",
@@ -58,7 +59,7 @@ export const guideEn: GuideContent = {
       {
         href: "/guide/insights-and-field",
         title: "TCO, reports, daily update & field",
-        description: "Analytics exports, field reports, triage, and admin reference data.",
+        description: "Analytics exports, field reports, triage, admin reference data, and GPS for sites / route start.",
       },
     ],
     tipTitle: "Tip",
@@ -250,6 +251,20 @@ export const guideEn: GuideContent = {
           [
             L("/vehicle-requests", "Requests"),
             " is where teams request vehicles from the pool; managers approve and assign an operational vehicle.",
+          ],
+          [
+            "When you choose a ",
+            B("destination"),
+            " from the site list, Fleet Hub estimates ",
+            B("one-way driving distance"),
+            " along roads (public routing). Free-text “Other” destinations do not get a mapped distance.",
+          ],
+          [
+            "After a vehicle is ",
+            B("assigned"),
+            ", the request card shows an ",
+            B("estimated fuel"),
+            " volume and efficiency (L/100 km and US MPG) using that vehicle’s consumption: a manual value on the vehicle record if set, otherwise a typical figure from the built-in reference table by make, model, and year.",
           ],
         ],
       },
@@ -558,6 +573,19 @@ export const guideEn: GuideContent = {
             " role can set ",
             B("personal vehicle reimbursement financial rates"),
             " (per-km and HQ basis); others see built-in defaults until those are saved.",
+          ],
+          [
+            "For accurate ",
+            B("route distance"),
+            " on requests, admins should set ",
+            B("GPS coordinates"),
+            " on each ",
+            B("site / destination"),
+            " (Sites in Admin): use ",
+            B("Set GPS"),
+            " with the map picker or enter latitude and longitude. Eligible roles can also set ",
+            B("Trip route start (fleet HQ)"),
+            " so the driving route starts from your operating base; if unset, defaults apply.",
           ],
         ],
       },

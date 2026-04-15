@@ -83,6 +83,9 @@ function migrateVehicleRequestsSchema(db: Database.Database): void {
     ["notes", "TEXT DEFAULT ''"],
     ["created_at", "TEXT NOT NULL DEFAULT ''"],
     ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+    ["estimated_route_km", "REAL"],
+    ["estimated_fuel_liters", "REAL"],
+    ["fuel_efficiency_l_per_100km", "REAL"],
   ];
 
   for (const [col, def] of additions) {
@@ -180,6 +183,8 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateTripsPhase1(db);
   migrateDriverVehicleChecksTravelPhone(db);
   migrateDriverVehicleChecksApprovedById(db);
+  migrateEhsApprovedDrivers(db);
+  migrateOrganizationsRouteOrigin(db);
 
   const hasScheduledMaintenance = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_maintenance' LIMIT 1")
@@ -520,6 +525,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateFieldIssueTicketing", () => migrateFieldIssueTicketing(db)],
     ["migrateVehicleGpsSnapshots", () => migrateVehicleGpsSnapshots(db)],
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
+    ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
@@ -622,6 +628,50 @@ function migrateVehicleCheckOverrideApprovers(db: Database.Database): void {
   `);
 }
 
+/** EHS-maintained register: employees from HR directory + license evidence + test pass dates. */
+function migrateEhsApprovedDrivers(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ehs_approved_drivers (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      hr_user_id INTEGER,
+      hr_employee_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      license_valid_from TEXT NOT NULL DEFAULT '',
+      license_expiry TEXT NOT NULL DEFAULT '',
+      written_test_passed_at TEXT NOT NULL DEFAULT '',
+      road_test_passed_at TEXT NOT NULL DEFAULT '',
+      eye_test_passed_at TEXT NOT NULL DEFAULT '',
+      reaction_test_passed_at TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_by_id TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT '',
+      UNIQUE (organization_id, email)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ehs_drivers_org ON ehs_approved_drivers(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_ehs_drivers_email ON ehs_approved_drivers(organization_id, email);
+  `);
+}
+
+function migrateOrganizationsRouteOrigin(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(organizations)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+  if (!has("route_origin_lat")) {
+    db.exec("ALTER TABLE organizations ADD COLUMN route_origin_lat REAL");
+  }
+  if (!has("route_origin_lng")) {
+    db.exec("ALTER TABLE organizations ADD COLUMN route_origin_lng REAL");
+  }
+  db.prepare(
+    `UPDATE organizations SET route_origin_lat = -29.315, route_origin_lng = 27.487
+     WHERE route_origin_lat IS NULL AND id = '1pwr_lesotho'`
+  ).run();
+}
+
 function migrateVehicleGpsSnapshots(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS vehicle_gps_snapshots (
@@ -680,6 +730,8 @@ function migrateVehiclesPhase1(db: Database.Database): void {
     ["created_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["updated_by_id", "TEXT NOT NULL DEFAULT ''"],
     ["updated_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["fuel_consumption_l_per_100km", "REAL"],
+    ["fuel_consumption_source", "TEXT NOT NULL DEFAULT ''"],
   ];
 
   for (const [col, def] of additions) {

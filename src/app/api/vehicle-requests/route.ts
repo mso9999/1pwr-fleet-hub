@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -83,6 +84,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     now
   );
 
-  const row = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id);
+  await recalculateVehicleRequestFuel(db, id);
+
+  const row = db.prepare(`
+    SELECT vr.*,
+           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
+    FROM vehicle_requests vr
+    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    WHERE vr.id = ?
+  `).get(id);
   return NextResponse.json(row, { status: 201 });
 }

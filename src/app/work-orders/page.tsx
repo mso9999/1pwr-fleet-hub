@@ -232,10 +232,17 @@ export default function WorkOrdersPage(): React.ReactElement {
   );
 }
 
+function workOrderDaysDown(downtimeStart: string, downtimeEnd: string | null): number | null {
+  const startMs = new Date(downtimeStart).getTime();
+  if (Number.isNaN(startMs)) return null;
+  const endMs = downtimeEnd ? new Date(downtimeEnd).getTime() : Date.now();
+  if (Number.isNaN(endMs)) return null;
+  const days = (endMs - startMs) / (1000 * 60 * 60 * 24);
+  return Math.max(1, Math.ceil(days));
+}
+
 function WorkOrderListItem({ order, onClick }: { order: WorkOrderRow; onClick: () => void }): React.ReactElement {
-  const daysDown = Math.max(1, Math.ceil(
-    ((order.downtime_end ? new Date(order.downtime_end).getTime() : Date.now()) - new Date(order.downtime_start).getTime()) / (1000 * 60 * 60 * 24)
-  ));
+  const daysDown = workOrderDaysDown(order.downtime_start, order.downtime_end);
 
   return (
     <Card className={`cursor-pointer hover:border-blue-200 transition-colors ${order.priority === "critical" ? "border-red-200" : ""}`} onClick={onClick}>
@@ -255,11 +262,21 @@ function WorkOrderListItem({ order, onClick }: { order: WorkOrderRow; onClick: (
               </div>
             </div>
           </div>
-          <div className="text-right shrink-0 ml-3">
-            <div className={`text-lg font-bold ${daysDown > 14 ? "text-red-600" : daysDown > 7 ? "text-amber-600" : "text-zinc-600"}`}>
-              {daysDown}d
+          <div className="text-right shrink-0 ml-3" title={daysDown != null ? "Days since downtime started (vehicle off the road)" : "Downtime start date missing or invalid"}>
+            <div
+              className={`text-lg font-bold ${
+                daysDown == null
+                  ? "text-zinc-400"
+                  : daysDown > 14
+                    ? "text-red-600"
+                    : daysDown > 7
+                      ? "text-amber-600"
+                      : "text-zinc-600"
+              }`}
+            >
+              {daysDown != null ? `${daysDown}d` : "—"}
             </div>
-            <div className="text-xs text-zinc-400">open</div>
+            <div className="text-xs text-zinc-400">downtime</div>
           </div>
         </div>
       </div>

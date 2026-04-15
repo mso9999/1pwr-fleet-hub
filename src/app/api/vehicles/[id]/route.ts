@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 
 export async function GET(
   _request: NextRequest,
@@ -79,6 +80,8 @@ export async function PATCH(
     // Pool
     pool: "pool",
     assignedTeam: "assigned_team",
+    fuelConsumptionLPer100km: "fuel_consumption_l_per_100km",
+    fuelConsumptionSource: "fuel_consumption_source",
   };
 
   for (const [jsKey, dbCol] of Object.entries(allowedFields)) {
@@ -110,6 +113,16 @@ export async function PATCH(
   }
 
   db.prepare(`UPDATE vehicles SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+
+  if (body.fuelConsumptionLPer100km !== undefined || body.fuelConsumptionSource !== undefined) {
+    const rows = db
+      .prepare("SELECT id FROM vehicle_requests WHERE assigned_vehicle_id = ?")
+      .all(id) as { id: string }[];
+    for (const r of rows) {
+      await recalculateVehicleRequestFuel(db, r.id);
+    }
+  }
+
   const updated = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id);
   return NextResponse.json(updated);
 }

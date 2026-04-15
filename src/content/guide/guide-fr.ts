@@ -16,7 +16,7 @@ export const guideFr: GuideContent = {
         ") est créé pour la visite guidée et supprimé à la fin ou à la sortie.",
       ],
       [
-        "Des parcours ciblés couvrent les contrôles conducteur, les inspections mécaniques, les demandes de véhicules, les ordres de travail et ",
+        "Des parcours ciblés couvrent les contrôles conducteur, les inspections mécaniques, les demandes de véhicules (distance et carburant indicatifs), les ordres de travail et ",
         B("les manifests de chargement (AM)"),
         " — liaison des listes de colisage aux trajets.",
       ],
@@ -33,7 +33,8 @@ export const guideFr: GuideContent = {
       {
         href: "/guide/daily-workflows",
         title: "Flux quotidiens courants",
-        description: "Trajets (y compris manifests de chargement AM), contrôles véhicule, signalements, ordres de travail, point quotidien et rapports.",
+        description:
+          "Trajets (y compris manifests AM), contrôles véhicule, signalements, ordres de travail, demandes véhicules (distance et carburant indicatifs), point quotidien et rapports.",
       },
       {
         href: "/guide/fleet-and-map",
@@ -58,7 +59,7 @@ export const guideFr: GuideContent = {
       {
         href: "/guide/insights-and-field",
         title: "TCO, rapports, point quotidien et terrain",
-        description: "Exports analytiques, rapports terrain, triage et données de référence admin.",
+        description: "Exports analytiques, rapports terrain, triage, référence admin et GPS des sites / départ trajet.",
       },
     ],
     tipTitle: "Astuce",
@@ -249,6 +250,20 @@ export const guideFr: GuideContent = {
           [
             L("/vehicle-requests", "Demandes"),
             " permet de demander un véhicule du pool ; les managers valident et assignent un véhicule opérationnel.",
+          ],
+          [
+            "Lorsque vous choisissez une ",
+            B("destination"),
+            " dans la liste des sites, Fleet Hub estime la ",
+            B("distance routière aller simple"),
+            " (itinéraire routier public). Une destination saisie en texte libre (« Autre ») ne donne pas de distance cartographiée.",
+          ],
+          [
+            "Après ",
+            B("affectation d’un véhicule"),
+            ", la fiche de demande affiche un ",
+            B("volume de carburant estimé"),
+            " et le rendement (L/100 km et MPG US) à partir de la consommation du véhicule : valeur manuelle sur la fiche si renseignée, sinon valeur typique issue du tableau de référence intégré (marque, modèle, année).",
           ],
         ],
       },
@@ -556,6 +571,19 @@ export const guideFr: GuideContent = {
             " peuvent fixer les ",
             B("tarifs financiers d’indemnité véhicule personnel"),
             " (LSL/km et base km pour le forfait aller-retour) ; sinon les valeurs par défaut du tableur F006 s’appliquent.",
+          ],
+          [
+            "Pour des ",
+            B("distances cohérentes"),
+            " sur les demandes, les administrateurs renseignent le ",
+            B("GPS"),
+            " de chaque ",
+            B("site / destination"),
+            " (Sites dans Admin) : ",
+            B("Définir le GPS"),
+            " avec la carte ou saisie latitude / longitude. Les profils autorisés peuvent aussi définir le ",
+            B("point de départ du trajet (siège / flotte)"),
+            " ; sinon des valeurs par défaut s’appliquent.",
           ],
         ],
       },

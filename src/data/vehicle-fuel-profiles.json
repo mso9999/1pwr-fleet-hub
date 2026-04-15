@@ -1,0 +1,82 @@
+[
+  {
+    "make": "toyota",
+    "model": "hilux",
+    "yearMin": 2005,
+    "yearMax": 2030,
+    "lPer100km": 9.5,
+    "note": "Typical diesel double-cab (mixed use, manufacturer & owner reports)"
+  },
+  {
+    "make": "toyota",
+    "model": "land cruiser",
+    "yearMin": 2005,
+    "yearMax": 2030,
+    "lPer100km": 12.0,
+    "note": "LC70 / Prado class — heavier 4WD use"
+  },
+  {
+    "make": "ford",
+    "model": "ranger",
+    "yearMin": 2012,
+    "yearMax": 2030,
+    "lPer100km": 9.8,
+    "note": "T6/T7 diesel common in fleet"
+  },
+  {
+    "make": "isuzu",
+    "model": "d-max",
+    "yearMin": 2012,
+    "yearMax": 2030,
+    "lPer100km": 9.2,
+    "note": "Diesel pickup"
+  },
+  {
+    "make": "mitsubishi",
+    "model": "l200",
+    "yearMin": 2010,
+    "yearMax": 2030,
+    "lPer100km": 9.6,
+    "note": "Triton / L200 diesel"
+  },
+  {
+    "make": "nissan",
+    "model": "navara",
+    "yearMin": 2010,
+    "yearMax": 2030,
+    "lPer100km": 9.4,
+    "note": "Diesel pickup"
+  },
+  {
+    "make": "jeep",
+    "model": "cherokee",
+    "yearMin": 2000,
+    "yearMax": 2015,
+    "lPer100km": 11.5,
+    "note": "KJ Liberty petrol — field use"
+  },
+  {
+    "make": "jeep",
+    "model": "liberty",
+    "yearMin": 2000,
+    "yearMax": 2015,
+    "lPer100km": 11.5,
+    "note": "Same as Cherokee KJ"
+  },
+  {
+    "make": "toyota",
+    "model": "surf",
+    "yearMin": 1990,
+    "yearMax": 2010,
+    "lPer100km": 12.5,
+    "note": "Older 4WD — higher consumption"
+  },
+  {
+    "make": "default",
+    "model": "light 4wd",
+    "yearMin": 1990,
+    "yearMax": 2030,
+    "lPer100km": 10.5,
+    "note": "Fallback when make/model not matched — light 4WD / bakkie"
+  }
+]
