@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth-context";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MEDIA_CATEGORY } from "@/types";
 import { uploadDriverVehicleCheckPhotos } from "@/lib/upload-driver-vehicle-check-photos";
 
@@ -190,12 +191,20 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     try {
       const res = await fetch("/api/driver-vehicle-checks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await jsonHeadersWithBearer(),
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        setFormError(err.error || "Failed to submit check");
+        const raw = await res.text();
+        let detail = "Failed to submit check";
+        try {
+          const j = JSON.parse(raw) as { error?: string };
+          if (j.error) detail = j.error;
+        } catch {
+          if (raw) detail = `Failed to submit check (${res.status}): ${raw.slice(0, 280)}`;
+          else detail = `Failed to submit check (HTTP ${res.status}).`;
+        }
+        setFormError(detail);
         setIsSubmitting(false);
         return;
       }
