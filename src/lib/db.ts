@@ -202,14 +202,17 @@ function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): v
     CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
   `);
 
-  migrateMissionsApprovalColumns(db);
-
+  // Ensure vehicle_requests.mission_id exists BEFORE migrateMissionsApprovalColumns, because its
+  // back-fill UPDATE references vr.mission_id. On legacy DBs the old order threw here, the rest
+  // of ensurePhase1Schema aborted, and SELECTs against vr.mission_id then 500'd.
   const vrCols = db.prepare("PRAGMA table_info(vehicle_requests)").all() as Array<{ name: string }>;
   const vrHas = (col: string) => vrCols.some((c) => c.name === col);
   if (!vrHas("mission_id")) {
     db.exec(`ALTER TABLE vehicle_requests ADD COLUMN mission_id TEXT REFERENCES missions(id)`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_vr_mission ON vehicle_requests(mission_id)`);
+
+  migrateMissionsApprovalColumns(db);
 }
 
 /** PR mission approval workflow — older DBs created before approval columns. */
