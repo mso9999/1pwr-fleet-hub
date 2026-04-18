@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -9,6 +9,18 @@ import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MEDIA_CATEGORY } from "@/types";
 import { uploadDriverVehicleCheckPhotos } from "@/lib/upload-driver-vehicle-check-photos";
+
+interface ApprovedDriverOption {
+  id: string;
+  email: string;
+  displayName: string;
+  hrEmployeeId: string;
+}
+
+interface SiteOption {
+  code: string;
+  label: string;
+}
 
 const DVC_PHOTO_SLOTS = [
   { id: "exterior_front", label: "Front", category: MEDIA_CATEGORY.DVC_EXTERIOR_FRONT },
@@ -101,6 +113,77 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [formError, setFormError] = useState("");
   const [photoFiles, setPhotoFiles] = useState<Partial<Record<string, File>>>({});
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
+  const [driverOptions, setDriverOptions] = useState<ApprovedDriverOption[]>([]);
+  const [driverName, setDriverName] = useState<string>(user?.name || "");
+  const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}`,
+          { headers: await jsonHeadersWithBearer() }
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { options?: ApprovedDriverOption[] };
+        if (!cancelled) setDriverOptions(Array.isArray(data.options) ? data.options : []);
+      } catch {
+        /* non-fatal: combobox still works as free-text */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/reference-data?org=${encodeURIComponent(organizationId)}&type=site`
+        );
+        if (!res.ok) return;
+        const rows = (await res.json()) as Array<{ code: string; label: string; active: number }>;
+        const active = Array.isArray(rows) ? rows.filter((r) => r.active) : [];
+        if (!cancelled) {
+          setSiteOptions(active.map((r) => ({ code: r.code, label: r.label || r.code })));
+        }
+      } catch {
+        /* non-fatal: combobox still works as free-text */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  const matchedDriver = useMemo(() => {
+    const needle = driverName.trim().toLowerCase();
+    if (!needle) return null;
+    return (
+      driverOptions.find(
+        (o) =>
+          o.displayName.toLowerCase() === needle ||
+          o.email.toLowerCase() === needle
+      ) ?? null
+    );
+  }, [driverName, driverOptions]);
+
+  // Prefer the logged-in user's approved record when it becomes available.
+  const autoFilledRef = useRef(false);
+  useEffect(() => {
+    if (autoFilledRef.current) return;
+    if (!user?.email) return;
+    const mine = driverOptions.find(
+      (o) => o.email.toLowerCase() === user.email.toLowerCase()
+    );
+    if (mine) {
+      setDriverName(mine.displayName);
+      autoFilledRef.current = true;
+    }
+  }, [driverOptions, user?.email]);
 
   useEffect(() => {
     const urls: Record<string, string> = {};
@@ -166,11 +249,17 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
     setIsSubmitting(true);
 
+    const typedDriverName = (fd.get("driverName") as string | null)?.trim() || "";
+    const resolvedDriverName = typedDriverName || user?.name || "";
+    // If the typed value matches a compliant approved-driver option we surface its id so
+    // downstream consumers can cross-reference; otherwise fall back to the logged-in user id.
+    const resolvedDriverId = matchedDriver?.id || user?.id || "";
+
     const payload: Record<string, unknown> = {
       organizationId,
       vehicleId: fd.get("vehicleId"),
-      driverId: user?.id || "",
-      driverName: fd.get("driverName") || user?.name || "",
+      driverId: resolvedDriverId,
+      driverName: resolvedDriverName,
       mileageKm,
       routeFrom: fd.get("routeFrom") || "",
       routeTo: fd.get("routeTo") || "",
@@ -283,7 +372,31 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
               ))}
             </Select>
-            <Input name="driverName" label="Driver *" required placeholder="Your name" defaultValue={user?.name || ""} />
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-zinc-700">Driver *</label>
+              <input
+                name="driverName"
+                required
+                list="dvc-approved-drivers"
+                value={driverName}
+                onChange={(e) => setDriverName(e.target.value)}
+                placeholder="Pick from approved drivers or type a name"
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                autoComplete="off"
+              />
+              <datalist id="dvc-approved-drivers">
+                {driverOptions.map((o) => (
+                  <option key={o.id} value={o.displayName}>
+                    {o.email}
+                  </option>
+                ))}
+              </datalist>
+              {!matchedDriver && driverName.trim() && driverOptions.length > 0 && (
+                <p className="text-[11px] text-amber-700">
+                  Not on the EHS approved-driver list — submitted as a write-in entry.
+                </p>
+              )}
+            </div>
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>
 
@@ -350,8 +463,31 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input name="routeFrom" label="Route from" placeholder="Departure location" />
-            <Input name="routeTo" label="Route to" placeholder="Destination" />
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-zinc-700">Route from</label>
+              <input
+                name="routeFrom"
+                list="dvc-sites"
+                placeholder="Departure location"
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-zinc-700">Route to</label>
+              <input
+                name="routeTo"
+                list="dvc-sites"
+                placeholder="Destination"
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                autoComplete="off"
+              />
+            </div>
+            <datalist id="dvc-sites">
+              {siteOptions.map((s) => (
+                <option key={s.code} value={s.label} />
+              ))}
+            </datalist>
           </div>
 
           {formError && (

@@ -80,6 +80,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const db = getDb();
+
+    // Defensive: legacy production DBs may predate trip_id. getDb()'s ensurePhase1Schema should handle this,
+    // but we re-assert here so a single stale deploy can't block check submission.
+    const dvcCols = db
+      .prepare("PRAGMA table_info(driver_vehicle_checks)")
+      .all() as Array<{ name: string }>;
+    if (!dvcCols.some((c) => c.name === "trip_id")) {
+      db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN trip_id TEXT DEFAULT NULL");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id)");
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
