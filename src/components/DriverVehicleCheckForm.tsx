@@ -22,6 +22,178 @@ interface SiteOption {
   label: string;
 }
 
+/**
+ * Searchable dropdown for the EHS-approved driver register with optional write-in fallback.
+ * Always renders an explicit chevron so users see it's a picker (not a plain text input).
+ * A write-in stays allowed because the PRD called for "with write-in alternatives".
+ */
+function ApprovedDriverCombobox({
+  value,
+  onChange,
+  options,
+  loading,
+  matched,
+  organizationId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: ApprovedDriverOption[];
+  loading: boolean;
+  matched: ApprovedDriverOption | null;
+  organizationId: string;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent): void {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const typed = value.trim();
+  const typedLower = typed.toLowerCase();
+  const filtered = typed
+    ? options.filter(
+        (o) =>
+          o.displayName.toLowerCase().includes(typedLower) ||
+          o.email.toLowerCase().includes(typedLower)
+      )
+    : options;
+
+  const noApproved = !loading && options.length === 0;
+
+  return (
+    <div className="flex flex-col gap-1.5" ref={rootRef}>
+      <label className="text-sm font-medium text-zinc-700">Driver *</label>
+      <div className="relative">
+        <input
+          name="driverName"
+          required
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (!open) setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setOpen(false);
+            else if (e.key === "ArrowDown") setOpen(true);
+          }}
+          placeholder="Pick an approved driver (or type to write in)"
+          className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-3 pr-9 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="approved-driver-listbox"
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={open ? "Close drivers list" : "Open drivers list"}
+          onClick={() => setOpen((o) => !o)}
+          className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-500 hover:text-zinc-700"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 8 10 12 14 8" />
+          </svg>
+        </button>
+
+        {open && (
+          <div
+            id="approved-driver-listbox"
+            role="listbox"
+            className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-zinc-200 bg-white shadow-lg"
+          >
+            {loading ? (
+              <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>
+            ) : noApproved ? (
+              <div className="px-3 py-2 text-sm text-zinc-600">
+                No approved drivers for this organization yet. Ask EHS to add you to the register.
+              </div>
+            ) : filtered.length === 0 ? (
+              <>
+                <div className="px-3 py-2 text-sm text-zinc-500">No matches.</div>
+                {typed && (
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-zinc-50 border-t border-zinc-100"
+                    onClick={() => setOpen(false)}
+                  >
+                    Use as write-in: <strong>{typed}</strong>
+                  </button>
+                )}
+              </>
+            ) : (
+              <ul className="py-1">
+                {filtered.map((o) => {
+                  const isSelected = matched?.id === o.id;
+                  return (
+                    <li
+                      key={o.id}
+                      role="option"
+                      aria-selected={isSelected}
+                    >
+                      <button
+                        type="button"
+                        className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-zinc-50 ${
+                          isSelected ? "bg-blue-50" : ""
+                        }`}
+                        onClick={() => {
+                          onChange(o.displayName);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="font-medium text-zinc-900">{o.displayName}</span>
+                        <span className="text-xs text-zinc-500">{o.email}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+      {loading ? (
+        <p className="text-[11px] text-zinc-500">Loading approved drivers for {organizationId}…</p>
+      ) : noApproved ? (
+        <p className="text-[11px] text-amber-700">
+          No EHS-approved drivers found for {organizationId}. You can write in a name, but EHS should add
+          approved drivers to the register.
+        </p>
+      ) : matched ? (
+        <p className="text-[11px] text-emerald-700">
+          EHS-approved for {organizationId} · {matched.email}
+        </p>
+      ) : typed ? (
+        <p className="text-[11px] text-amber-700">
+          Not on the approved list for {organizationId} — will be submitted as a write-in.
+        </p>
+      ) : (
+        <p className="text-[11px] text-zinc-500">
+          {options.length} approved driver{options.length === 1 ? "" : "s"} for {organizationId} · managed by
+          EHS
+        </p>
+      )}
+    </div>
+  );
+}
+
 const DVC_PHOTO_SLOTS = [
   { id: "exterior_front", label: "Front", category: MEDIA_CATEGORY.DVC_EXTERIOR_FRONT },
   { id: "exterior_rear", label: "Rear", category: MEDIA_CATEGORY.DVC_EXTERIOR_REAR },
@@ -114,22 +286,29 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [photoFiles, setPhotoFiles] = useState<Partial<Record<string, File>>>({});
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
   const [driverOptions, setDriverOptions] = useState<ApprovedDriverOption[]>([]);
+  const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
 
   useEffect(() => {
     let cancelled = false;
+    setDriverOptionsLoading(true);
     (async () => {
       try {
         const res = await fetch(
           `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}`,
           { headers: await jsonHeadersWithBearer() }
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setDriverOptions([]);
+          return;
+        }
         const data = (await res.json()) as { options?: ApprovedDriverOption[] };
         if (!cancelled) setDriverOptions(Array.isArray(data.options) ? data.options : []);
       } catch {
-        /* non-fatal: combobox still works as free-text */
+        if (!cancelled) setDriverOptions([]);
+      } finally {
+        if (!cancelled) setDriverOptionsLoading(false);
       }
     })();
     return () => {
@@ -372,31 +551,14 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
               ))}
             </Select>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-700">Driver *</label>
-              <input
-                name="driverName"
-                required
-                list="dvc-approved-drivers"
-                value={driverName}
-                onChange={(e) => setDriverName(e.target.value)}
-                placeholder="Pick from approved drivers or type a name"
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-                autoComplete="off"
-              />
-              <datalist id="dvc-approved-drivers">
-                {driverOptions.map((o) => (
-                  <option key={o.id} value={o.displayName}>
-                    {o.email}
-                  </option>
-                ))}
-              </datalist>
-              {!matchedDriver && driverName.trim() && driverOptions.length > 0 && (
-                <p className="text-[11px] text-amber-700">
-                  Not on the EHS approved-driver list — submitted as a write-in entry.
-                </p>
-              )}
-            </div>
+            <ApprovedDriverCombobox
+              value={driverName}
+              onChange={setDriverName}
+              options={driverOptions}
+              loading={driverOptionsLoading}
+              matched={matchedDriver}
+              organizationId={organizationId}
+            />
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>
 
