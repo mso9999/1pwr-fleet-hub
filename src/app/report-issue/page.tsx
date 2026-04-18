@@ -1,14 +1,27 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import dynamic from "next/dynamic";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 import { FIELD_ISSUE_CLOSEOUT_OUTCOME, ISSUE_SEVERITY } from "@/types";
 
+const SiteCoordsPicker = dynamic(
+  () => import("@/components/SiteCoordsPicker").then((m) => m.SiteCoordsPicker),
+  { ssr: false }
+);
+
 interface VehicleOption { id: string; code: string; make: string; model: string; }
+
+interface RefSiteRow {
+  id: string;
+  code: string;
+  label: string;
+}
 
 interface FieldReport {
   id: string;
@@ -169,6 +182,7 @@ function TicketCloseForm({
 export default function ReportIssuePage(): React.ReactElement {
   const { user, organizationId } = useAuth();
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
+  const [sites, setSites] = useState<RefSiteRow[]>([]);
   const [reports, setReports] = useState<FieldReport[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -177,12 +191,59 @@ export default function ReportIssuePage(): React.ReactElement {
   const [closingId, setClosingId] = useState<string | null>(null);
   const [lastTicketUid, setLastTicketUid] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [vehicleId, setVehicleId] = useState("");
+  const [locationText, setLocationText] = useState("");
+  const [sitePicker, setSitePicker] = useState("");
+  const [showMap, setShowMap] = useState(false);
+  const [mapLat, setMapLat] = useState<number | null>(null);
+  const [mapLng, setMapLng] = useState<number | null>(null);
+
+  const loadIncidentLocationForVehicle = useCallback(
+    async (id: string): Promise<void> => {
+      if (!id) {
+        setLocationText("");
+        setSitePicker("");
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/vehicles/locations?organizationId=${encodeURIComponent(organizationId)}&vehicleId=${encodeURIComponent(id)}`
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          vehicles: Array<{
+            defaultIncidentLocation?: string;
+            trackerFix?: { lat: number; lng: number; live: boolean } | null;
+          }>;
+        };
+        const v = data.vehicles[0];
+        if (v?.defaultIncidentLocation) setLocationText(v.defaultIncidentLocation);
+        else setLocationText("");
+        setSitePicker("");
+        if (v?.trackerFix) {
+          setMapLat(v.trackerFix.lat);
+          setMapLng(v.trackerFix.lng);
+        } else {
+          const view = getDefaultMapViewForOrganization(organizationId);
+          setMapLat(view.center[0]);
+          setMapLng(view.center[1]);
+        }
+      } catch {
+        /* keep previous */
+      }
+    },
+    [organizationId]
+  );
 
   useEffect(() => {
     fetch(`/api/vehicles?org=${organizationId}`)
       .then((r) => r.json())
       .then(setVehicles)
       .catch(() => {});
+    fetch(`/api/reference-data?org=${organizationId}&type=site`)
+      .then((r) => r.json())
+      .then((rows: RefSiteRow[]) => setSites(Array.isArray(rows) ? rows : []))
+      .catch(() => setSites([]));
     loadReports();
   }, [organizationId]);
 
@@ -211,6 +272,7 @@ export default function ReportIssuePage(): React.ReactElement {
     const fd = new FormData(form);
     fd.set("reportedById", user?.id || "");
     fd.set("reportedByName", user?.name || user?.email || "");
+    fd.set("location", locationText.trim());
 
     const photos = fileRef.current?.files;
     if (photos) {
@@ -226,6 +288,12 @@ export default function ReportIssuePage(): React.ReactElement {
       setSubmitted(true);
       setPreviewUrls([]);
       form.reset();
+      setVehicleId("");
+      setLocationText("");
+      setSitePicker("");
+      setShowMap(false);
+      setMapLat(null);
+      setMapLng(null);
       loadReports();
       setTimeout(() => setSubmitted(false), 6000);
     }
@@ -295,7 +363,17 @@ export default function ReportIssuePage(): React.ReactElement {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Select name="vehicleId" label="Vehicle *" required>
+            <Select
+              name="vehicleId"
+              label="Vehicle *"
+              required
+              value={vehicleId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setVehicleId(id);
+                void loadIncidentLocationForVehicle(id);
+              }}
+            >
               <option value="">Select vehicle...</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
@@ -327,10 +405,79 @@ export default function ReportIssuePage(): React.ReactElement {
               </Select>
             </div>
 
-            <div className="grid gap-4 grid-cols-2">
-              <Input name="location" label="Your current location" placeholder="e.g. MAK site, on road to SEB" />
-              <Input name="odometer" label="Odometer reading" type="number" placeholder="km" />
+            <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+              <div className="text-sm font-medium text-zinc-800">Where is this happening?</div>
+              <p className="text-xs text-zinc-500">
+                Location starts from the vehicle&apos;s tracker (or last known site in Fleet) when you pick a vehicle. Override with a PR site, map pin, or free text.
+              </p>
+              <Input
+                label="Location (saved on the report)"
+                value={locationText}
+                onChange={(e) => setLocationText(e.target.value)}
+                placeholder="e.g. Tracker coordinates, site name, or road reference"
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium text-zinc-700">Site (PR list for this country)</span>
+                  <select
+                    className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={sitePicker}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setSitePicker(code);
+                      if (!code) return;
+                      const row = sites.find((s) => s.code === code);
+                      if (row) setLocationText(`${row.label} (${row.code})`);
+                    }}
+                  >
+                    <option value="">— Optional: set from site list —</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.code}>
+                        {s.label} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      if (mapLat == null || mapLng == null) {
+                        const view = getDefaultMapViewForOrganization(organizationId);
+                        setMapLat(view.center[0]);
+                        setMapLng(view.center[1]);
+                      }
+                      setShowMap((v) => !v);
+                    }}
+                  >
+                    {showMap ? "Hide map" : "Pick on map"}
+                  </Button>
+                </div>
+              </div>
+              {showMap && mapLat != null && mapLng != null && (
+                <div className="space-y-2">
+                  <p className="text-xs text-zinc-500">Tap or drag the pin — the location text updates to match.</p>
+                  <SiteCoordsPicker
+                    key={vehicleId || "map"}
+                    organizationId={organizationId}
+                    lat={mapLat}
+                    lng={mapLng}
+                    height={200}
+                    onChange={(la, ln) => {
+                      setMapLat(la);
+                      setMapLng(ln);
+                      setLocationText(`Map pin — ${la.toFixed(5)}, ${ln.toFixed(5)}`);
+                      setSitePicker("");
+                    }}
+                  />
+                </div>
+              )}
             </div>
+
+            <Input name="odometer" label="Odometer reading" type="number" placeholder="km" />
 
             {/* Photo capture — optimized for mobile */}
             <div>

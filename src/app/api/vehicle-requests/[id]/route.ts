@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import {
+  canApproveMissionRequests,
+  canFullyManageVehicleRequests,
+} from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
+import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 
 export async function GET(
   _request: NextRequest,
@@ -10,10 +15,8 @@ export async function GET(
   const { id } = await params;
   const db = getDb();
   const row = db.prepare(`
-    SELECT vr.*,
-           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
-    FROM vehicle_requests vr
-    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    SELECT ${VR_SELECT_FIELDS}
+    ${VR_FROM_JOIN}
     WHERE vr.id = ?
   `).get(id);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -29,9 +32,80 @@ export async function PATCH(
   const body = await request.json();
   const now = new Date().toISOString();
   const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (body.rrStatus !== undefined) {
+    const rr = String(body.rrStatus).toLowerCase();
+    if (!["na", "pending", "approved"].includes(rr)) {
+      return NextResponse.json({ error: "rrStatus must be na, pending, or approved" }, { status: 400 });
+    }
+    body.rrStatus = rr;
+  }
+
+  const allowedKeys = (Object.keys(body) as string[]).filter(
+    (k) =>
+      [
+        "status",
+        "approvedById",
+        "approvedByName",
+        "rejectionReason",
+        "assignedVehicleId",
+        "notes",
+        "purpose",
+        "destination",
+        "departureDate",
+        "returnDate",
+        "passengers",
+        "requiredVehicleClass",
+        "loadoutDescription",
+        "priority",
+        "rrStatus",
+      ].includes(k) && body[k as keyof typeof body] !== undefined
+  );
+
+  if (allowedKeys.length === 0) {
+    return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+  }
+
+  const canFull = canFullyManageVehicleRequests(user.role);
+  const orgId = String((existing as Record<string, unknown>).organization_id || "");
+  const canMission = canApproveMissionRequests(db, orgId, user.email, user.role);
+  const isRequestor = String((existing as Record<string, unknown>).requested_by_id || "") === user.id;
+  const onlyRr = allowedKeys.length === 1 && allowedKeys[0] === "rrStatus";
+
+  if (onlyRr) {
+    if (!canFull && !isRequestor) {
+      return NextResponse.json({ error: "Not allowed to edit R&R on this request" }, { status: 403 });
+    }
+    if (!canFull && isRequestor && String(body.rrStatus).toLowerCase() === "approved") {
+      return NextResponse.json(
+        { error: "Only fleet management can set R&R to Approved" },
+        { status: 403 }
+      );
+    }
+  } else {
+    const keysForAuth = allowedKeys.filter(
+      (k) => k !== "approvedById" && k !== "approvedByName"
+    );
+    const missionOnly =
+      keysForAuth.length > 0 &&
+      keysForAuth.every((k) => k === "status" || k === "rejectionReason");
+    if (missionOnly) {
+      if (!canMission) {
+        return NextResponse.json(
+          { error: "Not allowed to approve or reject this request" },
+          { status: 403 }
+        );
+      }
+    } else if (!canFull) {
+      return NextResponse.json({ error: "Only fleet management can edit this request" }, { status: 403 });
+    }
+  }
 
   const existingStatus = (existing as Record<string, unknown>).status as string;
   if (
@@ -59,6 +133,7 @@ export async function PATCH(
     requiredVehicleClass: "required_vehicle_class",
     loadoutDescription: "loadout_description",
     priority: "priority",
+    rrStatus: "rr_status",
   };
 
   const fields: string[] = [];
@@ -70,8 +145,6 @@ export async function PATCH(
       values.push(body[jsKey]);
     }
   }
-
-  if (fields.length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
 
   fields.push("updated_at = ?");
   values.push(now);
@@ -96,10 +169,8 @@ export async function PATCH(
   }
 
   const updated = db.prepare(`
-    SELECT vr.*,
-           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
-    FROM vehicle_requests vr
-    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    SELECT ${VR_SELECT_FIELDS}
+    ${VR_FROM_JOIN}
     WHERE vr.id = ?
   `).get(id);
 

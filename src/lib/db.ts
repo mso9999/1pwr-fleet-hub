@@ -86,6 +86,8 @@ function migrateVehicleRequestsSchema(db: Database.Database): void {
     ["estimated_route_km", "REAL"],
     ["estimated_fuel_liters", "REAL"],
     ["fuel_efficiency_l_per_100km", "REAL"],
+    /** Rest & recuperation / travel policy sign-off (aligned with PR travel workflow). */
+    ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
   ];
 
   for (const [col, def] of additions) {
@@ -170,9 +172,80 @@ function ensurePvrRateSettingsTable(db: Database.Database): void {
   `);
 }
 
+function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS missions (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      title TEXT NOT NULL DEFAULT '',
+      destination TEXT NOT NULL DEFAULT '',
+      departure_date TEXT NOT NULL DEFAULT '',
+      return_date TEXT NOT NULL DEFAULT '',
+      mission_type TEXT NOT NULL DEFAULT 'other',
+      passengers TEXT DEFAULT '',
+      loadout_summary TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned',
+      trip_id TEXT,
+      approval_status TEXT NOT NULL DEFAULT 'pending',
+      approved_by_id TEXT DEFAULT '',
+      approved_by_name TEXT DEFAULT '',
+      approved_at TEXT DEFAULT NULL,
+      rejection_reason TEXT DEFAULT '',
+      created_by_id TEXT NOT NULL DEFAULT '',
+      created_by_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_missions_org ON missions(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_missions_org_status ON missions(organization_id, status);
+    CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
+  `);
+
+  migrateMissionsApprovalColumns(db);
+
+  const vrCols = db.prepare("PRAGMA table_info(vehicle_requests)").all() as Array<{ name: string }>;
+  const vrHas = (col: string) => vrCols.some((c) => c.name === col);
+  if (!vrHas("mission_id")) {
+    db.exec(`ALTER TABLE vehicle_requests ADD COLUMN mission_id TEXT REFERENCES missions(id)`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_vr_mission ON vehicle_requests(mission_id)`);
+}
+
+/** PR mission approval workflow — older DBs created before approval columns. */
+function migrateMissionsApprovalColumns(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='missions' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["approval_status", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["approved_by_id", "TEXT DEFAULT ''"],
+    ["approved_by_name", "TEXT DEFAULT ''"],
+    ["approved_at", "TEXT DEFAULT NULL"],
+    ["rejection_reason", "TEXT DEFAULT ''"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE missions ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  db.prepare(
+    `UPDATE missions SET approval_status = 'approved'
+     WHERE EXISTS (SELECT 1 FROM vehicle_requests vr WHERE vr.mission_id = missions.id)`
+  ).run();
+}
+
 function ensurePhase1Schema(db: Database.Database): void {
   ensureVehicleRequestsTable(db);
   migrateVehicleRequestsSchema(db);
+  ensureMissionsTableAndVehicleRequestMissionId(db);
   ensurePersonalVehicleReimbursementTable(db);
   migratePersonalVehicleReimbursementSchema(db);
   ensurePvrRateSettingsTable(db);
@@ -183,6 +256,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateTripsPhase1(db);
   migrateDriverVehicleChecksTravelPhone(db);
   migrateDriverVehicleChecksApprovedById(db);
+  migrateDriverVehicleChecksTripId(db);
   migrateEhsApprovedDrivers(db);
   migrateOrganizationsRouteOrigin(db);
 
@@ -527,6 +601,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
+    ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
@@ -765,6 +840,20 @@ function migrateDriverVehicleChecksApprovedById(db: Database.Database): void {
   db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN approved_by_id TEXT NOT NULL DEFAULT ''");
 }
 
+/** Older DBs predate trip_id on driver_vehicle_checks; API INSERT requires this column. */
+function migrateDriverVehicleChecksTripId(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === "trip_id")) return;
+
+  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN trip_id TEXT DEFAULT NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id)");
+}
+
 function migrateVehicleCountryChangeWorkflow(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS vehicle_country_change_requests (
@@ -795,6 +884,24 @@ function migrateVehicleCountryChangeWorkflow(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_vccr_vehicle ON vehicle_country_change_requests(vehicle_id);
     CREATE INDEX IF NOT EXISTS idx_vccr_status ON vehicle_country_change_requests(status);
     CREATE INDEX IF NOT EXISTS idx_vccr_from_org ON vehicle_country_change_requests(from_organization_id);
+  `);
+}
+
+function migrateTripOdometerReadings(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trip_odometer_readings (
+      id TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      odo_km INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      recorded_at TEXT NOT NULL,
+      recorded_by_id TEXT NOT NULL DEFAULT '',
+      recorded_by_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_trip_odo_trip ON trip_odometer_readings(trip_id);
+    CREATE INDEX IF NOT EXISTS idx_trip_odo_org_recorded ON trip_odometer_readings(organization_id, recorded_at);
   `);
 }
 

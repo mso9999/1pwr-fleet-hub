@@ -523,6 +523,8 @@ export const MEDIA_CATEGORY = {
   DVC_EXTERIOR_RIGHT: "dvc-exterior-right",
   /** Driver vehicle check — odometer matches typed km */
   DVC_ODOMETER: "dvc-odometer",
+  /** Trip — daily / in-mission odometer log photo */
+  TRIP_ODO: "trip-odo",
 } as const;
 
 export type MediaCategory = (typeof MEDIA_CATEGORY)[keyof typeof MEDIA_CATEGORY];

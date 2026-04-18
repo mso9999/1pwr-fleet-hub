@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
 import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
+import { TripOdometerLog } from "@/components/TripOdometerLog";
 import { MISSION_PROFILE } from "@/lib/trip-readiness";
 
 interface TripRow {
@@ -53,7 +55,7 @@ function TripsPageContent(): React.ReactElement {
   const searchParams = useSearchParams();
   const tripParam = searchParams.get("trip");
   const vehicleParam = searchParams.get("vehicle");
-  const { organizationId } = useAuth();
+  const { organizationId, user } = useAuth();
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [sites, setSites] = useState<RefItem[]>([]);
@@ -171,7 +173,9 @@ function TripsPageContent(): React.ReactElement {
         <span className="font-medium text-zinc-800">Trip readiness: </span>
         Choose <strong>Local / in-town</strong> for short runs, or <strong>Field deployment</strong> for trips that need a recent detailed mechanical inspection.
         Both require today&apos;s <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">departing driver checklist</Link>{" "}
-        before check-out. <span className="font-medium text-zinc-800">Load-out manifests (AM): </span>
+        before check-out. <span className="font-medium text-zinc-800">Daily ODO: </span>
+        While a trip is active, log typed odometer readings and optional gauge photos below each trip — no WhatsApp group needed.
+        <span className="font-medium text-zinc-800"> Load-out manifests (AM): </span>
         Packing lists are built in Asset Management (am.1pwrafrica.com). On each trip below, use{" "}
         <span className="whitespace-nowrap font-medium">Load-out manifests (AM)</span> to link or open a manifest; expand a completed trip to see it.
       </p>
@@ -236,10 +240,18 @@ function TripsPageContent(): React.ReactElement {
                     </div>
                     <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
                   </div>
-                  <div className="px-4 pb-4">
+                  <div className="px-4 pb-4 space-y-3">
                     <LoadoutManifestsSection
                       tripId={trip.id}
                       tripLabel={`${trip.vehicle_code} · ${trip.departure_location} → ${trip.destination} · ${new Date(trip.checkout_at).toLocaleDateString()}`}
+                    />
+                    <TripOdometerLog
+                      tripId={trip.id}
+                      organizationId={organizationId}
+                      odoStart={trip.odo_start}
+                      active
+                      recordedById={user?.id ?? ""}
+                      recordedByName={user?.name || user?.email || ""}
                     />
                   </div>
                 </div>
@@ -276,6 +288,7 @@ function TripsPageContent(): React.ReactElement {
                     <TripHistoryRow
                       key={t.id}
                       trip={t}
+                      organizationId={organizationId}
                       isExpanded={expandedTrip === t.id}
                       isEditing={editingTrip === t.id}
                       isSaving={isSaving}
@@ -393,7 +406,11 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
       body.stops = stops.filter((s) => s.location);
     }
 
-    const res = await fetch("/api/trips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch("/api/trips", {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify(body),
+    });
     if (res.ok) onComplete();
     else {
       const data = (await res.json().catch(() => ({}))) as { error?: string; gates?: ReadinessResponse["gates"] };
@@ -595,8 +612,9 @@ function CheckinForm({ trip, sites, onComplete, onCancel }: {
   );
 }
 
-function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionTypes, onToggle, onEdit, onCancelEdit, onSave, onDelete }: {
+function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving, sites, missionTypes, onToggle, onEdit, onCancelEdit, onSave, onDelete }: {
   trip: TripRow;
+  organizationId: string;
   isExpanded: boolean;
   isEditing: boolean;
   isSaving: boolean;
@@ -737,6 +755,15 @@ function TripHistoryRow({ trip, isExpanded, isEditing, isSaving, sites, missionT
                       </div>
                     )}
                   </div>
+
+                  <TripOdometerLog
+                    tripId={trip.id}
+                    organizationId={organizationId}
+                    odoStart={trip.odo_start}
+                    active={false}
+                    recordedById=""
+                    recordedByName=""
+                  />
 
                   <div className="pt-2">
                     <div className="text-xs font-medium text-zinc-500 uppercase mb-2">Photos & Documents</div>

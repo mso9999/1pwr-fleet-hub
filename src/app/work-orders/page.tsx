@@ -11,6 +11,8 @@ import { WorkOrderStatusBadge, PriorityBadge } from "@/components/StatusBadge";
 import { WORK_ORDER_STATUS, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import type { WorkOrderStatus, WorkOrderPriority } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
 import {
   CreateWorkOrderForm,
@@ -290,6 +292,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
   onUpdated: () => void;
 }): React.ReactElement {
   const { user } = useAuth();
+  const canAdvanceStatus = canAdvanceWorkOrderStatus(user?.role ?? "", user?.department);
   const [detail, setDetail] = useState<WorkOrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -321,7 +324,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
     setError(null);
     const res = await fetch(`/api/work-orders/${workOrderId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({
         status: newStatus,
         changedById: user?.id || "",
@@ -465,25 +468,33 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
         {allowedTransitions.length > 0 && (
           <div className="space-y-2">
             <div className="text-xs font-medium text-zinc-500 uppercase">Advance Status</div>
-            <div className="flex flex-wrap gap-2">
-              {allowedTransitions.map((s) => (
-                <Button
-                  key={s}
-                  size="sm"
-                  variant={s === "cancelled" || s === "rejected" ? "outline" : "default"}
-                  className={s === "closed" ? "bg-emerald-700 hover:bg-emerald-800" : s === "cancelled" ? "text-zinc-500" : ""}
-                  onClick={() => transitionStatus(s)}
-                >
-                  → {s}
-                </Button>
-              ))}
-            </div>
-            <Input
-              placeholder="Reason for status change (optional)"
-              value={transitionReason}
-              onChange={(e) => setTransitionReason(e.target.value)}
-              className="max-w-md"
-            />
+            {canAdvanceStatus ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {allowedTransitions.map((s) => (
+                    <Button
+                      key={s}
+                      size="sm"
+                      variant={s === "cancelled" || s === "rejected" ? "outline" : "default"}
+                      className={s === "closed" ? "bg-emerald-700 hover:bg-emerald-800" : s === "cancelled" ? "text-zinc-500" : ""}
+                      onClick={() => transitionStatus(s)}
+                    >
+                      → {s}
+                    </Button>
+                  ))}
+                </div>
+                <Input
+                  placeholder="Reason for status change (optional)"
+                  value={transitionReason}
+                  onChange={(e) => setTransitionReason(e.target.value)}
+                  className="max-w-md"
+                />
+              </>
+            ) : (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                Only staff with a <strong>Fleet</strong> department in People Resources (or superadmins) can change work order status. Ask your fleet coordinator if a transition is needed.
+              </p>
+            )}
           </div>
         )}
 

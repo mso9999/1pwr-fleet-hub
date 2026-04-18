@@ -112,24 +112,41 @@ interface VehicleRow {
   tracker_provider: string;
 }
 
+function buildDefaultIncidentLocation(
+  gps: TrackerPosition | undefined,
+  nowUnix: number,
+  currentLocation: string
+): string {
+  if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
+    const live = nowUnix - gps.timestamp < 7 * 86400;
+    return `Tracker — ${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)}${live ? " (live)" : " (last fix)"}`;
+  }
+  const loc = String(currentLocation ?? "").trim();
+  if (loc) return `Vehicle listed at: ${loc}`;
+  return "";
+}
+
 export async function GET(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const orgId = searchParams.get("organizationId") || "1pwr_lesotho";
+  const vehicleIdFilter = searchParams.get("vehicleId")?.trim() || "";
   const rewindRaw = searchParams.get("rewindHours");
   let rewindHours = rewindRaw === null || rewindRaw === "" ? 0 : parseInt(rewindRaw, 10);
   if (Number.isNaN(rewindHours) || rewindHours < 0) rewindHours = 0;
   if (rewindHours > 144) rewindHours = 144;
 
   const db = getDb();
-  const vehicles = db
-    .prepare(
-      `SELECT id, code, make, model, license_plate, current_location, status,
+  let vehicleSql = `SELECT id, code, make, model, license_plate, current_location, status,
             tracker_imei, tracker_status, tracker_provider
      FROM vehicles
-     WHERE organization_id = ?
-     ORDER BY code`
-    )
-    .all(orgId) as VehicleRow[];
+     WHERE organization_id = ?`;
+  const vehicleParams: string[] = [orgId];
+  if (vehicleIdFilter) {
+    vehicleSql += " AND id = ?";
+    vehicleParams.push(vehicleIdFilter);
+  }
+  vehicleSql += " ORDER BY code";
+  const vehicles = db.prepare(vehicleSql).all(...vehicleParams) as VehicleRow[];
 
   const activeTripRows = db
     .prepare(`SELECT id AS trip_id, vehicle_id FROM trips WHERE organization_id = ? AND checkin_at IS NULL`)
@@ -188,6 +205,11 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     const gps = v.tracker_imei ? gpsMap.get(v.tracker_imei) : undefined;
     const isLiveGps = !!(gps && nowUnix - gps.timestamp < 7 * 86400);
+    const defaultIncidentLocation = buildDefaultIncidentLocation(gps, nowUnix, v.current_location);
+    const trackerFix =
+      gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)
+        ? { lat: gps.lat, lng: gps.lng, live: isLiveGps }
+        : null;
 
     const hist = historyMap.get(v.id)!;
     let lat: number;
@@ -234,6 +256,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       trackerStatus: v.tracker_status,
       trackerProvider: v.tracker_provider,
       activeTripId: activeTripByVehicle.get(v.id) || null,
+      defaultIncidentLocation,
+      trackerFix,
       lat,
       lng,
       gpsLive,

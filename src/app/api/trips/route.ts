@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { evaluateTripReadiness } from "@/lib/trip-readiness";
 import { v4 as uuidv4 } from "uuid";
 
@@ -35,6 +36,10 @@ export function GET(request: NextRequest): NextResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const db = getDb();
   const body = await request.json();
   const id = uuidv4();

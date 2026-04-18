@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,18 @@ interface RequestRow {
   estimated_route_km?: number | null;
   estimated_fuel_liters?: number | null;
   fuel_efficiency_l_per_100km?: number | null;
+  /** Rest & recuperation / travel policy — na | pending | approved */
+  rr_status?: string;
+  /** Joined from users.email for requestor permission checks */
+  requested_by_email?: string | null;
+  mission_id?: string | null;
+  mission_title?: string | null;
+  mission_destination?: string | null;
+  mission_departure_date?: string | null;
+  mission_return_date?: string | null;
+  mission_status?: string | null;
+  mission_trip_id?: string | null;
+  mission_approval_status?: string | null;
 }
 
 interface PoolVehicle {
@@ -67,8 +80,21 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "secondary",
 };
 
-/** Workflow order aligned with typical PR-style vehicle request tracking */
-const STATUS_PIPELINE: { status: string; label: string }[] = [
+/** R&R = rest & recuperation / travel policy sign-off (matches PR-style travel fields). */
+const RR_LABELS: Record<string, string> = {
+  na: "N/A",
+  pending: "Pending",
+  approved: "Approved",
+};
+
+const RR_BADGE: Record<string, "secondary" | "warning" | "success"> = {
+  na: "secondary",
+  pending: "warning",
+  approved: "success",
+};
+
+/** Filters / column labels for list view */
+const STATUS_FILTERS: { status: string; label: string }[] = [
   { status: "requested", label: "Pending approval" },
   { status: "approved", label: "Approved" },
   { status: "assigned", label: "Assigned" },
@@ -77,46 +103,33 @@ const STATUS_PIPELINE: { status: string; label: string }[] = [
   { status: "cancelled", label: "Cancelled" },
 ];
 
-const COLUMN_HEADER_BG: Record<string, string> = {
-  requested: "bg-amber-50/90 border-amber-100",
-  approved: "bg-emerald-50/90 border-emerald-100",
-  assigned: "bg-green-50/90 border-green-100",
-  completed: "bg-zinc-100/90 border-zinc-200",
-  rejected: "bg-red-50/90 border-red-100",
-  cancelled: "bg-slate-100/90 border-slate-200",
-};
+const KNOWN_STATUS = new Set(STATUS_FILTERS.map((p) => p.status));
 
-const PIPELINE_STATUS_SET = new Set(STATUS_PIPELINE.map((p) => p.status));
+function countByStatus(requests: RequestRow[], status: string): number {
+  return requests.filter((r) => r.status === status).length;
+}
 
-function groupRequestsByStatus(requests: RequestRow[]): {
-  byStatus: Map<string, RequestRow[]>;
-  other: RequestRow[];
-} {
-  const byStatus = new Map<string, RequestRow[]>();
-  for (const p of STATUS_PIPELINE) {
-    byStatus.set(p.status, []);
-  }
-  const other: RequestRow[] = [];
-  for (const r of requests) {
-    const bucket = byStatus.get(r.status);
-    if (bucket) bucket.push(r);
-    else other.push(r);
-  }
-  for (const arr of byStatus.values()) {
-    arr.sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  }
-  other.sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-  return { byStatus, other };
+function normalizeRr(s: string | undefined): string {
+  const t = (s || "na").toLowerCase();
+  return t === "pending" || t === "approved" ? t : "na";
 }
 
 interface RefRow {
   code: string;
   label: string;
   active: number;
+}
+
+interface PlannedMissionRow {
+  id: string;
+  destination: string;
+  departure_date: string;
+  return_date: string;
+  passengers: string;
+  loadout_summary: string;
+  title: string;
+  status: string;
+  approval_status?: string;
 }
 
 export default function VehicleRequestsPage() {
@@ -128,27 +141,70 @@ export default function VehicleRequestsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [view, setView] = useState<"requests" | "pool">("requests");
-  const [requestsLayout, setRequestsLayout] = useState<"board" | "list">("board");
   const [listStatusFilter, setListStatusFilter] = useState<string | null>(null);
+  const [detailRequest, setDetailRequest] = useState<RequestRow | null>(null);
+  const [missionPerms, setMissionPerms] = useState<{
+    canApprove: boolean;
+    canFullEdit: boolean;
+    canAllocateVehicle: boolean;
+  } | null>(null);
+  const [vrEligibility, setVrEligibility] = useState<{ canRequestVehicle: boolean; isApprovedDriver: boolean } | null>(
+    null
+  );
+  const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
 
-  const isManager = user && (user.role === "fleet_lead" || user.role === "manager" || user.role === "admin");
+  const roleLooksFleet =
+    !!user &&
+    (user.role === "fleet_lead" ||
+      user.role === "manager" ||
+      user.role === "admin" ||
+      user.role === "superadmin");
+  const canFullEdit = missionPerms?.canFullEdit ?? roleLooksFleet;
+  const canApproveMission = missionPerms?.canApprove ?? roleLooksFleet;
+  const canAllocateVehicle = missionPerms?.canAllocateVehicle ?? (user?.role === "fleet_lead" || user?.role === "superadmin");
 
-  const { byStatus, other } = groupRequestsByStatus(requests);
-  const statusCounts = STATUS_PIPELINE.map((p) => ({
+  async function patchMissionApproval(missionId: string, action: "approve" | "reject"): Promise<void> {
+    const reason =
+      action === "reject" ? window.prompt("Rejection reason (optional):") ?? "" : "";
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ action, ...(action === "reject" ? { rejectionReason: reason } : {}) }),
+    });
+    if (!res.ok) return;
+    const r2 = await fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+      { headers }
+    );
+    const j = (await r2.json()) as PlannedMissionRow[];
+    setPendingMissions(Array.isArray(j) ? j : []);
+    void loadData();
+  }
+
+  const statusCounts = STATUS_FILTERS.map((p) => ({
     ...p,
-    count: byStatus.get(p.status)?.length ?? 0,
+    count: countByStatus(requests, p.status),
   }));
-  const otherCount = other.length;
+  const otherCount = requests.filter((r) => !KNOWN_STATUS.has(r.status)).length;
 
   const filteredListRequests =
     listStatusFilter === null
       ? requests
       : listStatusFilter === "__other__"
-        ? requests.filter((r) => !PIPELINE_STATUS_SET.has(r.status))
+        ? requests.filter((r) => !KNOWN_STATUS.has(r.status))
         : requests.filter((r) => r.status === listStatusFilter);
   const sortedListRequests = [...filteredListRequests].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") setDetailRequest(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const loadData = useCallback(() => {
     setIsLoading(true);
@@ -194,6 +250,82 @@ export default function VehicleRequestsPage() {
   }, [organizationId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/me/mission-request-can-approve?org=${encodeURIComponent(organizationId)}`,
+        { headers }
+      );
+      if (!res.ok) {
+        if (!cancelled) setMissionPerms(null);
+        return;
+      }
+      const j = (await res.json()) as {
+        canApprove?: boolean;
+        canFullEdit?: boolean;
+        canAllocateVehicle?: boolean;
+      };
+      if (!cancelled) {
+        setMissionPerms({
+          canApprove: !!j.canApprove,
+          canFullEdit: !!j.canFullEdit,
+          canAllocateVehicle: !!j.canAllocateVehicle,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/me/vehicle-request-eligibility?org=${encodeURIComponent(organizationId)}`,
+        { headers }
+      );
+      if (!res.ok) {
+        if (!cancelled) setVrEligibility(null);
+        return;
+      }
+      const j = (await res.json()) as { canRequestVehicle?: boolean; isApprovedDriver?: boolean };
+      if (!cancelled) {
+        setVrEligibility({
+          canRequestVehicle: !!j.canRequestVehicle,
+          isApprovedDriver: !!j.isApprovedDriver,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!canApproveMission) {
+      setPendingMissions([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+        { headers }
+      );
+      if (!res.ok) return;
+      const j = (await res.json()) as PlannedMissionRow[];
+      if (!cancelled) setPendingMissions(Array.isArray(j) ? j : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, canApproveMission]);
 
   useEffect(() => {
     if (!active || trackId !== "vehicleRequest") return;
@@ -246,28 +378,6 @@ export default function VehicleRequestsPage() {
               Vehicle Pool
             </button>
           </div>
-          {view === "requests" && (
-            <div
-              className="flex rounded-lg border border-zinc-200 overflow-hidden"
-              role="group"
-              aria-label="Request layout"
-            >
-              <button
-                type="button"
-                onClick={() => { setRequestsLayout("board"); setListStatusFilter(null); }}
-                className={`px-3 py-2 text-sm font-medium ${requestsLayout === "board" ? "bg-zinc-800 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"}`}
-              >
-                Status board
-              </button>
-              <button
-                type="button"
-                onClick={() => setRequestsLayout("list")}
-                className={`px-3 py-2 text-sm font-medium border-l border-zinc-200 ${requestsLayout === "list" ? "bg-zinc-800 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50"}`}
-              >
-                List
-              </button>
-            </div>
-          )}
           <span data-tutorial="tutorial-vr-request-btn">
             <Button onClick={() => { setShowForm(!showForm); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
               + Request vehicle
@@ -281,9 +391,55 @@ export default function VehicleRequestsPage() {
           organizationId={organizationId}
           userId={user?.id || ""}
           userName={user?.name || ""}
+          canRequestVehicle={vrEligibility?.canRequestVehicle ?? false}
           onComplete={() => { setShowForm(false); loadData(); }}
           onCancel={() => setShowForm(false)}
         />
+      )}
+
+      {canApproveMission && pendingMissions.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Missions pending PR approval</CardTitle>
+            <p className="text-sm text-zinc-600 font-normal">
+              Approve or reject trip plans. Drivers can only request a vehicle after the mission is approved.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingMissions.map((m) => (
+              <div
+                key={m.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 80)}</span>
+                  <span className="text-zinc-500 ml-2">
+                    {m.destination} · {m.departure_date}
+                  </span>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => void patchMissionApproval(m.id, "approve")}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="text-red-700 border-red-200"
+                    onClick={() => void patchMissionApproval(m.id, "reject")}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {isLoading ? (
@@ -300,113 +456,23 @@ export default function VehicleRequestsPage() {
         )
       ) : requests.length === 0 ? (
         <div className="text-zinc-500 text-center py-12">No vehicle requests yet.</div>
-      ) : requestsLayout === "board" ? (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Pipeline</p>
-            <div className="flex flex-wrap gap-2">
-              {statusCounts.map(({ status, label, count }) => (
-                <button
-                  key={status}
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 touch-manipulation"
-                  onClick={() => {
-                    document.getElementById(`vr-col-${status}`)?.scrollIntoView({
-                      behavior: "smooth",
-                      inline: "center",
-                      block: "nearest",
-                    });
-                  }}
-                >
-                  <span className="text-zinc-600">{label}</span>
-                  <span className="tabular-nums font-bold text-zinc-900">{count}</span>
-                </button>
-              ))}
-              {otherCount > 0 && (
-                <span className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm">
-                  <span className="text-zinc-700">Other status</span>
-                  <span className="tabular-nums font-bold">{otherCount}</span>
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div
-            className="overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0"
-            role="region"
-            aria-label="Vehicle request status columns"
-          >
-            <div className="flex gap-3 min-w-full md:min-w-0">
-              {STATUS_PIPELINE.map(({ status, label }) => {
-                const col = byStatus.get(status) ?? [];
-                const headBg = COLUMN_HEADER_BG[status] ?? "bg-zinc-50 border-zinc-200";
-                return (
-                  <div
-                    key={status}
-                    id={`vr-col-${status}`}
-                    className="flex w-[min(100vw-2rem,300px)] shrink-0 flex-col rounded-xl border border-zinc-200 bg-zinc-50/40 md:flex-1 md:min-w-0 md:w-auto"
-                  >
-                    <div
-                      className={cn(
-                        "rounded-t-xl border-b px-3 py-2",
-                        headBg
-                      )}
-                    >
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
-                        {label}
-                      </div>
-                      <div className="text-xl font-bold tabular-nums text-zinc-900">{col.length}</div>
-                    </div>
-                    <div className="flex max-h-[min(70vh,720px)] flex-col gap-2 overflow-y-auto p-2">
-                      {col.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-zinc-400">No requests</p>
-                      ) : (
-                        col.map((req) => (
-                          <RequestCard
-                            key={req.id}
-                            request={req}
-                            isManager={!!isManager}
-                            pool={pool}
-                            organizationId={organizationId}
-                            approverName={user?.name || ""}
-                            onUpdated={loadData}
-                            compact
-                          />
-                        ))
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {other.length > 0 && (
-                <div className="flex w-[min(100vw-2rem,300px)] shrink-0 flex-col rounded-xl border border-amber-200 bg-amber-50/30 md:flex-1 md:min-w-0">
-                  <div className="rounded-t-xl border-b border-amber-200 bg-amber-50 px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-                      Other
-                    </div>
-                    <div className="text-xl font-bold tabular-nums text-zinc-900">{other.length}</div>
-                  </div>
-                  <div className="flex max-h-[min(70vh,720px)] flex-col gap-2 overflow-y-auto p-2">
-                    {other.map((req) => (
-                      <RequestCard
-                        key={req.id}
-                        request={req}
-                        isManager={!!isManager}
-                        pool={pool}
-                        organizationId={organizationId}
-                        approverName={user?.name || ""}
-                        onUpdated={loadData}
-                        compact
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       ) : (
         <div className="space-y-4">
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
+            <span className="font-medium text-zinc-800">Summary</span>
+            <span className="mx-2 text-zinc-300">·</span>
+            {statusCounts.map(({ status, label, count }) => (
+              <span key={status} className="whitespace-nowrap mr-3">
+                {label} <strong className="text-zinc-900 tabular-nums">{count}</strong>
+              </span>
+            ))}
+            {otherCount > 0 && (
+              <span className="whitespace-nowrap text-amber-800">
+                Other <strong className="tabular-nums">{otherCount}</strong>
+              </span>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-xs font-medium text-zinc-500 mr-1">Filter:</span>
             <button
@@ -421,8 +487,8 @@ export default function VehicleRequestsPage() {
             >
               All ({requests.length})
             </button>
-            {STATUS_PIPELINE.map(({ status, label }) => {
-              const n = byStatus.get(status)?.length ?? 0;
+            {STATUS_FILTERS.map(({ status, label }) => {
+              const n = countByStatus(requests, status);
               return (
                 <button
                   key={status}
@@ -454,22 +520,108 @@ export default function VehicleRequestsPage() {
               </button>
             )}
           </div>
+
           {sortedListRequests.length === 0 ? (
-            <div className="text-zinc-500 text-center py-12">No requests in this status.</div>
+            <div className="text-zinc-500 text-center py-12">No requests in this filter.</div>
           ) : (
-            <div className="space-y-3">
-              {sortedListRequests.map((req) => (
-                <RequestCard
-                  key={req.id}
-                  request={req}
-                  isManager={!!isManager}
-                  pool={pool}
-                  organizationId={organizationId}
-                  approverName={user?.name || ""}
-                  onUpdated={loadData}
-                />
-              ))}
+            <div className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left min-w-[1000px]">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-50/90 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+                      <th className="px-3 py-2.5 whitespace-nowrap">Created</th>
+                      <th className="px-3 py-2.5">Purpose</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Requester</th>
+                      <th className="px-3 py-2.5">Destination</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Depart</th>
+                      <th className="px-3 py-2.5 max-w-[140px]">Mission</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">R&amp;R</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Vehicle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedListRequests.map((req) => (
+                      <tr
+                        key={req.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setDetailRequest(req)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setDetailRequest(req);
+                          }
+                        }}
+                        className="border-b border-zinc-100 hover:bg-zinc-50/90 cursor-pointer transition-colors"
+                      >
+                        <td className="px-3 py-2.5 whitespace-nowrap text-zinc-500 tabular-nums">
+                          {new Date(req.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-zinc-900 max-w-[220px] truncate" title={req.purpose}>
+                          {req.purpose || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap max-w-[140px] truncate" title={req.requested_by_name}>
+                          {req.requested_by_name}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-600 max-w-[180px] truncate" title={req.destination}>
+                          {req.destination || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap text-zinc-600 tabular-nums">
+                          {req.departure_date || "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-600 max-w-[140px] truncate" title={req.mission_title || req.mission_destination || ""}>
+                          {req.mission_title?.trim()
+                            ? req.mission_title
+                            : req.mission_destination?.trim()
+                              ? req.mission_destination
+                              : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <Badge variant={(STATUS_COLORS[req.status] || "secondary") as "warning" | "success" | "destructive" | "secondary"} className="text-[11px]">
+                            {req.status}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <Badge variant={RR_BADGE[normalizeRr(req.rr_status)] ?? "secondary"} className="text-[11px]">
+                            {RR_LABELS[normalizeRr(req.rr_status)] ?? req.rr_status ?? "N/A"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap max-w-[160px] truncate">
+                          {req.assigned_vehicle_code ? (
+                            <span title={`${req.assigned_vehicle_make ?? ""} ${req.assigned_vehicle_model ?? ""}`}>
+                              {req.assigned_vehicle_code}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="px-3 py-2 text-xs text-zinc-500 border-t border-zinc-100 bg-zinc-50/50">
+                Click a row to open details (read-only view with actions for approvers).
+              </p>
             </div>
+          )}
+
+          {detailRequest && (
+            <RequestDetailModal
+              request={detailRequest}
+              canFullEdit={canFullEdit}
+              canApproveMission={canApproveMission}
+              canAllocateVehicle={canAllocateVehicle}
+              currentUserEmail={user?.email?.trim() ?? ""}
+              pool={pool}
+              approverName={user?.name || ""}
+              onClose={() => setDetailRequest(null)}
+              onPatchSaved={(updated) => {
+                setDetailRequest(updated);
+                void loadData();
+              }}
+            />
           )}
         </div>
       )}
@@ -477,175 +629,322 @@ export default function VehicleRequestsPage() {
   );
 }
 
-function RequestCard({
+function RequestDetailModal({
   request: r,
-  isManager,
+  canFullEdit,
+  canApproveMission,
+  canAllocateVehicle,
+  currentUserEmail,
   pool,
-  organizationId,
   approverName,
-  onUpdated,
-  compact,
+  onClose,
+  onPatchSaved,
 }: {
   request: RequestRow;
-  isManager: boolean;
+  canFullEdit: boolean;
+  canApproveMission: boolean;
+  canAllocateVehicle: boolean;
   pool: PoolData | null;
-  organizationId: string;
+  currentUserEmail: string;
   approverName: string;
-  onUpdated: () => void;
-  compact?: boolean;
-}) {
+  onClose: () => void;
+  onPatchSaved: (row: RequestRow) => void;
+}): React.ReactElement {
   const [isActing, setIsActing] = useState(false);
   const [assignVehicleId, setAssignVehicleId] = useState("");
+  const [localRr, setLocalRr] = useState(normalizeRr(r.rr_status));
 
-  async function updateStatus(status: string, extra?: Record<string, string>) {
+  useEffect(() => {
+    setLocalRr(normalizeRr(r.rr_status));
+  }, [r.id, r.rr_status]);
+
+  async function updateStatus(status: string, extra?: Record<string, string>): Promise<void> {
     setIsActing(true);
-    await fetch(`/api/vehicle-requests/${r.id}`, {
+    const res = await fetch(`/api/vehicle-requests/${r.id}`, {
       method: "PATCH",
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ status, approvedByName: approverName, ...extra }),
     });
     setIsActing(false);
-    onUpdated();
+    if (res.ok) {
+      const row = (await res.json()) as RequestRow;
+      onPatchSaved(row);
+    }
   }
 
-  async function assignVehicle() {
+  async function assignVehicle(): Promise<void> {
     if (!assignVehicleId) return;
     setIsActing(true);
-    await fetch(`/api/vehicle-requests/${r.id}/assign`, {
+    const res = await fetch(`/api/vehicle-requests/${r.id}/assign`, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ vehicleId: assignVehicleId, approvedByName: approverName }),
     });
     setIsActing(false);
-    onUpdated();
+    if (res.ok) {
+      const row = (await res.json()) as RequestRow;
+      onPatchSaved(row);
+    }
   }
 
-  // Assign API only accepts operational vehicles; pool view also lists deployed for visibility.
+  async function saveRrStatus(): Promise<void> {
+    if (normalizeRr(r.rr_status) === localRr) return;
+    setIsActing(true);
+    const res = await fetch(`/api/vehicle-requests/${r.id}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ rrStatus: localRr }),
+    });
+    setIsActing(false);
+    if (res.ok) {
+      const row = (await res.json()) as RequestRow;
+      onPatchSaved(row);
+    }
+  }
+
   const availableVehicles = pool?.pools
     ? Object.values(pool.pools)
         .flat()
         .filter((v) => !v.status || v.status === "operational")
     : [];
 
+  const isRequestor =
+    !!currentUserEmail &&
+    !!r.requested_by_email &&
+    currentUserEmail.toLowerCase() === r.requested_by_email.trim().toLowerCase();
+  const canEditRr = canFullEdit || isRequestor;
+  /** Requestors cannot change R&R after fleet has marked Approved */
+  const requestorRrReadOnly =
+    isRequestor && !canFullEdit && normalizeRr(r.rr_status) === "approved";
+
   return (
-    <Card
-      className={cn(
-        r.status === "requested" ? "border-amber-200" : "",
-        compact ? "shadow-sm" : ""
-      )}
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="vr-detail-title"
     >
-      <div className={cn(compact ? "p-3 space-y-2" : "p-4 space-y-3")}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className={cn("font-medium", compact && "text-sm line-clamp-2")}>
-              {r.purpose || "Vehicle request"}
-            </div>
-            <div className={cn("text-xs text-zinc-500 mt-0.5", compact && "line-clamp-1")}>
-              By {r.requested_by_name}{r.requested_for ? ` for ${r.requested_for}` : ""} · {new Date(r.created_at).toLocaleString()}
-            </div>
+      <div
+        className="absolute inset-0"
+        aria-hidden
+        onClick={() => onClose()}
+      />
+      <Card className="relative z-10 mt-4 w-full max-w-2xl border-zinc-200 shadow-xl">
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 border-b border-zinc-100 pb-4">
+          <div>
+            <CardTitle id="vr-detail-title" className="text-lg">
+              Request details
+            </CardTitle>
+            <p className="text-sm text-zinc-500 mt-1">{new Date(r.created_at).toLocaleString()}</p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <span className="flex flex-wrap items-center gap-2">
             {r.priority === "high" && <Badge variant="destructive">High</Badge>}
             <Badge variant={(STATUS_COLORS[r.status] || "secondary") as "warning" | "success" | "destructive" | "secondary"}>
               {r.status}
             </Badge>
-          </div>
-        </div>
-
-        <div
-          className={cn(
-            "grid gap-2 text-xs text-zinc-600",
-            compact ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-4"
-          )}
-        >
-          {r.destination && <div>Destination: <strong>{r.destination}</strong></div>}
-          {r.departure_date && <div>Depart: <strong>{r.departure_date}</strong></div>}
-          {!compact && r.return_date && <div>Return: <strong>{r.return_date}</strong></div>}
-          {!compact && r.required_vehicle_class && <div>Class: <strong>{r.required_vehicle_class}</strong></div>}
-          {!compact && r.passengers && <div>Passengers: <strong>{r.passengers}</strong></div>}
-        </div>
-
-        {(r.estimated_route_km != null && r.estimated_route_km > 0) && !compact && (
-          <div className="text-xs text-zinc-700 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 space-y-0.5">
-            <div>
-              Est. driving distance: <strong>{Math.round(r.estimated_route_km * 10) / 10} km</strong>
-              <span className="text-zinc-500"> (one-way, mapped route)</span>
-            </div>
-            {r.estimated_fuel_liters != null && r.estimated_fuel_liters > 0 && r.fuel_efficiency_l_per_100km != null ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => onClose()}>
+              Close
+            </Button>
+          </span>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-4">
+          {(r.mission_id || r.mission_destination) && (
+            <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-3 py-3 space-y-1.5 text-sm">
+              <div className="text-xs font-semibold text-sky-900 uppercase tracking-wide">Mission</div>
+              {r.mission_title?.trim() && (
+                <div>
+                  <span className="text-zinc-500 text-xs">Title </span>
+                  <span className="text-zinc-900">{r.mission_title}</span>
+                </div>
+              )}
               <div>
-                Est. fuel (one-way): <strong>{r.estimated_fuel_liters} L</strong>
-                {" · "}
-                <span className="text-zinc-600">
-                  ~{lPer100kmToUsMpg(r.fuel_efficiency_l_per_100km)} US MPG combined (
-                  {r.fuel_efficiency_l_per_100km} L/100 km)
-                </span>
+                <span className="text-zinc-500 text-xs">Destination </span>
+                <span className="text-zinc-900">{r.mission_destination || r.destination || "—"}</span>
+              </div>
+              <div className="text-zinc-700 text-xs">
+                {r.mission_departure_date || "—"}
+                {r.mission_return_date ? ` → ${r.mission_return_date}` : ""}
+                {r.mission_status ? ` · ${r.mission_status}` : ""}
+              </div>
+              {r.mission_approval_status && (
+                <div className="text-zinc-700 text-xs">
+                  <span className="text-zinc-500">PR mission approval: </span>
+                  {r.mission_approval_status}
+                </div>
+              )}
+              {r.mission_trip_id && (
+                <Link
+                  href={`/trips?trip=${encodeURIComponent(r.mission_trip_id)}`}
+                  className="inline-block text-sm font-medium text-sky-800 underline underline-offset-2 hover:text-sky-950"
+                >
+                  Open operational trip
+                </Link>
+              )}
+            </div>
+          )}
+
+          <dl className="grid gap-3 sm:grid-cols-2 text-sm">
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Purpose</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.purpose || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Requester</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.requested_by_name}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Requested for</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.requested_for || "—"}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Destination</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.destination || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Departure</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.departure_date || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Return</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.return_date || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Vehicle class</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.required_vehicle_class || "Any"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Passengers</dt>
+              <dd className="text-zinc-900 mt-0.5">{r.passengers || "—"}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Loadout / equipment</dt>
+              <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{r.loadout_description || "—"}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Notes</dt>
+              <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{r.notes || "—"}</dd>
+            </div>
+          </dl>
+
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-3 space-y-2">
+            <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">R&amp;R (rest &amp; recuperation)</div>
+            <p className="text-xs text-zinc-600">
+              Travel policy sign-off for rest &amp; recuperation, aligned with PR.{" "}
+              <strong>Requestors</strong> set N/A or Pending; <strong>fleet management</strong> may mark Approved when clearance is received.
+            </p>
+            {canEditRr && !requestorRrReadOnly ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[200px]">
+                  <label className="text-xs font-medium text-zinc-600 block mb-1">R&amp;R status</label>
+                  <select
+                    value={localRr}
+                    onChange={(e) => setLocalRr(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white"
+                  >
+                    <option value="na">N/A</option>
+                    <option value="pending">Pending</option>
+                    {canFullEdit && <option value="approved">Approved</option>}
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isActing || normalizeRr(r.rr_status) === localRr}
+                  onClick={() => void saveRrStatus()}
+                >
+                  Save R&amp;R
+                </Button>
               </div>
             ) : (
-              <div className="text-amber-800/90">Fuel estimate appears after a vehicle is assigned.</div>
+              <Badge variant={RR_BADGE[normalizeRr(r.rr_status)] ?? "secondary"}>
+                {RR_LABELS[normalizeRr(r.rr_status)] ?? "N/A"}
+              </Badge>
             )}
           </div>
-        )}
 
-        {compact && (r.estimated_route_km != null && r.estimated_route_km > 0) && (
-          <div className="text-[11px] text-zinc-600">
-            ~{Math.round(r.estimated_route_km * 10) / 10} km
-            {r.estimated_fuel_liters != null && r.estimated_fuel_liters > 0 ? (
-              <span> · ~{r.estimated_fuel_liters} L</span>
-            ) : null}
-          </div>
-        )}
-
-        {r.assigned_vehicle_code && (
-          <div className={cn("text-emerald-700 font-medium", compact ? "text-xs" : "text-sm")}>
-            Assigned: {r.assigned_vehicle_code} — {r.assigned_vehicle_make} {r.assigned_vehicle_model}
-          </div>
-        )}
-
-        {r.rejection_reason && (
-          <div className={cn("text-red-700", compact ? "text-xs line-clamp-2" : "text-sm")}>
-            Rejected: {r.rejection_reason}
-          </div>
-        )}
-
-        {isManager && r.status === "requested" && (
-          <div className={cn("flex flex-wrap gap-2 border-t border-zinc-100", compact ? "pt-1.5" : "pt-2")}>
-            <Button size="sm" disabled={isActing} onClick={() => void updateStatus("approved")} className="bg-emerald-600 hover:bg-emerald-700 text-white touch-manipulation">
-              Approve
-            </Button>
-            <Button size="sm" variant="outline" disabled={isActing} onClick={() => {
-              const reason = window.prompt("Rejection reason:");
-              if (reason) void updateStatus("rejected", { rejectionReason: reason });
-            }} className="text-red-600 border-red-200 touch-manipulation">
-              Reject
-            </Button>
-          </div>
-        )}
-
-        {isManager && (r.status === "approved" || r.status === "requested") && !r.assigned_vehicle_id && (
-          <div className={cn("flex flex-col gap-2 border-t border-zinc-100 sm:flex-row sm:flex-wrap sm:items-end", compact ? "pt-1.5" : "pt-2")}>
-            <div className="flex-1 min-w-[180px]">
-              <label className="text-xs font-medium text-zinc-600 block mb-1">Assign vehicle</label>
-              <select
-                value={assignVehicleId}
-                onChange={(e) => setAssignVehicleId(e.target.value)}
-                className={cn(
-                  "w-full rounded-lg border border-zinc-200 px-2 text-sm",
-                  compact ? "h-9" : "h-10"
-                )}
-              >
-                <option value="">Select available vehicle…</option>
-                {availableVehicles.map((v) => (
-                  <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model} ({v.pool})</option>
-                ))}
-              </select>
+          {(r.estimated_route_km != null && r.estimated_route_km > 0) && (
+            <div className="text-xs text-zinc-700 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 space-y-0.5">
+              <div>
+                Est. driving distance: <strong>{Math.round(r.estimated_route_km * 10) / 10} km</strong>
+                <span className="text-zinc-500"> (one-way, mapped route)</span>
+              </div>
+              {r.estimated_fuel_liters != null && r.estimated_fuel_liters > 0 && r.fuel_efficiency_l_per_100km != null ? (
+                <div>
+                  Est. fuel (one-way): <strong>{r.estimated_fuel_liters} L</strong>
+                  {" · "}
+                  <span className="text-zinc-600">
+                    ~{lPer100kmToUsMpg(r.fuel_efficiency_l_per_100km)} US MPG combined (
+                    {r.fuel_efficiency_l_per_100km} L/100 km)
+                  </span>
+                </div>
+              ) : (
+                <div className="text-amber-800/90">Fuel estimate appears after a vehicle is assigned.</div>
+              )}
             </div>
-            <Button size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
-              Assign
-            </Button>
-          </div>
-        )}
-      </div>
-    </Card>
+          )}
+
+          {r.assigned_vehicle_code && (
+            <div className="text-sm text-emerald-800 font-medium">
+              Assigned vehicle: {r.assigned_vehicle_code} — {r.assigned_vehicle_make} {r.assigned_vehicle_model}
+            </div>
+          )}
+
+          {r.rejection_reason && (
+            <div className="text-sm text-red-700 rounded-lg border border-red-100 bg-red-50/80 px-3 py-2">
+              {r.rejection_reason}
+            </div>
+          )}
+
+          {canApproveMission && r.status === "requested" && (
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-100">
+              <Button
+                size="sm"
+                disabled={isActing}
+                onClick={() => void updateStatus("approved")}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white touch-manipulation"
+              >
+                Approve mission
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isActing}
+                onClick={() => {
+                  const reason = window.prompt("Rejection reason:");
+                  if (reason) void updateStatus("rejected", { rejectionReason: reason });
+                }}
+                className="text-red-600 border-red-200 touch-manipulation"
+              >
+                Reject
+              </Button>
+            </div>
+          )}
+
+          {canAllocateVehicle && (r.status === "approved" || r.status === "requested") && !r.assigned_vehicle_id && (
+            <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-xs font-medium text-zinc-600 block mb-1">Assign vehicle</label>
+                <select
+                  value={assignVehicleId}
+                  onChange={(e) => setAssignVehicleId(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white"
+                >
+                  <option value="">Select available vehicle…</option>
+                  {availableVehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.code} — {v.make} {v.model} ({v.pool})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
+                Assign
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -731,19 +1030,27 @@ function RequestForm({
   organizationId,
   userId,
   userName,
+  canRequestVehicle,
   onComplete,
   onCancel,
 }: {
   organizationId: string;
   userId: string;
   userName: string;
+  canRequestVehicle: boolean;
   onComplete: () => void;
   onCancel: () => void;
 }) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState("");
+  const [vrSubmitting, setVrSubmitting] = useState(false);
+  const [missionSubmitting, setMissionSubmitting] = useState(false);
+  const [missionFormError, setMissionFormError] = useState("");
+  const [vrFormError, setVrFormError] = useState("");
+  const [missionMessage, setMissionMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
+  const [approvedMissions, setApprovedMissions] = useState<PlannedMissionRow[]>([]);
+  const [missionsLoading, setMissionsLoading] = useState(false);
+  const [selectedMissionId, setSelectedMissionId] = useState("");
   const [destinationChoice, setDestinationChoice] = useState("");
   const [destinationOther, setDestinationOther] = useState("");
   const [requestedForChoice, setRequestedForChoice] = useState("");
@@ -756,6 +1063,19 @@ function RequestForm({
     fuelLiters: number | null;
     lPer100km: number | null;
   } | null>(null);
+
+  const loadApprovedMissions = useCallback(() => {
+    setMissionsLoading(true);
+    void fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`
+    )
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        setApprovedMissions(Array.isArray(d) ? (d as PlannedMissionRow[]) : []);
+      })
+      .catch(() => setApprovedMissions([]))
+      .finally(() => setMissionsLoading(false));
+  }, [organizationId]);
 
   useEffect(() => {
     Promise.all([
@@ -771,6 +1091,10 @@ function RequestForm({
         setDepartments([]);
       });
   }, [organizationId]);
+
+  useEffect(() => {
+    loadApprovedMissions();
+  }, [loadApprovedMissions]);
 
   useEffect(() => {
     if (!destinationChoice || destinationChoice === "__write__") {
@@ -815,180 +1139,301 @@ function RequestForm({
 
   const siteRows = sites.filter((s) => s.code !== "OTHER");
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleCreateMission(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    setFormError("");
-
+    setMissionMessage(null);
+    setMissionFormError("");
+    const fd = new FormData(e.currentTarget);
     let destination = "";
-    if (destinationChoice === "__write__") {
-      destination = destinationOther.trim();
+    const destChoice = String(fd.get("cmDestination") || "");
+    if (destChoice === "__write__") {
+      destination = String(fd.get("cmDestinationOther") || "").trim();
       if (!destination) {
-        setFormError("Enter a destination or choose a site.");
+        setMissionFormError("Enter a destination or choose a site for the mission.");
         return;
       }
-    } else if (destinationChoice) {
-      destination = destinationChoice;
+    } else if (destChoice) {
+      destination = destChoice;
     } else {
-      setFormError("Choose a destination.");
+      setMissionFormError("Choose a destination for the mission.");
       return;
     }
+    const departureDate = String(fd.get("cmDepartureDate") || "").trim();
+    if (!departureDate) {
+      setMissionFormError("Departure date is required for the mission.");
+      return;
+    }
+    setMissionSubmitting(true);
+    const res = await fetch("/api/missions", {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({
+        organizationId,
+        title: String(fd.get("cmTitle") || "").slice(0, 240),
+        destination,
+        departureDate,
+        returnDate: String(fd.get("cmReturnDate") || ""),
+        passengers: String(fd.get("cmPassengers") || ""),
+        loadoutSummary: String(fd.get("cmLoadout") || ""),
+        missionType: "other",
+        notes: String(fd.get("cmNotes") || ""),
+      }),
+    });
+    setMissionSubmitting(false);
+    if (res.ok) {
+      setMissionMessage(
+        "Mission submitted for PR approval. You cannot request a vehicle until a credentialed approver approves this mission."
+      );
+      e.currentTarget.reset();
+      setDestinationChoice("");
+      setDestinationOther("");
+      loadApprovedMissions();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setMissionFormError((err as { error?: string }).error || "Could not create mission.");
+    }
+  }
 
+  async function handleVehicleRequest(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    setVrFormError("");
+    if (!canRequestVehicle) {
+      setVrFormError("Only drivers on the EHS approved drivers register may request a vehicle.");
+      return;
+    }
+    if (!selectedMissionId) {
+      setVrFormError("Select an approved mission.");
+      return;
+    }
     let requestedFor = "";
     if (requestedForChoice === "__other__") {
       requestedFor = requestedForOther.trim();
       if (!requestedFor) {
-        setFormError("Enter a team or person, or pick a different option.");
+        setVrFormError("Enter a team or person, or pick a different option.");
         return;
       }
     } else if (requestedForChoice) {
       const dept = departments.find((d) => d.code === requestedForChoice);
       requestedFor = dept ? dept.label : requestedForChoice;
     }
-
     const fd = new FormData(e.currentTarget);
-
-    setIsSubmitting(true);
+    setVrSubmitting(true);
     const res = await fetch("/api/vehicle-requests", {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({
         organizationId,
+        missionId: selectedMissionId,
         requestedById: userId,
         requestedByName: userName,
         requestedFor,
         purpose: fd.get("purpose") || "",
-        destination,
-        departureDate: fd.get("departureDate") || "",
-        returnDate: fd.get("returnDate") || "",
         passengers: fd.get("passengers") || "",
         requiredVehicleClass: fd.get("requiredVehicleClass") || "",
         loadoutDescription: fd.get("loadoutDescription") || "",
         priority: fd.get("priority") || "normal",
+        rrStatus: fd.get("rrStatus") || "na",
         notes: fd.get("notes") || "",
       }),
     });
-    setIsSubmitting(false);
+    setVrSubmitting(false);
     if (res.ok) onComplete();
     else {
       const err = await res.json().catch(() => ({}));
-      setFormError(err.error || "Failed to submit request.");
+      setVrFormError((err as { error?: string }).error || "Failed to submit request.");
     }
   }
 
+  const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
+
   return (
-    <Card className="border-emerald-200" data-tutorial="tutorial-vr-form">
-      <CardHeader><CardTitle>Request a Vehicle</CardTitle></CardHeader>
-      <CardContent>
-        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Input name="purpose" label="Purpose *" required placeholder="e.g. Site delivery to MAK" />
-            <div className="flex flex-col gap-1.5 sm:col-span-1">
-              <label className="text-sm font-medium text-zinc-700">Destination *</label>
-              <select
-                required
-                value={destinationChoice}
-                onChange={(e) => setDestinationChoice(e.target.value)}
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-              >
-                <option value="">Select site or other…</option>
-                {siteRows.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code} — {s.label}
-                  </option>
-                ))}
-                <option value="__write__">Other (type site / location)…</option>
-              </select>
-              {destinationChoice === "__write__" && (
-                <Input
-                  label=""
-                  value={destinationOther}
-                  onChange={(e) => setDestinationOther(e.target.value)}
-                  placeholder="Site code or location"
-                  aria-label="Destination (other)"
-                />
-              )}
-              <div className="space-y-2" data-tutorial="tutorial-vr-route-estimate">
-                <p className="text-xs text-zinc-500">
-                  Pick a site from the list for a mapped one-way distance; fuel (L) and MPG appear on the request after a
-                  vehicle is assigned.
-                </p>
-                {destinationChoice && destinationChoice !== "__write__" && (
-                  <div className="rounded-md border border-zinc-100 bg-zinc-50/80 px-3 py-2 text-xs text-zinc-700">
-                    {routeEstimateLoading && <span className="text-zinc-500">Calculating driving distance…</span>}
-                    {!routeEstimateLoading && routeEstimate?.ok && routeEstimate.distanceKm != null && (
-                      <span>
-                        Est. one-way drive:{" "}
-                        <strong>{Math.round(routeEstimate.distanceKm * 10) / 10} km</strong>
-                        {routeEstimate.message ? (
-                          <span className="block text-zinc-500 mt-1">{routeEstimate.message}</span>
-                        ) : null}
-                      </span>
-                    )}
-                    {!routeEstimateLoading && routeEstimate && !routeEstimate.ok && (
-                      <span className="text-amber-900">{routeEstimate.message || "Could not estimate route."}</span>
-                    )}
-                  </div>
+    <div className="space-y-6" data-tutorial="tutorial-vr-form">
+      <Card className="border-sky-200 bg-sky-50/30">
+        <CardHeader>
+          <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
+          <p className="text-sm text-zinc-600 font-normal">
+            Trip plans start as pending PR approval. Fleet does not allocate a vehicle until the mission is approved and you submit a vehicle request as an approved driver.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={(e) => void handleCreateMission(e)} className="space-y-4">
+            <Input name="cmTitle" label="Mission title" placeholder="Short label (optional)" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-1.5 sm:col-span-1">
+                <label className="text-sm font-medium text-zinc-700">Destination *</label>
+                <select
+                  name="cmDestination"
+                  required
+                  value={destinationChoice}
+                  onChange={(e) => setDestinationChoice(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Select site or other…</option>
+                  {siteRows.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.code} — {s.label}
+                    </option>
+                  ))}
+                  <option value="__write__">Other…</option>
+                </select>
+                {destinationChoice === "__write__" && (
+                  <Input
+                    name="cmDestinationOther"
+                    label=""
+                    value={destinationOther}
+                    onChange={(e) => setDestinationOther(e.target.value)}
+                    placeholder="Site code or location"
+                  />
+                )}
+                <div className="space-y-2" data-tutorial="tutorial-vr-route-estimate">
+                  <p className="text-xs text-zinc-500">Pick a site for route distance estimate.</p>
+                  {destinationChoice && destinationChoice !== "__write__" && (
+                    <div className="rounded-md border border-zinc-100 bg-white px-3 py-2 text-xs text-zinc-700">
+                      {routeEstimateLoading && <span className="text-zinc-500">Calculating…</span>}
+                      {!routeEstimateLoading && routeEstimate?.ok && routeEstimate.distanceKm != null && (
+                        <span>
+                          Est. one-way: <strong>{Math.round(routeEstimate.distanceKm * 10) / 10} km</strong>
+                        </span>
+                      )}
+                      {!routeEstimateLoading && routeEstimate && !routeEstimate.ok && (
+                        <span className="text-amber-900">{routeEstimate.message || "Could not estimate route."}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Input name="cmDepartureDate" label="Departure date *" type="date" required />
+              <Input name="cmReturnDate" label="Return date" type="date" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input name="cmPassengers" label="Passengers" placeholder="Number or names" />
+              <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
+            </div>
+            <Input name="cmNotes" label="Mission notes" placeholder="Optional" />
+            {missionMessage && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                {missionMessage}
+              </div>
+            )}
+            {missionFormError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{missionFormError}</div>
+            )}
+            <Button type="submit" disabled={missionSubmitting} size="lg" className="touch-manipulation">
+              {missionSubmitting ? "Submitting…" : "Submit mission for approval"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="border-emerald-200">
+        <CardHeader>
+          <CardTitle className="text-base">2. Request a vehicle (EHS approved drivers only)</CardTitle>
+          <p className="text-sm text-zinc-600 font-normal">
+            Choose an approved mission, then describe how you need the vehicle. Allocation is done by the fleet team lead after approval steps.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {!canRequestVehicle ? (
+            <p className="text-sm text-amber-900 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              Your account is not on the EHS approved drivers register for this organization. Ask EHS or fleet to add you if you are eligible to drive company vehicles.
+            </p>
+          ) : (
+            <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-zinc-700 block mb-1">Approved mission *</label>
+                <select
+                  required
+                  value={selectedMissionId}
+                  onChange={(e) => setSelectedMissionId(e.target.value)}
+                  className="h-10 w-full max-w-xl rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">{missionsLoading ? "Loading…" : "Select an approved mission…"}</option>
+                  {approvedMissions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {(m.title?.trim() || m.destination).slice(0, 72)} · {m.departure_date || "—"}
+                    </option>
+                  ))}
+                </select>
+                {!missionsLoading && approvedMissions.length === 0 && (
+                  <p className="text-xs text-amber-800 mt-1">
+                    No approved missions yet. Create a mission above and wait for PR approval.
+                  </p>
                 )}
               </div>
-            </div>
-            <div className="flex flex-col gap-1.5 sm:col-span-1">
-              <label className="text-sm font-medium text-zinc-700">Requested for</label>
-              <p className="text-xs text-zinc-500 -mt-1 mb-0">Team or person (if not yourself)</p>
-              <select
-                value={requestedForChoice}
-                onChange={(e) => setRequestedForChoice(e.target.value)}
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-              >
-                <option value="">Myself / same as requester</option>
-                {departments.map((d) => (
-                  <option key={d.code} value={d.code}>
-                    {d.label}
-                  </option>
-                ))}
-                <option value="__other__">Other (team or person)…</option>
-              </select>
-              {requestedForChoice === "__other__" && (
-                <Input
-                  label=""
-                  value={requestedForOther}
-                  onChange={(e) => setRequestedForOther(e.target.value)}
-                  placeholder="Team or person name"
-                  aria-label="Requested for (other)"
-                />
+              {selectedMission && (
+                <div className="text-sm text-zinc-700 rounded-md border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                  <span className="text-zinc-500">Mission: </span>
+                  {selectedMission.destination} · {selectedMission.departure_date}
+                </div>
               )}
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Input name="departureDate" label="Departure date *" type="date" required />
-            <Input name="returnDate" label="Return date" type="date" />
-            <Input name="passengers" label="Passengers" placeholder="Number or names" />
-            <Select name="priority" label="Priority">
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-              <option value="high">High</option>
-            </Select>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Select name="requiredVehicleClass" label="Vehicle class needed">
-              <option value="">Any</option>
-              {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
-                <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
-              ))}
-            </Select>
-            <Input name="loadoutDescription" label="Loadout / equipment" placeholder="What will you be carrying?" />
-          </div>
-          <Input name="notes" label="Notes" placeholder="Additional information" />
-          {formError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{formError}</div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Input name="purpose" label="Purpose *" required placeholder="e.g. Site delivery" />
+                <div className="flex flex-col gap-1.5 sm:col-span-1">
+                  <label className="text-sm font-medium text-zinc-700">Requested for</label>
+                  <select
+                    value={requestedForChoice}
+                    onChange={(e) => setRequestedForChoice(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Myself / same as requester</option>
+                    {departments.map((d) => (
+                      <option key={d.code} value={d.code}>
+                        {d.label}
+                      </option>
+                    ))}
+                    <option value="__other__">Other…</option>
+                  </select>
+                  {requestedForChoice === "__other__" && (
+                    <Input
+                      label=""
+                      value={requestedForOther}
+                      onChange={(e) => setRequestedForOther(e.target.value)}
+                      placeholder="Team or person"
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Input name="passengers" label="Passengers" placeholder="Number or names" />
+                <Select name="priority" label="Priority">
+                  <option value="normal">Normal</option>
+                  <option value="low">Low</option>
+                  <option value="high">High</option>
+                </Select>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Select name="requiredVehicleClass" label="Vehicle class needed">
+                  <option value="">Any</option>
+                  {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+                    <option key={c} value={c}>
+                      {ASSET_CLASS_LABELS[c]}
+                    </option>
+                  ))}
+                </Select>
+                <Input name="loadoutDescription" label="Loadout / equipment" placeholder="For this vehicle request" />
+              </div>
+              <div className="max-w-md">
+                <Select name="rrStatus" label="R&amp;R status (rest &amp; recuperation)">
+                  <option value="na">N/A — not applicable</option>
+                  <option value="pending">Pending — R&amp;R clearance required</option>
+                </Select>
+              </div>
+              <Input name="notes" label="Notes" placeholder="Additional information" />
+              {vrFormError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{vrFormError}</div>
+              )}
+              <div className="flex gap-3">
+                <Button type="submit" disabled={vrSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
+                  {vrSubmitting ? "Submitting…" : "Submit vehicle request"}
+                </Button>
+                <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
+                  Cancel
+                </Button>
+              </div>
+            </form>
           )}
-          <div className="flex gap-3">
-            <Button type="submit" disabled={isSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
-              {isSubmitting ? "Submitting…" : "Submit request"}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">Cancel</Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

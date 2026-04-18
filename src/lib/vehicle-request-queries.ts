@@ -1,0 +1,23 @@
+/**
+ * Shared SELECT for vehicle_requests with assigned vehicle + requestor email (for UI permissions).
+ * `requested_by_id` stores Fleet Hub `users.id`; join resolves email for matching the signed-in user.
+ */
+export const VR_SELECT_FIELDS = `
+    vr.*,
+    av.code as assigned_vehicle_code,
+    av.make as assigned_vehicle_make,
+    av.model as assigned_vehicle_model,
+    u_req.email as requested_by_email,
+    m.title as mission_title,
+    m.destination as mission_destination,
+    m.departure_date as mission_departure_date,
+    m.return_date as mission_return_date,
+    m.status as mission_status,
+    m.trip_id as mission_trip_id,
+    m.approval_status as mission_approval_status`;
+
+export const VR_FROM_JOIN = `
+    FROM vehicle_requests vr
+    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    LEFT JOIN users u_req ON u_req.id = vr.requested_by_id
+    LEFT JOIN missions m ON m.id = vr.mission_id`;

@@ -24,6 +24,26 @@ export function isEhsDepartment(department: string | null | undefined): boolean 
 }
 
 /**
+ * True when the user’s department (synced from PR) is the Fleet team — word match so
+ * values like "Fleet", "Fleet Team", or "Operations — Fleet" count.
+ */
+export function isFleetTeamDepartment(department: string | null | undefined): boolean {
+  const d = String(department ?? "").trim();
+  if (!d) return false;
+  return /\bfleet\b/i.test(d);
+}
+
+/**
+ * Move a work order through its workflow (status transitions). Limited to Fleet team
+ * department affiliation in PR, plus superadmin for break-glass access.
+ */
+export function canAdvanceWorkOrderStatus(role: string, department?: string | null): boolean {
+  const r = (role || "").toLowerCase();
+  if (r === "superadmin") return true;
+  return isFleetTeamDepartment(department);
+}
+
+/**
  * Create/update/delete rows on the EHS approved driver register (license scans + test dates).
  * Admins, superadmins, optional ehs_manager role, or anyone with EHS as their PR department.
  */

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { isApprovedDriverForOrg } from "@/lib/approved-drivers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
+import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -11,10 +13,8 @@ export function GET(request: NextRequest): NextResponse {
     const org = sp.get("org") || "1pwr_lesotho";
 
     let query = `
-    SELECT vr.*,
-           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
-    FROM vehicle_requests vr
-    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    SELECT ${VR_SELECT_FIELDS}
+    ${VR_FROM_JOIN}
     WHERE vr.organization_id = ?
   `;
     const params: unknown[] = [org];
@@ -52,34 +52,90 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const body = await request.json();
   const user = await getVerifiedFleetUser(request);
-  const requestedById = user?.id ?? String(body.requestedById || "");
-  const requestedByName = user ? user.name || user.email : String(body.requestedByName || "");
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const orgId = String(body.organizationId || "1pwr_lesotho");
+  if (!isApprovedDriverForOrg(db, orgId, user.email) && user.role !== "superadmin") {
+    return NextResponse.json(
+      {
+        error:
+          "Only drivers on the EHS approved drivers register may request a vehicle. Ask EHS or fleet to add you if eligible.",
+      },
+      { status: 403 }
+    );
+  }
+
+  const missionId = body.missionId ? String(body.missionId) : "";
+  if (!missionId) {
+    return NextResponse.json(
+      {
+        error:
+          "Link this request to an approved mission (missionId). Create a mission first and wait for PR approval if needed.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const existingMission = db
+    .prepare("SELECT * FROM missions WHERE id = ? AND organization_id = ?")
+    .get(missionId, orgId) as Record<string, unknown> | undefined;
+  if (!existingMission) {
+    return NextResponse.json({ error: "Mission not found for this organization." }, { status: 400 });
+  }
+
+  const approvalStatus = String(existingMission.approval_status ?? "pending").toLowerCase();
+  if (approvalStatus !== "approved") {
+    return NextResponse.json(
+      {
+        error:
+          "This mission is not approved yet. PR-credentialed approvers must approve the mission before you can request a vehicle.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const destination = String(existingMission.destination ?? "");
+  const departureDate = String(existingMission.departure_date ?? "");
+  const returnDate = String(existingMission.return_date ?? "");
+  const passengersDefault = String(existingMission.passengers ?? "");
+  const loadoutDefault = String(existingMission.loadout_summary ?? "");
+
+  const requestedById = user.id;
+  const requestedByName = user.name || user.email;
   const id = uuidv4();
   const now = new Date().toISOString();
+  const rrRaw = String(body.rrStatus ?? "na").toLowerCase();
+  const rrStatus = rrRaw === "pending" || rrRaw === "approved" || rrRaw === "na" ? rrRaw : "na";
 
   db.prepare(`
     INSERT INTO vehicle_requests (
-      id, organization_id, requested_by_id, requested_by_name, requested_for,
+      id, organization_id, mission_id, requested_by_id, requested_by_name, requested_for,
       vehicle_id, purpose, destination, departure_date, return_date,
       passengers, required_vehicle_class, loadout_description,
-      priority, status, notes, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?)
+      priority, status, notes, rr_status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    orgId,
+    missionId,
     requestedById,
     requestedByName,
     body.requestedFor || "",
     body.vehicleId || null,
     body.purpose || "",
-    body.destination || "",
-    body.departureDate || "",
-    body.returnDate || "",
-    body.passengers || "",
+    destination,
+    departureDate,
+    returnDate,
+    body.passengers !== undefined && body.passengers !== "" ? String(body.passengers) : passengersDefault,
     body.requiredVehicleClass || "",
-    body.loadoutDescription || "",
+    body.loadoutDescription !== undefined && body.loadoutDescription !== ""
+      ? String(body.loadoutDescription)
+      : loadoutDefault,
     body.priority || "normal",
     body.notes || "",
+    rrStatus,
     now,
     now
   );
@@ -87,10 +143,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   await recalculateVehicleRequestFuel(db, id);
 
   const row = db.prepare(`
-    SELECT vr.*,
-           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
-    FROM vehicle_requests vr
-    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    SELECT ${VR_SELECT_FIELDS}
+    ${VR_FROM_JOIN}
     WHERE vr.id = ?
   `).get(id);
   return NextResponse.json(row, { status: 201 });

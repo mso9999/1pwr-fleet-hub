@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { canAllocateFleetVehicle } from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
+import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
  *
- * Fleet lead/manager assigns a specific vehicle from the operational pool
+ * Fleet team lead assigns a vehicle from the operational pool
  * and moves the request to 'assigned' status.
  */
 export async function POST(
@@ -18,8 +20,17 @@ export async function POST(
   const body = await request.json();
   const now = new Date().toISOString();
   const user = await getVerifiedFleetUser(request);
-  const approverId = user?.id ?? String(body.approvedById || "");
-  const approverName = user ? user.name || user.email : String(body.approvedByName || "");
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!canAllocateFleetVehicle(user.role)) {
+    return NextResponse.json(
+      { error: "Only the fleet team lead (or superadmin) may allocate vehicles to requests." },
+      { status: 403 }
+    );
+  }
+  const approverId = user.id;
+  const approverName = user.name || user.email;
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -57,10 +68,8 @@ export async function POST(
   await recalculateVehicleRequestFuel(db, id);
 
   const updated = db.prepare(`
-    SELECT vr.*,
-           av.code as assigned_vehicle_code, av.make as assigned_vehicle_make, av.model as assigned_vehicle_model
-    FROM vehicle_requests vr
-    LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
+    SELECT ${VR_SELECT_FIELDS}
+    ${VR_FROM_JOIN}
     WHERE vr.id = ?
   `).get(id);
 

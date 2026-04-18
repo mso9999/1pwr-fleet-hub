@@ -129,7 +129,9 @@ export function VehicleCheckApproversAdmin({
       }
       const data = (await res.json()) as { approvers?: SavedApprover[] };
       setSaved(data.approvers ?? []);
-      setMessage("Saved. Approvers can approve failed checklist exceptions in-app (in addition to fleet lead / manager / admin roles).");
+      setMessage(
+        "Saved. These approvers can approve failed checklist exceptions and vehicle mission requests (in addition to fleet lead / manager / admin / superadmin)."
+      );
     } finally {
       setSaving(false);
     }
@@ -159,11 +161,13 @@ export function VehicleCheckApproversAdmin({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Vehicle check exception approvers (HR)</CardTitle>
+        <CardTitle className="text-base">PR-aligned approvers (HR)</CardTitle>
         <p className="text-sm text-slate-500 font-normal">
-          Pull active employees from the HR Portal (biographic fields only), then choose who may approve
-          failed driver vehicle checks for this organization. Fleet lead, manager, and admin roles can
-          always approve; this list adds additional people (matched by email).
+          Pull active employees from the HR Portal (biographic fields only), optionally filter by country, then choose
+          who may approve failed driver vehicle checks, PR mission approval (pending trip plans), and vehicle requests
+          (approve / reject lines in FM). Fleet lead, manager, admin, and superadmin
+          can always approve; this list adds more people (matched by email). Allocating a pool vehicle to a request is
+          only for the fleet team lead (or superadmin)—see docs/system-cards/missions-vehicle-requests-trips.md.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -224,7 +228,9 @@ export function VehicleCheckApproversAdmin({
             Currently saved ({loadingSaved ? "…" : saved.length})
           </div>
           {!loadingSaved && saved.length === 0 && (
-            <p className="text-sm text-slate-400">No extra approvers yet — only role-based (fleet lead / manager / admin).</p>
+            <p className="text-sm text-slate-400">
+              No extra approvers yet — only role-based (fleet lead / manager / admin / superadmin).
+            </p>
           )}
           <ul className="text-sm space-y-1">
             {saved.map((r) => (

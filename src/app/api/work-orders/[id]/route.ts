@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
 
 // Valid status transitions
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -81,8 +83,22 @@ export async function PATCH(
   const existing = db.prepare("SELECT * FROM work_orders WHERE id = ?").get(id) as WORow | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Status transition validation
+  // Status transition validation (+ auth: Fleet team department or superadmin)
   if (body.status && body.status !== existing.status) {
+    const user = await getVerifiedFleetUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!canAdvanceWorkOrderStatus(user.role, user.department)) {
+      return NextResponse.json(
+        {
+          error:
+            "Only users with a Fleet team department in People Resources (or superadmins) may change work order status.",
+        },
+        { status: 403 }
+      );
+    }
+
     const allowed = VALID_TRANSITIONS[existing.status as string] || [];
     if (!allowed.includes(body.status)) {
       return NextResponse.json(
