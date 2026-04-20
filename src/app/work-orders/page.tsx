@@ -20,6 +20,7 @@ import {
   WORK_ORDER_THIRD_PARTY_SHOPS,
   type VehicleOption,
 } from "@/components/CreateWorkOrderForm";
+import { AssigneeCombo } from "@/components/AssigneeCombo";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 interface WorkOrderRow {
@@ -505,12 +506,13 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
               <option key={p} value={p}>{p}</option>
             ))}
           </Select>
-          <Select label="Assigned To" value={detail.assigned_to} onChange={(e) => updateField("assignedTo", e.target.value)}>
-            <option value="">Unassigned</option>
-            {WORK_ORDER_MECHANICS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
+          <AssigneeCombo
+            label="Assigned To"
+            value={detail.assigned_to || ""}
+            onChange={(v) => updateField("assignedTo", v)}
+            options={WORK_ORDER_MECHANICS}
+            otherPlaceholder="Type mechanic name"
+          />
           <Select label="Repair Location" value={detail.repair_location} onChange={(e) => updateField("repairLocation", e.target.value)}>
             {Object.values(REPAIR_LOCATION).map((r) => (
               <option key={r} value={r}>{r}</option>
@@ -555,23 +557,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
             <div className="text-xs font-medium text-zinc-500 uppercase">Labour Log ({detail.labor.length} entries · {(detail.total_labour_hours || 0).toFixed(1)}h total)</div>
             <Button size="sm" variant="outline" onClick={() => setShowAddLabor(!showAddLabor)}>+ Add Labour</Button>
           </div>
-          {showAddLabor && (
-            <form onSubmit={addLabor} className="grid gap-2 sm:grid-cols-5 mb-3 p-3 bg-white rounded-lg border">
-              <Select name="workerName" label="Worker" required>
-                <option value="">Select...</option>
-                {WORK_ORDER_MECHANICS.map((m) => <option key={m} value={m}>{m}</option>)}
-              </Select>
-              <Input name="hours" label="Hours" type="number" step="0.5" min="0" required placeholder="8" />
-              <Input name="ratePerHour" label="Rate/hr (LSL)" type="number" step="1" placeholder="0" />
-              <Input name="workDate" label="Date" type="date" defaultValue={new Date().toISOString().split("T")[0]} />
-              <div className="flex items-end gap-1">
-                <Button type="submit" size="sm">Add</Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setShowAddLabor(false)}>✕</Button>
-              </div>
-              <Input name="description" label="Work Description" placeholder="What was done" className="sm:col-span-5" />
-              <input type="hidden" name="role" value="mechanic" />
-            </form>
-          )}
+          {showAddLabor && <LaborEntryForm onSubmit={addLabor} onCancel={() => setShowAddLabor(false)} />}
           {detail.labor.length > 0 && (
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
@@ -766,5 +752,38 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function LaborEntryForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
+  onCancel: () => void;
+}): React.ReactElement {
+  const [workerName, setWorkerName] = useState("");
+  return (
+    <form onSubmit={onSubmit} className="grid gap-2 sm:grid-cols-5 mb-3 p-3 bg-white rounded-lg border">
+      <AssigneeCombo
+        name="workerName"
+        label="Worker"
+        value={workerName}
+        onChange={setWorkerName}
+        options={WORK_ORDER_MECHANICS}
+        allowEmpty={false}
+        required
+        otherPlaceholder="Type mechanic name"
+      />
+      <Input name="hours" label="Hours" type="number" step="0.5" min="0" required placeholder="8" />
+      <Input name="ratePerHour" label="Rate/hr (LSL)" type="number" step="1" placeholder="0" />
+      <Input name="workDate" label="Date" type="date" defaultValue={new Date().toISOString().split("T")[0]} />
+      <div className="flex items-end gap-1">
+        <Button type="submit" size="sm">Add</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>✕</Button>
+      </div>
+      <Input name="description" label="Work Description" placeholder="What was done" className="sm:col-span-5" />
+      <input type="hidden" name="role" value="mechanic" />
+    </form>
   );
 }

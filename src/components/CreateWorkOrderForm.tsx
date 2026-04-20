@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { AssigneeCombo } from "@/components/AssigneeCombo";
 
 export interface VehicleOption {
   id: string;
@@ -52,6 +53,7 @@ export function CreateWorkOrderForm({
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [repairLoc, setRepairLoc] = useState("hq");
+  const [assignedTo, setAssignedTo] = useState("");
 
   const lockedVehicle = lockVehicle && defaultVehicleId
     ? vehicles.find((v) => v.id === defaultVehicleId)
@@ -127,12 +129,14 @@ export function CreateWorkOrderForm({
               <option key={p} value={p}>{p}</option>
             ))}
           </Select>
-          <Select name="assignedTo" label="Assign To">
-            <option value="">Unassigned</option>
-            {WORK_ORDER_MECHANICS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
+          <AssigneeCombo
+            name="assignedTo"
+            label="Assign To"
+            value={assignedTo}
+            onChange={setAssignedTo}
+            options={WORK_ORDER_MECHANICS}
+            otherPlaceholder="Type mechanic name"
+          />
           <Select name="repairLocation" label="Repair Location" value={repairLoc} onChange={(e) => setRepairLoc(e.target.value)}>
             {Object.values(REPAIR_LOCATION).map((r) => (
               <option key={r} value={r}>{r}</option>
