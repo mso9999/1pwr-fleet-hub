@@ -512,17 +512,41 @@ const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
     id: "ehs-tests",
     path: "/ehs-approved-drivers",
     target: "tutorial-ehs-tests-grid",
-    title: "6. Licence dates and four tests",
+    title: "6. Licence dates and status",
     body:
-      "Fill the licence valid-from / expiry and the four pass dates (written, road, eye, reaction). Set Status = active and Save. Once everything is filled and the licence passes continuity, the card turns green.",
+      "Enter the licence valid-from / expiry and set Status = active. The licence continuity hint turns green once the dates satisfy the two-year rule.",
+  },
+  {
+    id: "ehs-assessments",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-assessments",
+    title: "7. Five assessments (Pass / Fail / Pending)",
+    body:
+      "Vision, Hearing, Reaction, Written (off-road) and Practical each have a three-state toggle. Flip them to Pass once EHS has verified the test result. Every change clears the attestation — the card reverts to Draft until re-signed.",
+  },
+  {
+    id: "ehs-authorizations",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-authorizations",
+    title: "8. D018 authorizations matrix",
+    body:
+      "The accordion groups the 16 D018 categories (Driving / Plant / Machining). Set each grant to None, Approved, or Trainer. Plant and machining categories also need a training-record upload on the authorisation row before Save authorization unlocks.",
+  },
+  {
+    id: "ehs-attest",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-attest",
+    title: "9. Tick to attest and save",
+    body:
+      "EHS confirms the record by ticking 'I confirm the assessments, licence, and authorizations above are accurate' and pressing Attest and save. The header banner turns to 'Attested by …' and the record is Ready for fleet use until the next edit.",
   },
   {
     id: "ehs-effect-checks",
     path: "/vehicle-checks",
     target: "tutorial-dvc-form",
-    title: "7. How the register shows up on a vehicle check",
+    title: "10. How the register shows up on a vehicle check",
     body:
-      "The Driver field on the check form is a searchable dropdown of fully compliant drivers for this organisation — non-listed names can still be written in but are flagged amber. Suspending or removing a driver in EHS removes them from this dropdown.",
+      "The Driver field on the check form is a searchable dropdown of operators who are ready for the selected vehicle's class (standard on-road, heavy vehicle, tractor, etc.). Non-listed names can still be written in but are flagged amber. Suspending or changing an authorisation in EHS updates this dropdown immediately.",
   },
 ];
 

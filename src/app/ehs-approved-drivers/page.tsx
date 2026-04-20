@@ -8,12 +8,25 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
-import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
+import {
+  EHS_DRIVER_MEDIA_ENTITY,
+  EHS_OPERATOR_AUTH_MEDIA_ENTITY,
+} from "@/lib/ehs-driver-media";
 import {
   canViewEhsApprovedDriversRegister,
   canManageEhsApprovedDrivers,
 } from "@/lib/fleet-roles";
 import { evaluateLicenseContinuity } from "@/lib/ehs-approved-drivers";
+import {
+  CATEGORY_GROUP_ORDER,
+  categoriesInGroup,
+  getOperatorCategory,
+  type AssessmentResult,
+  type OperatorCategoryCode,
+  type OperatorCategoryMeta,
+  type OperatorGrant,
+} from "@/lib/ehs-operator-categories";
+import { useLocaleContext } from "@/i18n/locale-context";
 
 interface HrEmp {
   id: number;
@@ -26,7 +39,20 @@ interface HrEmp {
   primary_deployment: string | null;
 }
 
-interface DriverRecord {
+interface AuthorizationRow {
+  id: string;
+  operator_id: string;
+  category_code: OperatorCategoryCode;
+  grant: OperatorGrant;
+  notes: string;
+  training_media_count: number;
+  ready: boolean;
+  grant_is_trainer: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface OperatorRecord {
   id: string;
   display_name: string;
   email: string;
@@ -38,12 +64,24 @@ interface DriverRecord {
   road_test_passed_at: string;
   eye_test_passed_at: string;
   reaction_test_passed_at: string;
+  vision_result: AssessmentResult;
+  hearing_result: AssessmentResult;
+  reaction_result: AssessmentResult;
+  written_offroad_result: AssessmentResult;
+  practical_result: AssessmentResult;
   status: string;
   notes: string;
   updated_at: string;
   updated_by_name: string;
+  attestation: {
+    by: string;
+    at: string | null;
+    isFresh: boolean;
+  };
   license_media_count: number;
   fully_compliant: boolean;
+  authorizations: AuthorizationRow[];
+  category_readiness: Record<string, boolean>;
 }
 
 export default function EhsApprovedDriversPage(): React.ReactElement {
@@ -51,7 +89,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   const canView = user && canViewEhsApprovedDriversRegister(user.role, user.department);
   const canEdit = user && canManageEhsApprovedDrivers(user.role, user.department);
 
-  const [drivers, setDrivers] = useState<DriverRecord[]>([]);
+  const [operators, setOperators] = useState<OperatorRecord[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -63,32 +101,33 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   const [hrFilter, setHrFilter] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const loadDrivers = useCallback(async () => {
+  const loadOperators = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/ehs-approved-drivers?org=${encodeURIComponent(organizationId)}`, {
-        headers: await jsonHeadersWithBearer(),
-      });
-      const data = (await res.json()) as { drivers?: DriverRecord[]; error?: string };
+      const res = await fetch(
+        `/api/ehs-approved-drivers?org=${encodeURIComponent(organizationId)}`,
+        { headers: await jsonHeadersWithBearer() }
+      );
+      const data = (await res.json()) as { drivers?: OperatorRecord[]; error?: string };
       if (!res.ok) {
         setLoadError(data.error || "Could not load register");
-        setDrivers([]);
+        setOperators([]);
         return;
       }
-      setDrivers(data.drivers ?? []);
+      setOperators(data.drivers ?? []);
     } catch {
       setLoadError("Network error");
-      setDrivers([]);
+      setOperators([]);
     } finally {
       setLoading(false);
     }
   }, [canView, organizationId]);
 
   useEffect(() => {
-    void loadDrivers();
-  }, [loadDrivers]);
+    void loadOperators();
+  }, [loadOperators]);
 
   async function loadHr(): Promise<void> {
     setLoadingHr(true);
@@ -132,11 +171,11 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(err.error || "Could not add driver");
+        alert(err.error || "Could not add operator");
         return;
       }
       setPickEmail("");
-      await loadDrivers();
+      await loadOperators();
     } finally {
       setAdding(false);
     }
@@ -154,8 +193,8 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   }, [hrEmployees, hrFilter]);
 
   const existingEmails = useMemo(
-    () => new Set(drivers.map((d) => d.email.toLowerCase())),
-    [drivers]
+    () => new Set(operators.map((d) => d.email.toLowerCase())),
+    [operators]
   );
 
   if (!user) {
@@ -165,30 +204,28 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   if (!canView) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Sign in to Fleet Hub to view the approved drivers register.
+        Sign in to Fleet Hub to view the approved operator register.
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-5xl" data-tutorial="tutorial-ehs-page">
+    <div className="space-y-6 max-w-6xl" data-tutorial="tutorial-ehs-page">
       <p className="text-sm text-zinc-600 leading-relaxed">
-        Read-only list of drivers approved to operate 1PWR fleet vehicles in this organisation. Staff with the{" "}
-        <strong>EHS</strong> department in PR (synced to Fleet Hub) maintain the list from the HR employee directory:
-        license scan on file, license dates that show{" "}
-        <strong>continuous validity for at least the past two years</strong>, and pass dates for written, road, eye,
-        and reaction tests.{" "}
-        <strong>Everyone with a Fleet Hub login can view</strong> the register; only EHS department users and admins
-        can edit it.
+        D018 approved operator register. Every signed-in user can view the list. The{" "}
+        <strong>EHS department</strong> (synced from PR) and admins maintain the five physical and
+        proficiency assessments, the per-category authorizations matrix, and the EHS sign-off on
+        each record.
       </p>
 
       {canEdit && (
         <Card data-tutorial="tutorial-ehs-hr-loader">
           <CardHeader>
-            <CardTitle className="text-base">Add driver from HR directory</CardTitle>
+            <CardTitle className="text-base">Add operator from HR directory</CardTitle>
             <p className="text-sm text-zinc-500 font-normal">
-              Load employees from the HR Portal (same source as PR), select a person, then add them to this
-              organization&apos;s register.
+              Load employees from the HR Portal (same source as PR), select a person, then add them
+              to this organization&apos;s register. The matrix of 16 categories is then populated with
+              default &quot;none&quot; grants so EHS can authorise individual equipment types.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -254,18 +291,18 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
 
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
-      ) : drivers.length === 0 ? (
-        <p className="text-zinc-500">No drivers on the register yet{canEdit ? " — add someone from HR above." : "."}</p>
+      ) : operators.length === 0 ? (
+        <p className="text-zinc-500">No operators on the register yet{canEdit ? " — add someone from HR above." : "."}</p>
       ) : (
         <div className="space-y-4" data-tutorial="tutorial-ehs-drivers-list">
-          {drivers.map((d, idx) => (
-            <DriverCard
+          {operators.map((d, idx) => (
+            <OperatorCard
               key={d.id}
-              driver={d}
+              operator={d}
               canEdit={!!canEdit}
               userName={user.name || user.email}
               userId={user.id}
-              onSaved={loadDrivers}
+              onSaved={loadOperators}
               tutorialFirst={idx === 0}
             />
           ))}
@@ -275,45 +312,61 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   );
 }
 
-function DriverCard({
-  driver: d,
+const ASSESSMENT_VALUES: AssessmentResult[] = ["pass", "fail", "pending"];
+
+function OperatorCard({
+  operator: d,
   canEdit,
   userName,
   userId,
   onSaved,
   tutorialFirst,
 }: {
-  driver: DriverRecord;
+  operator: OperatorRecord;
   canEdit: boolean;
   userName: string;
   userId: string;
   onSaved: () => Promise<void>;
   tutorialFirst?: boolean;
 }): React.ReactElement {
+  const { t } = useLocaleContext();
   const [saving, setSaving] = useState(false);
+  const [attesting, setAttesting] = useState(false);
+  const [attestChecked, setAttestChecked] = useState(d.attestation.isFresh);
   const [local, setLocal] = useState({
     licenseValidFrom: d.license_valid_from || "",
     licenseExpiry: d.license_expiry || "",
-    written: d.written_test_passed_at || "",
-    road: d.road_test_passed_at || "",
-    eye: d.eye_test_passed_at || "",
-    reaction: d.reaction_test_passed_at || "",
+    vision: d.vision_result || "pending",
+    hearing: d.hearing_result || "pending",
+    reaction: d.reaction_result || "pending",
+    written: d.written_offroad_result || "pending",
+    practical: d.practical_result || "pending",
     status: d.status || "active",
     notes: d.notes || "",
   });
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setLocal({
       licenseValidFrom: d.license_valid_from || "",
       licenseExpiry: d.license_expiry || "",
-      written: d.written_test_passed_at || "",
-      road: d.road_test_passed_at || "",
-      eye: d.eye_test_passed_at || "",
-      reaction: d.reaction_test_passed_at || "",
+      vision: d.vision_result || "pending",
+      hearing: d.hearing_result || "pending",
+      reaction: d.reaction_result || "pending",
+      written: d.written_offroad_result || "pending",
+      practical: d.practical_result || "pending",
       status: d.status || "active",
       notes: d.notes || "",
     });
+    setAttestChecked(d.attestation.isFresh);
+    setDirty(false);
   }, [d]);
+
+  function mark<K extends keyof typeof local>(key: K, value: (typeof local)[K]): void {
+    setLocal((x) => ({ ...x, [key]: value }));
+    setDirty(true);
+    setAttestChecked(false);
+  }
 
   const licHint = evaluateLicenseContinuity(local.licenseValidFrom, local.licenseExpiry);
 
@@ -326,22 +379,44 @@ function DriverCard({
         body: JSON.stringify({
           licenseValidFrom: local.licenseValidFrom,
           licenseExpiry: local.licenseExpiry,
-          writtenTestPassedAt: local.written,
-          roadTestPassedAt: local.road,
-          eyeTestPassedAt: local.eye,
-          reactionTestPassedAt: local.reaction,
+          visionResult: local.vision,
+          hearingResult: local.hearing,
+          reactionResult: local.reaction,
+          writtenOffroadResult: local.written,
+          practicalResult: local.practical,
           status: local.status,
           notes: local.notes,
         }),
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        alert(err.error || "Save failed");
+        alert(err.error || "Could not save");
         return;
+      }
+      setDirty(false);
+      if (attestChecked) {
+        // Re-attest immediately as part of the same user intent.
+        await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
+          method: "POST",
+          headers: await jsonHeadersWithBearer(),
+        });
       }
       await onSaved();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function attestOnly(): Promise<void> {
+    setAttesting(true);
+    try {
+      await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
+        method: "POST",
+        headers: await jsonHeadersWithBearer(),
+      });
+      await onSaved();
+    } finally {
+      setAttesting(false);
     }
   }
 
@@ -354,9 +429,11 @@ function DriverCard({
     if (res.ok) await onSaved();
   }
 
+  const fleetReady = d.category_readiness["fleet_vehicle_onroad"] ?? false;
+
   return (
     <Card
-      className={d.fully_compliant ? "border-emerald-200" : "border-zinc-200"}
+      className={fleetReady ? "border-emerald-200" : "border-zinc-200"}
       data-tutorial={tutorialFirst ? "tutorial-ehs-driver-card" : undefined}
     >
       <CardHeader className="pb-2">
@@ -370,13 +447,26 @@ function DriverCard({
           </div>
           <div className="flex flex-wrap gap-2">
             <Badge variant={d.status === "active" ? "success" : "secondary"}>{d.status}</Badge>
-            {d.fully_compliant ? (
-              <Badge variant="success">Ready for fleet use</Badge>
+            {fleetReady ? (
+              <Badge variant="success">Ready (fleet vehicle)</Badge>
             ) : (
-              <Badge variant="warning">Incomplete</Badge>
+              <Badge variant="warning">Draft</Badge>
             )}
           </div>
         </div>
+        {!d.attestation.isFresh && (
+          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+            {d.attestation.at
+              ? t("ehsOperator.attestation.staleBanner")
+              : t("ehsOperator.attestation.neverAttested")}
+          </div>
+        )}
+        {d.attestation.isFresh && d.attestation.at && (
+          <p className="mt-2 text-xs text-zinc-500">
+            {t("ehsOperator.attestation.lastAttestedBy")}: {d.attestation.by || "—"} ·{" "}
+            {new Date(d.attestation.at).toLocaleString()}
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
@@ -419,43 +509,19 @@ function DriverCard({
                 label="License valid from *"
                 type="date"
                 value={local.licenseValidFrom}
-                onChange={(e) => setLocal((x) => ({ ...x, licenseValidFrom: e.target.value }))}
+                onChange={(e) => mark("licenseValidFrom", e.target.value)}
               />
               <Input
                 label="License expiry *"
                 type="date"
                 value={local.licenseExpiry}
-                onChange={(e) => setLocal((x) => ({ ...x, licenseExpiry: e.target.value }))}
-              />
-              <Input
-                label="Written test passed"
-                type="date"
-                value={local.written}
-                onChange={(e) => setLocal((x) => ({ ...x, written: e.target.value }))}
-              />
-              <Input
-                label="Road test passed"
-                type="date"
-                value={local.road}
-                onChange={(e) => setLocal((x) => ({ ...x, road: e.target.value }))}
-              />
-              <Input
-                label="Eye test passed"
-                type="date"
-                value={local.eye}
-                onChange={(e) => setLocal((x) => ({ ...x, eye: e.target.value }))}
-              />
-              <Input
-                label="Reaction test passed"
-                type="date"
-                value={local.reaction}
-                onChange={(e) => setLocal((x) => ({ ...x, reaction: e.target.value }))}
+                onChange={(e) => mark("licenseExpiry", e.target.value)}
               />
               <div>
                 <label className="text-sm font-medium text-zinc-700 block mb-1">Status</label>
                 <select
                   value={local.status}
-                  onChange={(e) => setLocal((x) => ({ ...x, status: e.target.value }))}
+                  onChange={(e) => mark("status", e.target.value)}
                   className="h-10 w-full rounded-lg border border-zinc-200 px-3 text-sm"
                 >
                   <option value="active">active</option>
@@ -463,33 +529,341 @@ function DriverCard({
                 </select>
               </div>
             </div>
+
+            <div
+              className="rounded-lg border border-zinc-200 bg-white p-3 space-y-3"
+              data-tutorial={tutorialFirst ? "tutorial-ehs-assessments" : undefined}
+            >
+              <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">
+                Physical assessment &amp; proficiency
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <AssessmentControl label="Vision" value={local.vision} onChange={(v) => mark("vision", v)} />
+                <AssessmentControl label="Hearing" value={local.hearing} onChange={(v) => mark("hearing", v)} />
+                <AssessmentControl label="Reaction" value={local.reaction} onChange={(v) => mark("reaction", v)} />
+                <AssessmentControl
+                  label="Written (off-road)"
+                  value={local.written}
+                  onChange={(v) => mark("written", v)}
+                />
+                <AssessmentControl label="Practical" value={local.practical} onChange={(v) => mark("practical", v)} />
+              </div>
+            </div>
+
             <Input
               label="Notes"
               value={local.notes}
-              onChange={(e) => setLocal((x) => ({ ...x, notes: e.target.value }))}
-              placeholder="Internal notes (optional)"
+              onChange={(e) => mark("notes", e.target.value)}
+              placeholder="Internal notes (e.g. 'Only approved for automatic vehicles')"
             />
             <p className={`text-xs ${licHint.ok ? "text-emerald-700" : "text-amber-800"}`}>{licHint.detail}</p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={saving} onClick={() => void save()}>
-                {saving ? "Saving…" : "Save record"}
-              </Button>
-              <Button type="button" variant="outline" className="text-red-600 border-red-200" onClick={() => void remove()}>
-                Remove from register
-              </Button>
+
+            <AuthorizationsMatrix
+              operatorId={d.id}
+              authorizations={d.authorizations}
+              userName={userName}
+              userId={userId}
+              tutorialFirst={!!tutorialFirst}
+              onChanged={async () => {
+                setAttestChecked(false);
+                await onSaved();
+              }}
+            />
+
+            <div
+              className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2"
+              data-tutorial={tutorialFirst ? "tutorial-ehs-attest" : undefined}
+            >
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={attestChecked}
+                  onChange={(e) => setAttestChecked(e.target.checked)}
+                />
+                <span>{t("ehsOperator.attestation.checkboxLabel")}</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {dirty ? (
+                  <Button type="button" disabled={saving || !attestChecked} onClick={() => void save()}>
+                    {saving ? "Saving…" : t("ehsOperator.attestation.attestButton")}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    disabled={attesting || !attestChecked || d.attestation.isFresh}
+                    onClick={() => void attestOnly()}
+                  >
+                    {attesting
+                      ? "Attesting…"
+                      : d.attestation.isFresh
+                      ? "Already attested"
+                      : t("ehsOperator.attestation.attestButton")}
+                  </Button>
+                )}
+                <Button type="button" variant="outline" className="text-red-600 border-red-200" onClick={() => void remove()}>
+                  Remove from register
+                </Button>
+              </div>
             </div>
           </>
         ) : (
-          <div className="text-sm text-zinc-600 grid gap-1 sm:grid-cols-2">
-            <div>License from: {d.license_valid_from || "—"}</div>
-            <div>License expiry: {d.license_expiry || "—"}</div>
-            <div>Written: {d.written_test_passed_at || "—"}</div>
-            <div>Road: {d.road_test_passed_at || "—"}</div>
-            <div>Eye: {d.eye_test_passed_at || "—"}</div>
-            <div>Reaction: {d.reaction_test_passed_at || "—"}</div>
-          </div>
+          <>
+            <div className="text-sm text-zinc-600 grid gap-1 sm:grid-cols-2">
+              <div>License from: {d.license_valid_from || "—"}</div>
+              <div>License expiry: {d.license_expiry || "—"}</div>
+              <div>Vision: {d.vision_result}</div>
+              <div>Hearing: {d.hearing_result}</div>
+              <div>Reaction: {d.reaction_result}</div>
+              <div>Written (off-road): {d.written_offroad_result}</div>
+              <div>Practical: {d.practical_result}</div>
+            </div>
+            <AuthorizationsSummary authorizations={d.authorizations} />
+          </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AssessmentControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: AssessmentResult;
+  onChange: (v: AssessmentResult) => void;
+}): React.ReactElement {
+  const { t } = useLocaleContext();
+  return (
+    <div>
+      <label className="text-xs font-medium text-zinc-600 block mb-1">{label}</label>
+      <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+        {ASSESSMENT_VALUES.map((v) => {
+          const selected = value === v;
+          const base = "flex-1 px-2 py-1.5 text-xs font-medium touch-manipulation min-h-[36px]";
+          const active =
+            v === "pass"
+              ? "bg-emerald-600 text-white"
+              : v === "fail"
+              ? "bg-red-500 text-white"
+              : "bg-zinc-200 text-zinc-800";
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onChange(v)}
+              className={`${base} ${selected ? active : "bg-white text-zinc-500 hover:bg-zinc-50"}`}
+            >
+              {t(`ehsOperator.assessments.${v}`)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AuthorizationsMatrix({
+  operatorId,
+  authorizations,
+  userName,
+  userId,
+  tutorialFirst,
+  onChanged,
+}: {
+  operatorId: string;
+  authorizations: AuthorizationRow[];
+  userName: string;
+  userId: string;
+  tutorialFirst: boolean;
+  onChanged: () => void | Promise<void>;
+}): React.ReactElement {
+  const { t } = useLocaleContext();
+
+  async function updateAuthorization(
+    categoryCode: OperatorCategoryCode,
+    grant: OperatorGrant,
+    notes: string
+  ): Promise<void> {
+    await fetch(`/api/ehs-approved-drivers/${operatorId}/authorizations`, {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ categoryCode, grant, notes }),
+    });
+    await onChanged();
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-zinc-200 bg-white"
+      data-tutorial={tutorialFirst ? "tutorial-ehs-authorizations" : undefined}
+    >
+      <div className="px-3 py-2 border-b border-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+        Authorizations (D018)
+      </div>
+      <div className="p-3 space-y-4">
+        {CATEGORY_GROUP_ORDER.map((group) => (
+          <div key={group} className="space-y-2">
+            <div className="text-xs font-medium text-zinc-500">{t(`ehsOperator.groups.${group}`)}</div>
+            <div className="grid gap-2">
+              {categoriesInGroup(group).map((meta) => {
+                const auth = authorizations.find((a) => a.category_code === meta.code);
+                return (
+                  <AuthorizationRowView
+                    key={meta.code}
+                    meta={meta}
+                    auth={auth}
+                    userName={userName}
+                    userId={userId}
+                    onChange={(grant, notes) => updateAuthorization(meta.code, grant, notes)}
+                    onChanged={onChanged}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuthorizationRowView({
+  meta,
+  auth,
+  userName,
+  userId,
+  onChange,
+  onChanged,
+}: {
+  meta: OperatorCategoryMeta;
+  auth: AuthorizationRow | undefined;
+  userName: string;
+  userId: string;
+  onChange: (grant: OperatorGrant, notes: string) => void | Promise<void>;
+  onChanged: () => void | Promise<void>;
+}): React.ReactElement {
+  const { t } = useLocaleContext();
+  const [grant, setGrant] = useState<OperatorGrant>(auth?.grant ?? "none");
+  const [notes, setNotes] = useState<string>(auth?.notes ?? "");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setGrant(auth?.grant ?? "none");
+    setNotes(auth?.notes ?? "");
+  }, [auth]);
+
+  const dirty = grant !== (auth?.grant ?? "none") || notes !== (auth?.notes ?? "");
+
+  async function commit(): Promise<void> {
+    setBusy(true);
+    try {
+      await onChange(grant, notes);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-zinc-100 p-2 bg-zinc-50/60">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-zinc-800">{t(`ehsOperator.categories.${meta.code}.label`)}</div>
+          <div className="text-[11px] text-zinc-500">{t(`ehsOperator.categories.${meta.code}.description`)}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {auth?.ready && (
+            <Badge variant="success" className="text-[10px]">
+              Ready
+            </Badge>
+          )}
+          <select
+            value={grant}
+            onChange={(e) => setGrant(e.target.value as OperatorGrant)}
+            className="h-9 rounded-lg border border-zinc-200 px-2 text-sm bg-white"
+          >
+            <option value="none">{t("ehsOperator.grants.none")}</option>
+            <option value="approved">{t("ehsOperator.grants.approved")}</option>
+            <option value="trainer">{t("ehsOperator.grants.trainer")}</option>
+          </select>
+        </div>
+      </div>
+      {grant !== "none" && (
+        <div className="mt-2 space-y-2">
+          <Input
+            label="Notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. 'Automatic vehicles only' or 'Re-train before renewal'"
+          />
+          {meta.trainingRecordRequired && auth?.id && (
+            <div className="rounded-md border border-zinc-200 bg-white p-2 space-y-1">
+              <div className="text-xs font-medium text-zinc-600">
+                Training record {auth.training_media_count > 0 ? `(${auth.training_media_count} file(s) on file)` : "— upload proof"}
+              </div>
+              <MediaUpload
+                entityType={EHS_OPERATOR_AUTH_MEDIA_ENTITY}
+                entityId={auth.id}
+                uploadedByName={userName}
+                uploadedById={userId}
+                defaultCategory="document"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs text-blue-700 px-0"
+                onClick={() => void onChanged()}
+              >
+                Refresh count
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="mt-2 flex justify-end">
+        <Button type="button" size="sm" variant="outline" disabled={!dirty || busy} onClick={() => void commit()}>
+          {busy ? "Saving…" : "Save authorization"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AuthorizationsSummary({
+  authorizations,
+}: {
+  authorizations: AuthorizationRow[];
+}): React.ReactElement {
+  const { t } = useLocaleContext();
+  const granted = authorizations.filter((a) => a.grant !== "none");
+  if (granted.length === 0) {
+    return (
+      <div className="text-sm text-zinc-500">No equipment categories authorised yet.</div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Authorisations</div>
+      <ul className="grid gap-1 sm:grid-cols-2">
+        {granted.map((a) => {
+          const meta = getOperatorCategory(a.category_code);
+          const label = meta ? t(`ehsOperator.categories.${meta.code}.label`) : a.category_code;
+          return (
+            <li key={a.id} className="text-sm text-zinc-700 flex items-center gap-2">
+              <Badge variant={a.grant === "trainer" ? "info" : "success"} className="text-[10px]">
+                {t(`ehsOperator.grants.${a.grant}`)}
+              </Badge>
+              <span className="truncate">{label}</span>
+              {a.ready ? (
+                <Badge variant="secondary" className="text-[10px]">Ready</Badge>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

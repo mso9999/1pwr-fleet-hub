@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { isApprovedDriverForOrg } from "@/lib/approved-drivers";
+import { isApprovedDriverForCategory } from "@/lib/approved-drivers";
+import { DEFAULT_OPERATOR_CATEGORY } from "@/lib/ehs-operator-categories";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { v4 as uuidv4 } from "uuid";
@@ -57,7 +58,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const orgId = String(body.organizationId || "1pwr_lesotho");
-  if (!isApprovedDriverForOrg(db, orgId, user.email) && user.role !== "superadmin") {
+  if (
+    !isApprovedDriverForCategory(db, orgId, user.email, DEFAULT_OPERATOR_CATEGORY) &&
+    user.role !== "superadmin"
+  ) {
     return NextResponse.json(
       {
         error:

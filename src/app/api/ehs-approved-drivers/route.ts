@@ -7,30 +7,140 @@ import {
   canManageEhsApprovedDrivers,
 } from "@/lib/server-auth";
 import { normalizeEmail } from "@/lib/vehicle-check-approvers";
-import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
 import {
-  isEhsDriverFullyCompliant,
+  EHS_DRIVER_MEDIA_ENTITY,
+  EHS_OPERATOR_AUTH_MEDIA_ENTITY,
+} from "@/lib/ehs-driver-media";
+import {
+  evaluateAllCategories,
+  isAttestationFresh,
   type EhsDriverRow,
+  type EhsOperatorAuthorization,
 } from "@/lib/ehs-approved-drivers";
+import { OPERATOR_CATEGORIES } from "@/lib/ehs-operator-categories";
+
+type RowWithMeta = Record<string, unknown> & {
+  license_media_count: number;
+  fully_compliant: boolean;
+  attestation: {
+    by: string;
+    at: string | null;
+    isFresh: boolean;
+  };
+  authorizations: Array<
+    EhsOperatorAuthorization & {
+      training_media_count: number;
+      ready: boolean;
+      grant_is_trainer: boolean;
+    }
+  >;
+  category_readiness: Record<string, boolean>;
+};
+
+function buildAuthorizationStubsIfMissing(
+  db: ReturnType<typeof getDb>,
+  operatorId: string
+): EhsOperatorAuthorization[] {
+  // Ensure every known category has a row (grant='none' by default) so the UI can render
+  // the matrix without extra upsert logic and so evaluators don't have to guess defaults.
+  const existing = db
+    .prepare(
+      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ?`
+    )
+    .all(operatorId) as EhsOperatorAuthorization[];
+  const byCode = new Map(existing.map((r) => [r.category_code, r]));
+
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    `INSERT INTO ehs_operator_authorizations
+       (id, operator_id, category_code, grant, notes, created_at, updated_at)
+     VALUES (?, ?, ?, 'none', '', ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    for (const meta of OPERATOR_CATEGORIES) {
+      if (!byCode.has(meta.code)) {
+        const id = uuidv4();
+        insert.run(id, operatorId, meta.code, now, now);
+      }
+    }
+  });
+  if (byCode.size < OPERATOR_CATEGORIES.length) tx();
+
+  return db
+    .prepare(
+      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ? ORDER BY category_code`
+    )
+    .all(operatorId) as EhsOperatorAuthorization[];
+}
 
 function rowWithMeta(
   db: ReturnType<typeof getDb>,
   row: Record<string, unknown>
-): Record<string, unknown> {
+): RowWithMeta {
   const r = row as unknown as EhsDriverRow;
-  const cnt = db
+
+  const licenceCnt = db
     .prepare(
       `SELECT COUNT(*) AS c FROM media_attachments WHERE entity_type = ? AND entity_id = ?`
     )
     .get(EHS_DRIVER_MEDIA_ENTITY, r.id) as { c: number };
-  const licenseMediaCount = Number(cnt?.c ?? 0);
-  const fullyCompliant = isEhsDriverFullyCompliant(r, licenseMediaCount);
-  return { ...row, license_media_count: licenseMediaCount, fully_compliant: fullyCompliant };
+  const licenceMediaCount = Number(licenceCnt?.c ?? 0);
+
+  const authorizations = buildAuthorizationStubsIfMissing(db, r.id);
+
+  const trainingMediaCountByAuthId: Record<string, number> = {};
+  if (authorizations.length > 0) {
+    const ids = authorizations.map((a) => a.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT entity_id as id, COUNT(*) as c
+         FROM media_attachments
+         WHERE entity_type = ? AND entity_id IN (${placeholders})
+         GROUP BY entity_id`
+      )
+      .all(EHS_OPERATOR_AUTH_MEDIA_ENTITY, ...ids) as Array<{ id: string; c: number }>;
+    for (const row of rows) trainingMediaCountByAuthId[row.id] = Number(row.c);
+  }
+
+  const perCategory = evaluateAllCategories({
+    row: r,
+    authorizations,
+    licenceMediaCount,
+    trainingMediaCountByAuthId,
+  });
+
+  const categoryReadiness: Record<string, boolean> = {};
+  const perAuth = authorizations.map((a) => {
+    const ready = perCategory[a.category_code as keyof typeof perCategory]?.ready ?? false;
+    categoryReadiness[a.category_code] = ready;
+    return {
+      ...a,
+      training_media_count: trainingMediaCountByAuthId[a.id] ?? 0,
+      ready,
+      grant_is_trainer: a.grant === "trainer",
+    };
+  });
+
+  const defaultReady = perCategory["fleet_vehicle_onroad"]?.ready ?? false;
+
+  return {
+    ...row,
+    license_media_count: licenceMediaCount,
+    fully_compliant: defaultReady,
+    attestation: {
+      by: r.attested_by_name || r.attested_by_id || "",
+      at: r.attested_at,
+      isFresh: isAttestationFresh(r),
+    },
+    authorizations: perAuth,
+    category_readiness: categoryReadiness,
+  };
 }
 
 /**
  * GET /api/ehs-approved-drivers?org=
- * List approved-driver records (EHS + fleet management).
+ * List operator records for the org. Visible to every signed-in user (read-only).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
@@ -103,6 +213,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     throw e;
   }
+  // Seed authorization rows for every known category so the matrix renders immediately.
+  buildAuthorizationStubsIfMissing(db, id);
   const row = db.prepare("SELECT * FROM ehs_approved_drivers WHERE id = ?").get(id) as Record<string, unknown>;
   return NextResponse.json(rowWithMeta(db, row), { status: 201 });
 }

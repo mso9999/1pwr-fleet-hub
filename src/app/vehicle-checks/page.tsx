@@ -94,6 +94,8 @@ interface VehicleOption {
   code: string;
   make: string;
   model: string;
+  /** Used by the driver combobox to look up only operators cleared for that class. */
+  asset_class?: string | null;
 }
 
 interface CheckRow {

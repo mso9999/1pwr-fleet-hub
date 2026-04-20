@@ -146,6 +146,97 @@ const en = {
       low: "Low",
     },
   },
+  ehsOperator: {
+    groups: {
+      driving: "Driving",
+      plant: "Plant and heavy equipment",
+      machining: "Machine shop",
+    },
+    grants: {
+      none: "None",
+      approved: "Approved",
+      trainer: "Trainer",
+    },
+    assessments: {
+      pass: "Pass",
+      fail: "Fail",
+      pending: "Pending",
+    },
+    attestation: {
+      checkboxLabel:
+        "I confirm the assessments, licence, and authorizations above are accurate.",
+      lastAttestedBy: "Attested by",
+      staleBanner: "This record has changed since it was last signed off — re-tick and save to re-attest.",
+      neverAttested: "Not yet attested.",
+      attestButton: "Attest and save",
+    },
+    categories: {
+      fleet_vehicle_onroad: {
+        label: "Insured 1PWR vehicle on public roads",
+        description: "Licence on file, valid for more than two years (2-year continuity rule).",
+      },
+      fleet_vehicle_onroad_heavy: {
+        label: "Insured 1PWR heavy vehicle on public roads",
+        description: "Licence on file plus heavy-vehicle training record.",
+      },
+      motorcycle_onroad: {
+        label: "Motorcycle on public roads",
+        description: "Motorcycle licence on file.",
+      },
+      ldf_defensive: {
+        label: "LDF Defensive driving",
+        description: "LDF defensive driving certificate on file.",
+      },
+      offroad_vehicle: {
+        label: "Off-road vehicle (ATV / motorcycle)",
+        description: "Training record on file; off-road written test passed.",
+      },
+      telehandler: {
+        label: "Telehandler / Forklift / TLB",
+        description: "Operator training record on file; off-road written test passed.",
+      },
+      excavator: {
+        label: "Excavator",
+        description: "Operator training record on file; off-road written test passed.",
+      },
+      drill_rig: {
+        label: "Drill rig",
+        description: "Operator training record on file; off-road written test passed.",
+      },
+      tractor: {
+        label: "Tractor",
+        description: "Tractor training record on file.",
+      },
+      crane: {
+        label: "Crane",
+        description: "Operator training record on file; off-road written test passed.",
+      },
+      cnc_milling: {
+        label: "CNC milling",
+        description: "Training record on file.",
+      },
+      manual_milling: {
+        label: "Manual milling / turning",
+        description: "Training record on file.",
+      },
+      cnc_plasma_cutting: {
+        label: "CNC plasma cutting",
+        description: "Training record on file.",
+      },
+      mig_welder: {
+        label: "MIG welder",
+        description: "Training record on file.",
+      },
+      tig_welder: {
+        label: "TIG welder",
+        description: "Training record on file.",
+      },
+      machine_shop_general: {
+        label: "Machine shop general",
+        description: "Training record on file.",
+      },
+    },
+  },
 };
 
 type MessageTree = typeof en;
@@ -294,6 +385,98 @@ const fr: MessageTree = {
       high: "Élevée",
       medium: "Moyenne",
       low: "Faible",
+    },
+  },
+  ehsOperator: {
+    groups: {
+      driving: "Conduite",
+      plant: "Engins et équipements lourds",
+      machining: "Atelier d’usinage",
+    },
+    grants: {
+      none: "Aucun",
+      approved: "Agréé",
+      trainer: "Formateur",
+    },
+    assessments: {
+      pass: "Réussi",
+      fail: "Échoué",
+      pending: "En attente",
+    },
+    attestation: {
+      checkboxLabel:
+        "Je confirme que les évaluations, le permis et les autorisations ci-dessus sont exacts.",
+      lastAttestedBy: "Attesté par",
+      staleBanner:
+        "Cette fiche a changé depuis la dernière validation — re-cochez et enregistrez pour re-attester.",
+      neverAttested: "Pas encore attesté.",
+      attestButton: "Attester et enregistrer",
+    },
+    categories: {
+      fleet_vehicle_onroad: {
+        label: "Véhicule 1PWR assuré sur route",
+        description: "Permis en dossier, valide depuis plus de deux ans (règle des deux ans).",
+      },
+      fleet_vehicle_onroad_heavy: {
+        label: "Poids lourd 1PWR assuré sur route",
+        description: "Permis en dossier et attestation de formation poids lourd.",
+      },
+      motorcycle_onroad: {
+        label: "Moto sur route",
+        description: "Permis moto en dossier.",
+      },
+      ldf_defensive: {
+        label: "Conduite défensive LDF",
+        description: "Certificat de conduite défensive LDF en dossier.",
+      },
+      offroad_vehicle: {
+        label: "Véhicule tout-terrain (ATV / moto)",
+        description: "Attestation de formation en dossier ; test écrit tout-terrain réussi.",
+      },
+      telehandler: {
+        label: "Télescopique / Chariot / TLB",
+        description: "Attestation de formation opérateur ; test écrit tout-terrain réussi.",
+      },
+      excavator: {
+        label: "Excavatrice",
+        description: "Attestation de formation opérateur ; test écrit tout-terrain réussi.",
+      },
+      drill_rig: {
+        label: "Foreuse",
+        description: "Attestation de formation opérateur ; test écrit tout-terrain réussi.",
+      },
+      tractor: {
+        label: "Tracteur",
+        description: "Attestation de formation tracteur en dossier.",
+      },
+      crane: {
+        label: "Grue",
+        description: "Attestation de formation opérateur ; test écrit tout-terrain réussi.",
+      },
+      cnc_milling: {
+        label: "Fraiseuse CNC",
+        description: "Attestation de formation en dossier.",
+      },
+      manual_milling: {
+        label: "Fraisage / tournage manuel",
+        description: "Attestation de formation en dossier.",
+      },
+      cnc_plasma_cutting: {
+        label: "Découpe plasma CNC",
+        description: "Attestation de formation en dossier.",
+      },
+      mig_welder: {
+        label: "Soudeur MIG",
+        description: "Attestation de formation en dossier.",
+      },
+      tig_welder: {
+        label: "Soudeur TIG",
+        description: "Attestation de formation en dossier.",
+      },
+      machine_shop_general: {
+        label: "Atelier d’usinage général",
+        description: "Attestation de formation en dossier.",
+      },
     },
   },
 };

@@ -48,9 +48,9 @@ export const guideFr: GuideContent = {
       },
       {
         href: "/guide/ehs-approved-drivers",
-        title: "Registre des conducteurs agréés (EHS)",
+        title: "Registre EHS des opérateurs agréés (D018)",
         description:
-          "Qui peut conduire les véhicules de la flotte : liste issue des RH, dates de permis, quatre tests (écrit, route, vue, réaction) et lien avec les contrôles et demandes.",
+          "Qui peut opérer les véhicules et équipements 1PWR : liste issue des RH, permis + cinq évaluations, matrice d’autorisations (16 catégories) et attestation EHS par fiche.",
       },
       {
         href: "/guide/inspections",
@@ -135,7 +135,7 @@ export const guideFr: GuideContent = {
           "Véhicules — parc ; ouvrir une fiche pour détails, historique et GPS.",
           "Trajets — enregistrement départ / retour avec odomètre et itinéraire.",
           "Contrôles véhicule — checklist conducteur avant déploiement ; les défauts peuvent exiger validation.",
-          "Conducteurs agréés (EHS) — registre des conducteurs autorisés à utiliser les véhicules de la flotte (permis + quatre tests). Visible par tous les utilisateurs connectés ; seuls le département EHS et les admins peuvent modifier.",
+          "Conducteurs agréés (EHS) — registre D018 : permis + cinq évaluations (vision, audition, réaction, écrit, pratique), matrice d’autorisations (16 catégories) et attestation EHS. Visible par tous les utilisateurs connectés ; seuls le département EHS et les admins peuvent modifier.",
           "Ordres de travail — maintenance (souvent liés aux inspections).",
           "Maintenance — entretien planifié et échéances.",
           "Mécaniciens — activité et affectations.",
@@ -409,27 +409,29 @@ export const guideFr: GuideContent = {
   },
 
   ehsApprovedDrivers: {
-    title: "Registre des conducteurs agréés (EHS)",
+    title: "Registre EHS des opérateurs agréés (D018)",
     subtitle:
-      "Comment EHS tient à jour la liste des conducteurs autorisés à utiliser les véhicules 1PWR, et comment elle alimente les contrôles et les demandes.",
+      "Comment EHS tient à jour la liste des opérateurs autorisés à utiliser les véhicules et équipements 1PWR, avec attestation par fiche et matrice d’autorisations D018.",
     sections: [
       {
         id: "purpose",
         title: "Objectif",
         paragraphs: [
           [
-            "Le registre ",
+            "La page ",
             L("/ehs-approved-drivers", "Conducteurs agréés (EHS)"),
-            " est la liste de référence des personnes autorisées à conduire les véhicules de la flotte pour une organisation. Le ",
+            " héberge dans Fleet Hub la ",
+            B("D018 Approved Operator List"),
+            " de 1PWR. Elle remplace le tableur : le ",
             B("département EHS"),
-            " le maintient à partir de l’annuaire RH, enregistre le permis et les dates de réussite des quatre tests, et fixe le statut de chaque conducteur.",
+            " saisit cinq évaluations physiques et de proficience, charge les preuves de permis et de formation, fixe l’autorisation pour chacune des 16 catégories d’équipement, et atteste chaque fiche.",
           ],
           [
-            "Fleet Hub l’utilise à deux endroits : le ",
+            "Fleet Hub s’en sert à deux points : le sélecteur du ",
             L("/guide/vehicle-checks", "contrôle conducteur"),
-            " (sélecteur de conducteur) et les ",
+            " (filtré sur l’autorisation correspondant à la classe du véhicule choisi) et les ",
             L("/guide/daily-workflows", "demandes de véhicules"),
-            " (le demandeur doit figurer au registre).",
+            " (le demandeur doit être habilité pour la conduite sur route).",
           ],
         ],
       },
@@ -476,58 +478,99 @@ export const guideFr: GuideContent = {
       },
       {
         id: "licence-and-tests",
-        title: "Permis et quatre tests",
+        title: "Permis et cinq évaluations",
         paragraphs: [
           [
-            "Pour chaque fiche conducteur, EHS renseigne et enregistre :",
+            "Chaque fiche d’opérateur porte un bloc permis et cinq évaluations ",
+            B("Réussi / Échoué / En attente"),
+            ". EHS bascule chaque évaluation directement sur la fiche — toute modification efface l’attestation et repasse la fiche en Brouillon jusqu’à une nouvelle signature.",
           ],
         ],
         bullets: [
           "Permis valide depuis / Permis expire le (dates du document physique).",
-          "Test écrit réussi le.",
-          "Test sur route réussi le.",
-          "Test de vue réussi le.",
-          "Test de réaction réussi le.",
-          "Au moins un scan de permis chargé sous « Scan du permis (chargement) ».",
-          "Statut — actif (peut conduire) ou suspendu (temporairement bloqué).",
-          "Notes — usage interne (facultatif).",
+          "Scan du permis — au moins un fichier en dossier.",
+          "Évaluation physique : Vision, Audition, Réaction.",
+          "Proficience : Écrit (tout-terrain) et Pratique.",
+          "Statut — actif (peut opérer) ou suspendu (temporairement bloqué).",
+          "Notes — texte libre (ex. « Véhicules automatiques uniquement »).",
         ],
         callout: {
           variant: "info",
           paragraphs: [
             [
               B("Règle de continuité de deux ans : "),
-              "la date de validité du permis doit dater d’au moins deux ans, et l’expiration ne doit pas être dépassée. La fiche affiche un indicateur vert/orange confirmant la conformité de ces dates.",
+              "pour les véhicules légers sur route, la date de validité du permis doit dater d’au moins deux ans et l’expiration ne doit pas être dépassée. Les autres catégories assouplissent ou lèvent cette règle (la formation poids lourd, par exemple, prime).",
             ],
           ],
         },
       },
       {
-        id: "ready-for-use",
-        title: "Prêt pour le parc",
+        id: "authorizations",
+        title: "Matrice d’autorisations D018",
         paragraphs: [
           [
-            "Un conducteur est ",
-            B("pleinement conforme"),
-            " — et apparaît dans la liste déroulante du contrôle — lorsque ",
-            B("toutes"),
-            " ces conditions sont réunies :",
+            "Sous l’accordéon ",
+            B("Autorisations (D018)"),
+            " de la fiche, chacune des seize catégories du tableur apparaît une fois. Pour chaque catégorie EHS choisit un niveau — ",
+            B("Aucun"),
+            ", ",
+            B("Agréé"),
+            ", ou ",
+            B("Formateur"),
+            " — ajoute des notes et charge une attestation de formation si requis.",
           ],
         ],
         bullets: [
-          "Statut actif.",
-          "Au moins un scan de permis attaché.",
-          "Les quatre dates de tests renseignées.",
-          "Dates de permis conformes à la règle des deux ans, expiration non dépassée.",
+          "Conduite : Véhicule 1PWR sur route, Poids lourd sur route, Moto sur route, Conduite défensive LDF.",
+          "Engins / équipements lourds : Tout-terrain (ATV / moto), Télescopique / Chariot / TLB, Excavatrice, Foreuse, Tracteur, Grue.",
+          "Atelier d’usinage : Fraiseuse CNC, Fraisage / tournage manuel, Découpe plasma CNC, Soudeur MIG, Soudeur TIG, Atelier général.",
+          "Formateur implique Agréé — un formateur peut opérer et encadrer les autres.",
+          "Une attestation de formation est obligatoire pour toutes les catégories Engins et Atelier (le bouton Enregistrer reste désactivé sans fichier).",
+        ],
+      },
+      {
+        id: "ready-for-use",
+        title: "Quand un opérateur est « prêt »",
+        paragraphs: [
+          [
+            "Le badge vert ",
+            B("Prêt"),
+            " sur une ligne d’autorisation ne s’allume que lorsque toutes les règles de cette catégorie passent :",
+          ],
+        ],
+        bullets: [
+          "Statut actif et fiche attestée (ligne verte de signature en haut de la fiche).",
+          "Vision, Audition, Réaction et Pratique = Réussi (Écrit aussi requis pour tout-terrain, engins et atelier).",
+          "Scan de permis en dossier, plus la règle des deux ans si la catégorie l’exige.",
+          "Attestation de formation en dossier pour la ligne (engins et atelier).",
+          "Niveau d’autorisation = Agréé ou Formateur.",
         ],
         callout: {
           variant: "success",
           paragraphs: [
             [
-              "Les fiches vertes (Prêt pour le parc) respectent toutes les règles. Les fiches orange (Incomplet) ont un champ manquant — ouvrez-les pour voir lequel corriger.",
+              "Les fiches affichent ",
+              B("Prêt (véhicule de flotte)"),
+              " en haut lorsque la règle on-road par défaut passe. Changer la classe du véhicule dans le contrôle conducteur requête à nouveau le registre pour cette catégorie — la liste reste cadrée sur qui est habilité pour ce véhicule précis.",
             ],
           ],
         },
+      },
+      {
+        id: "sign-off",
+        title: "Signature EHS",
+        paragraphs: [
+          [
+            "Chaque fiche se termine par un bloc d’attestation : une case à cocher obligatoire (",
+            B("Je confirme que les évaluations, le permis et les autorisations ci-dessus sont exacts"),
+            ") plus un bouton ",
+            B("Attester et enregistrer"),
+            ".",
+          ],
+          [
+            "Lorsque la case est cochée, l’enregistrement des évaluations / dates de permis sauvegarde et atteste en un geste. Toute modification ultérieure — sur la fiche ou sur une ligne d’autorisation — efface l’attestation ; EHS doit re-cocher et ré-enregistrer. Cela reproduit le modèle D018 « Approved by MSO YYYY-MM-DD » mais à la fiche plutôt qu’au document.",
+          ],
+        ],
       },
       {
         id: "suspending",
@@ -560,9 +603,11 @@ export const guideFr: GuideContent = {
         id: "troubleshooting",
         title: "Dépannage",
         bullets: [
-          "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche et vérifier statut = actif, quatre dates de tests remplies, au moins un scan de permis, dates conformes à la règle des deux ans.",
-          "Message « Pas sur la liste des conducteurs agréés » sous le champ Conducteur → EHS n’a pas encore ajouté cette personne pour l’organisation, ou elle est suspendue.",
-          "La liste RH est vide → le chargeur RH n’est visible que pour EHS, la direction flotte et les admins ; cliquer sur Charger les employés depuis RH (avec filtre pays éventuel) si les boutons sont disponibles. Le portail RH peut être lent au premier appel après un déploiement.",
+          "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche, passer les évaluations à Réussi, confirmer que le niveau pour la catégorie attendue (ex. véhicule sur route) est Agréé ou Formateur et que la fiche est ré-attestée.",
+          "Message « Pas sur la liste des conducteurs agréés » sous le champ Conducteur → EHS n’a pas ajouté ou habilité cette personne pour la classe de véhicule sélectionnée (les poids lourds nécessitent une ligne d’autorisation distincte).",
+          "Pas de badge Prêt sur une autorisation → vérifier les exigences de la catégorie (attestation de formation, test écrit pour engins / atelier).",
+          "La liste RH est vide → le chargeur RH n’est visible que pour EHS, la direction flotte et les admins.",
+          "Fiche affichée en Brouillon après une modification → c’est voulu ; cocher la case d’attestation et cliquer sur Attester et enregistrer pour la remettre en Prêt.",
           "Vous n’accédez pas à la page → connectez-vous à Fleet Hub ; le registre est visible par tout utilisateur connecté. Seuls les contrôles d’édition nécessitent des droits EHS / admin.",
         ],
       },

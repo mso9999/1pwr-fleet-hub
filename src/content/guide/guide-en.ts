@@ -48,9 +48,9 @@ export const guideEn: GuideContent = {
       },
       {
         href: "/guide/ehs-approved-drivers",
-        title: "EHS approved drivers register",
+        title: "EHS approved operator register (D018)",
         description:
-          "Who may drive fleet vehicles: HR-sourced list, licence dates, four tests (written, road, eye, reaction), and how it drives the check and request flows.",
+          "Who may operate 1PWR vehicles and equipment: HR-sourced list, licence + five assessments, 16-category authorisations matrix, and per-record EHS sign-off.",
       },
       {
         href: "/guide/inspections",
@@ -136,7 +136,7 @@ export const guideEn: GuideContent = {
           "Vehicles — browse assets; open a vehicle for specifications, history, and GPS.",
           "Trips — check-out / check-in style trip logging with odometer and route.",
           "Vehicle Checks — mandatory driver checklist before deployment; failures may need manager approval.",
-          "Approved drivers (EHS) — register of drivers eligible to operate fleet vehicles (licence + four tests). Visible to everyone signed in; only EHS department users and admins can edit.",
+          "Approved drivers (EHS) — D018 operator register: licence + five assessments (vision, hearing, reaction, written, practical), 16-category authorisations, and EHS sign-off. Visible to everyone signed in; only EHS department users and admins can edit.",
           "Work Orders — maintenance and repair jobs (often linked from failed inspections).",
           "Maintenance — scheduled service and due dates.",
           "Mechanics — activity and assignment views.",
@@ -411,9 +411,9 @@ export const guideEn: GuideContent = {
   },
 
   ehsApprovedDrivers: {
-    title: "EHS approved drivers register",
+    title: "EHS approved operator register (D018)",
     subtitle:
-      "How EHS maintains the list of drivers who may operate 1PWR fleet vehicles, and how it drives checks and requests.",
+      "How EHS maintains the list of operators who may use 1PWR fleet vehicles and equipment, with per-record sign-off and the D018 authorizations matrix.",
     sections: [
       {
         id: "purpose",
@@ -422,16 +422,18 @@ export const guideEn: GuideContent = {
           [
             "The ",
             L("/ehs-approved-drivers", "Approved drivers (EHS)"),
-            " register is the authoritative list of people allowed to operate fleet vehicles for an organisation. The ",
+            " page is the Fleet Hub home of 1PWR’s ",
+            B("D018 Approved Operator List"),
+            ". It replaces the standalone spreadsheet: the ",
             B("EHS department"),
-            " curates this list from the HR directory, records licence evidence and four test pass dates, and sets each driver’s status.",
+            " captures five physical and proficiency assessments, uploads licence and training evidence, sets each person’s authorisation across 16 equipment categories, and signs off every record.",
           ],
           [
-            "Fleet Hub uses the register in two places: the ",
+            "Fleet Hub uses the register at two gates: the ",
             L("/guide/vehicle-checks", "driver vehicle check"),
-            " (driver picker) and ",
+            " picker (filtered to the authorisation that matches the selected vehicle class) and ",
             L("/guide/daily-workflows", "vehicle requests"),
-            " (requester must be on the register).",
+            " (requester must be cleared as a fleet vehicle operator).",
           ],
         ],
       },
@@ -478,58 +480,99 @@ export const guideEn: GuideContent = {
       },
       {
         id: "licence-and-tests",
-        title: "Licence and four tests",
+        title: "Licence and five assessments",
         paragraphs: [
           [
-            "For each driver card, EHS fills and saves:",
+            "Each operator card carries a licence block and five ",
+            B("Pass / Fail / Pending"),
+            " assessments. EHS switches each assessment through the three states directly on the card — every change clears the attestation and the card reverts to Draft until re-signed.",
           ],
         ],
         bullets: [
           "License valid from / License expiry (dates on the physical licence).",
-          "Written test pass date.",
-          "Road test pass date.",
-          "Eye test pass date.",
-          "Reaction test pass date.",
-          "At least one licence scan uploaded under ‘License scan (upload)’.",
-          "Status — active (can drive) or suspended (temporarily blocked).",
-          "Notes — internal (optional).",
+          "Licence scan upload (at least one file on file).",
+          "Physical assessment: Vision, Hearing, Reaction.",
+          "Proficiency: Written (off-road) and Practical.",
+          "Status — active (may operate) or suspended (temporarily blocked).",
+          "Notes — free text (e.g. 'Automatic vehicles only').",
         ],
         callout: {
           variant: "info",
           paragraphs: [
             [
               B("Two-year continuity rule: "),
-              "the licence’s valid-from date must be at least two years before today, and the expiry must not be in the past. The card shows a short green/amber hint confirming whether the licence dates pass this rule.",
+              "for standard on-road vehicles, the licence valid-from date must be at least two years before today and the expiry must not be in the past. Other categories relax or waive this rule (heavy-vehicle training, for example, takes precedence).",
             ],
           ],
         },
       },
       {
-        id: "ready-for-use",
-        title: "Ready for fleet use",
+        id: "authorizations",
+        title: "D018 authorizations matrix",
         paragraphs: [
           [
-            "A driver is considered ",
-            B("fully compliant"),
-            " — and appears in the vehicle-check driver dropdown — when ",
-            B("all"),
-            " of the following are true:",
+            "Under the card’s ",
+            B("Authorizations (D018)"),
+            " accordion, each of the sixteen categories from the spreadsheet appears once. For every category EHS picks a grant — ",
+            B("None"),
+            ", ",
+            B("Approved"),
+            ", or ",
+            B("Trainer"),
+            " — adds optional notes, and uploads a training record where required.",
           ],
         ],
         bullets: [
-          "Status is active.",
-          "At least one licence scan is attached.",
-          "All four test pass dates are filled.",
-          "Licence dates pass the two-year continuity rule and the expiry is not in the past.",
+          "Driving: Insured 1PWR vehicle on public roads, Heavy vehicle on public roads, Motorcycle on public roads, LDF Defensive driving.",
+          "Plant / heavy equipment: Off-road vehicle (ATV / moto), Telehandler / Forklift / TLB, Excavator, Drill rig, Tractor, Crane.",
+          "Machine shop: CNC milling, Manual milling / turning, CNC plasma cutting, MIG welder, TIG welder, Machine shop general.",
+          "Trainer implies Approved — a trainer is also cleared to operate and can supervise others.",
+          "A training record upload is mandatory for any plant or machining category (Save authorization stays disabled until the file is attached).",
+        ],
+      },
+      {
+        id: "ready-for-use",
+        title: "When an operator is 'ready'",
+        paragraphs: [
+          [
+            "The green ",
+            B("Ready"),
+            " badge on an authorisation row only lights up when every rule for that category passes:",
+          ],
+        ],
+        bullets: [
+          "Status is active and the record is attested (green sign-off line on top of the card).",
+          "Vision, Hearing, Reaction, and Practical are Pass (Written is also required for off-road, plant, and machining).",
+          "Licence scan on file, plus the two-year continuity rule where the category requires it.",
+          "Training record on file for the authorisation (plant and machining categories).",
+          "Grant for the category is Approved or Trainer.",
         ],
         callout: {
           variant: "success",
           paragraphs: [
             [
-              "Cards in green (Ready for fleet use) satisfy every rule. Cards in amber (Incomplete) are missing something — open them to see which field to fix.",
+              "Cards show ",
+              B("Ready (fleet vehicle)"),
+              " at the top when the default on-road rule passes. Switching the selected vehicle class on the vehicle-check form re-queries the register for that category, so the driver picker is always scoped to who is cleared for that specific vehicle.",
             ],
           ],
         },
+      },
+      {
+        id: "sign-off",
+        title: "EHS sign-off",
+        paragraphs: [
+          [
+            "Every card ends with an attestation block: a mandatory checkbox (",
+            B("I confirm the assessments, licence, and authorizations above are accurate"),
+            ") plus an ",
+            B("Attest and save"),
+            " button.",
+          ],
+          [
+            "Saving the tri-state assessments / licence dates writes the record and attests in one step when the box is ticked. Any subsequent edit — on the card or on an individual authorisation row — clears the attestation; EHS has to re-tick and re-save. This matches the D018 'Approved by MSO YYYY-MM-DD' pattern but per record rather than per document.",
+          ],
+        ],
       },
       {
         id: "suspending",
@@ -562,9 +605,11 @@ export const guideEn: GuideContent = {
         id: "troubleshooting",
         title: "Troubleshooting",
         bullets: [
-          "Driver does not appear in the check dropdown → open their card and check status = active, all four test dates filled, at least one licence file attached, licence dates pass the two-year rule.",
-          "‘Not on the EHS approved list’ warning under the Driver field → EHS has not added this person for the current organisation, or they are suspended.",
-          "HR list is empty → the loader is only visible to EHS, fleet management, and admins; click Load employees from HR (optionally with a country filter) if the buttons are available. The HR Portal may be slow for the first call after a deploy.",
+          "Driver does not appear in the check dropdown → open their card, switch the assessments to Pass, confirm the grant for the expected category (e.g. fleet vehicle on-road) is Approved or Trainer, and that the record is re-attested.",
+          "‘Not on the EHS approved list’ warning under the Driver field → EHS has not added or authorised this person for the specific vehicle class you selected (heavy vehicles need a separate authorisation row from standard on-road).",
+          "Ready badge missing on an authorisation → check the category’s own requirements (training record upload, written test for plant / machining).",
+          "HR list is empty → the loader is only visible to EHS, fleet management, and admins; click Load employees from HR (optionally with a country filter) if the buttons are available.",
+          "Record shows Draft after an edit → this is by design; tick the attestation checkbox and hit Attest and save to bring it back to Ready.",
           "Can’t see the page at all → sign in to Fleet Hub; the register is visible to every signed-in user. Only the edit controls require EHS / admin rights.",
         ],
       },

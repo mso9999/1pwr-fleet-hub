@@ -1,21 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, canManageEhsApprovedDrivers, canViewEhsApprovedDrivers } from "@/lib/server-auth";
-import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
-import { isEhsDriverFullyCompliant, type EhsDriverRow } from "@/lib/ehs-approved-drivers";
+import {
+  getVerifiedFleetUser,
+  canManageEhsApprovedDrivers,
+  canViewEhsApprovedDriversRegister,
+} from "@/lib/server-auth";
+import {
+  EHS_DRIVER_MEDIA_ENTITY,
+  EHS_OPERATOR_AUTH_MEDIA_ENTITY,
+} from "@/lib/ehs-driver-media";
+import {
+  evaluateAllCategories,
+  isAttestationFresh,
+  type EhsDriverRow,
+  type EhsOperatorAuthorization,
+} from "@/lib/ehs-approved-drivers";
+import { isAssessmentResult } from "@/lib/ehs-operator-categories";
 
-function rowWithMeta(db: ReturnType<typeof getDb>, row: Record<string, unknown>): Record<string, unknown> {
-  const r = row as unknown as EhsDriverRow;
+function countLicenceMedia(db: ReturnType<typeof getDb>, operatorId: string): number {
   const cnt = db
     .prepare(
       `SELECT COUNT(*) AS c FROM media_attachments WHERE entity_type = ? AND entity_id = ?`
     )
-    .get(EHS_DRIVER_MEDIA_ENTITY, r.id) as { c: number };
-  const licenseMediaCount = Number(cnt?.c ?? 0);
+    .get(EHS_DRIVER_MEDIA_ENTITY, operatorId) as { c: number };
+  return Number(cnt?.c ?? 0);
+}
+
+function rowWithMeta(db: ReturnType<typeof getDb>, row: Record<string, unknown>): Record<string, unknown> {
+  const r = row as unknown as EhsDriverRow;
+  const licenceMediaCount = countLicenceMedia(db, r.id);
+
+  const authorizations = db
+    .prepare(
+      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ? ORDER BY category_code`
+    )
+    .all(r.id) as EhsOperatorAuthorization[];
+
+  const trainingMediaCountByAuthId: Record<string, number> = {};
+  if (authorizations.length > 0) {
+    const ids = authorizations.map((a) => a.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT entity_id as id, COUNT(*) as c
+         FROM media_attachments
+         WHERE entity_type = ? AND entity_id IN (${placeholders})
+         GROUP BY entity_id`
+      )
+      .all(EHS_OPERATOR_AUTH_MEDIA_ENTITY, ...ids) as Array<{ id: string; c: number }>;
+    for (const row of rows) trainingMediaCountByAuthId[row.id] = Number(row.c);
+  }
+
+  const perCategory = evaluateAllCategories({
+    row: r,
+    authorizations,
+    licenceMediaCount,
+    trainingMediaCountByAuthId,
+  });
+
+  const categoryReadiness: Record<string, boolean> = {};
+  const perAuth = authorizations.map((a) => {
+    const ready = perCategory[a.category_code as keyof typeof perCategory]?.ready ?? false;
+    categoryReadiness[a.category_code] = ready;
+    return {
+      ...a,
+      training_media_count: trainingMediaCountByAuthId[a.id] ?? 0,
+      ready,
+      grant_is_trainer: a.grant === "trainer",
+    };
+  });
+
   return {
     ...row,
-    license_media_count: licenseMediaCount,
-    fully_compliant: isEhsDriverFullyCompliant(r, licenseMediaCount),
+    license_media_count: licenceMediaCount,
+    fully_compliant: perCategory["fleet_vehicle_onroad"]?.ready ?? false,
+    attestation: {
+      by: r.attested_by_name || r.attested_by_id || "",
+      at: r.attested_at,
+      isFresh: isAttestationFresh(r),
+    },
+    authorizations: perAuth,
+    category_readiness: categoryReadiness,
   };
 }
 
@@ -25,7 +90,7 @@ export async function GET(
 ): Promise<NextResponse> {
   const { id } = await params;
   const user = await getVerifiedFleetUser(request);
-  if (!user || !canViewEhsApprovedDrivers(user.role, user.department)) {
+  if (!user || !canViewEhsApprovedDriversRegister(user.role, user.department)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = getDb();
@@ -50,7 +115,8 @@ export async function PATCH(
   const body = (await request.json()) as Record<string, unknown>;
   const now = new Date().toISOString();
 
-  const map: Record<string, string> = {
+  // Plain string / date fields.
+  const stringMap: Record<string, string> = {
     displayName: "display_name",
     hrUserId: "hr_user_id",
     hrEmployeeId: "hr_employee_id",
@@ -64,10 +130,19 @@ export async function PATCH(
     notes: "notes",
   };
 
+  // Tri-state assessments; each value must be 'pass' | 'fail' | 'pending'.
+  const assessmentMap: Record<string, string> = {
+    visionResult: "vision_result",
+    hearingResult: "hearing_result",
+    reactionResult: "reaction_result",
+    writtenOffroadResult: "written_offroad_result",
+    practicalResult: "practical_result",
+  };
+
   const fields: string[] = [];
   const values: unknown[] = [];
 
-  for (const [jsKey, col] of Object.entries(map)) {
+  for (const [jsKey, col] of Object.entries(stringMap)) {
     if (body[jsKey] !== undefined) {
       fields.push(`${col} = ?`);
       if (jsKey === "hrUserId") {
@@ -78,12 +153,34 @@ export async function PATCH(
     }
   }
 
+  for (const [jsKey, col] of Object.entries(assessmentMap)) {
+    if (body[jsKey] !== undefined) {
+      const v = String(body[jsKey]);
+      if (!isAssessmentResult(v)) {
+        return NextResponse.json(
+          { error: `${jsKey} must be 'pass', 'fail', or 'pending'` },
+          { status: 400 }
+        );
+      }
+      fields.push(`${col} = ?`);
+      values.push(v);
+    }
+  }
+
   if (fields.length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  fields.push("updated_at = ?", "updated_by_id = ?", "updated_by_name = ?");
-  values.push(now, user.id, user.name || user.email);
+  // Any edit clears the attestation; EHS must re-tick and re-save from the card.
+  fields.push(
+    "attested_by_id = ?",
+    "attested_by_name = ?",
+    "attested_at = NULL",
+    "updated_at = ?",
+    "updated_by_id = ?",
+    "updated_by_name = ?"
+  );
+  values.push("", "", now, user.id, user.name || user.email);
   values.push(id);
 
   db.prepare(`UPDATE ehs_approved_drivers SET ${fields.join(", ")} WHERE id = ?`).run(...values);

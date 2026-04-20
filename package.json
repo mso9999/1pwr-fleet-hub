@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "validate-migration": "tsx scripts/validate-phase0-migration.ts",
-    "ingest-maintenance": "tsx scripts/ingest-maintenance-history.ts"
+    "ingest-maintenance": "tsx scripts/ingest-maintenance-history.ts",
+    "migrate-d018": "tsx scripts/migrate-d018-from-xlsx.ts",
+    "test:ehs-compliance": "tsx scripts/test-ehs-operator-compliance.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

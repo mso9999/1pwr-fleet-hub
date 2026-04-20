@@ -261,6 +261,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateDriverVehicleChecksApprovedById(db);
   migrateDriverVehicleChecksTripId(db);
   migrateEhsApprovedDrivers(db);
+  migrateEhsOperatorRegister(db);
   migrateOrganizationsRouteOrigin(db);
 
   const hasScheduledMaintenance = db
@@ -603,6 +604,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleGpsSnapshots", () => migrateVehicleGpsSnapshots(db)],
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
+    ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
@@ -732,6 +734,84 @@ function migrateEhsApprovedDrivers(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_ehs_drivers_org ON ehs_approved_drivers(organization_id);
     CREATE INDEX IF NOT EXISTS idx_ehs_drivers_email ON ehs_approved_drivers(organization_id, email);
+  `);
+}
+
+/**
+ * D018 operator register: bring the five Pass / Fail / Pending assessments, the
+ * per-record EHS attestation, and a per-category authorizations matrix into Fleet Hub.
+ * Runs after migrateEhsApprovedDrivers so the base table exists.
+ */
+function migrateEhsOperatorRegister(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ehs_approved_drivers' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(ehs_approved_drivers)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["vision_result", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["hearing_result", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["reaction_result", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["written_offroad_result", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["practical_result", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["attested_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["attested_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["attested_at", "TEXT DEFAULT NULL"],
+  ];
+  const needBackfill = additions.some(([c]) => !has(c));
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE ehs_approved_drivers ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  // One-shot back-fill of the new tri-state assessments from the legacy date columns.
+  // Reaction remains reaction; hearing stays pending so EHS has to deliberately confirm
+  // the new test (which was not in the old schema).
+  if (needBackfill) {
+    db.exec(`
+      UPDATE ehs_approved_drivers
+      SET vision_result = CASE WHEN TRIM(COALESCE(eye_test_passed_at, '')) != '' THEN 'pass' ELSE 'pending' END,
+          reaction_result = CASE WHEN TRIM(COALESCE(reaction_test_passed_at, '')) != '' THEN 'pass' ELSE 'pending' END,
+          written_offroad_result = CASE WHEN TRIM(COALESCE(written_test_passed_at, '')) != '' THEN 'pass' ELSE 'pending' END,
+          practical_result = CASE WHEN TRIM(COALESCE(road_test_passed_at, '')) != '' THEN 'pass' ELSE 'pending' END,
+          attested_at = NULL
+      WHERE vision_result = 'pending'
+    `);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ehs_operator_authorizations (
+      id TEXT PRIMARY KEY,
+      operator_id TEXT NOT NULL REFERENCES ehs_approved_drivers(id) ON DELETE CASCADE,
+      category_code TEXT NOT NULL,
+      grant TEXT NOT NULL DEFAULT 'none',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (operator_id, category_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ehs_ops_auth_op ON ehs_operator_authorizations(operator_id);
+    CREATE INDEX IF NOT EXISTS idx_ehs_ops_auth_cat ON ehs_operator_authorizations(category_code);
+  `);
+
+  // Back-fill: each legacy driver gets a fleet_vehicle_onroad authorization matching
+  // their status so the new register keeps its existing "driver" semantics. We seed
+  // once per operator; subsequent runs don't overwrite EHS-edited grants.
+  db.exec(`
+    INSERT OR IGNORE INTO ehs_operator_authorizations (id, operator_id, category_code, grant, notes, created_at, updated_at)
+    SELECT
+      lower(hex(randomblob(16))),
+      d.id,
+      'fleet_vehicle_onroad',
+      CASE WHEN d.status = 'active' THEN 'approved' ELSE 'none' END,
+      '',
+      datetime('now'),
+      datetime('now')
+    FROM ehs_approved_drivers d
   `);
 }
 

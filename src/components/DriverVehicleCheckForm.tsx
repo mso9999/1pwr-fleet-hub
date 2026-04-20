@@ -9,6 +9,10 @@ import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MEDIA_CATEGORY } from "@/types";
 import { uploadDriverVehicleCheckPhotos } from "@/lib/upload-driver-vehicle-check-photos";
+import {
+  assetClassToOperatorCategory,
+  DEFAULT_OPERATOR_CATEGORY,
+} from "@/lib/ehs-operator-categories";
 
 interface ApprovedDriverOption {
   id: string;
@@ -210,6 +214,8 @@ interface VehicleOption {
   code: string;
   make: string;
   model: string;
+  /** Drives which D018 operator category the driver combobox filters on. */
+  asset_class?: string | null;
 }
 
 interface Props {
@@ -289,6 +295,16 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
+
+  const selectedAssetClass = useMemo(() => {
+    const v = vehicles.find((x) => x.id === selectedVehicleId);
+    return v?.asset_class || "";
+  }, [vehicles, selectedVehicleId]);
+
+  const driverCategory = useMemo(() => {
+    return assetClassToOperatorCategory(selectedAssetClass) ?? DEFAULT_OPERATOR_CATEGORY;
+  }, [selectedAssetClass]);
 
   useEffect(() => {
     let cancelled = false;
@@ -296,7 +312,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     (async () => {
       try {
         const res = await fetch(
-          `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}`,
+          `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}&category=${encodeURIComponent(driverCategory)}`,
           { headers: await jsonHeadersWithBearer() }
         );
         if (!res.ok) {
@@ -314,7 +330,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     return () => {
       cancelled = true;
     };
-  }, [organizationId]);
+  }, [organizationId, driverCategory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -545,7 +561,13 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
           {/* Header fields */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Select name="vehicleId" label="Vehicle *" required>
+            <Select
+              name="vehicleId"
+              label="Vehicle *"
+              required
+              value={selectedVehicleId}
+              onChange={(e) => setSelectedVehicleId(e.target.value)}
+            >
               <option value="">Select vehicle…</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
