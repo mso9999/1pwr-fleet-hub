@@ -7,7 +7,6 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { navDataTutorialHref } from "@/lib/tutorial-steps";
-import { canViewEhsApprovedDrivers } from "@/lib/fleet-roles";
 import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
 import { useLocaleContext } from "@/i18n/locale-context";
 import { LanguageToggle } from "@/components/LanguageToggle";
@@ -51,12 +50,12 @@ function navItemMatchesPath(
 }
 
 function navItemVisible(
-  item: (typeof NAV_ITEMS)[number],
-  user: { role: string; department?: string } | null
+  _item: (typeof NAV_ITEMS)[number],
+  _user: { role: string; department?: string } | null
 ): boolean {
-  if (item.href === "/ehs-approved-drivers") {
-    return !!user && canViewEhsApprovedDrivers(user.role, user.department);
-  }
+  // Every sidebar item is visible to any signed-in user today. Individual pages still
+  // enforce their own role gates server-side; this keeps discovery simple (e.g. drivers
+  // can find Approved drivers (EHS) to confirm their status).
   return true;
 }
 

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, canViewEhsApprovedDrivers, canManageEhsApprovedDrivers } from "@/lib/server-auth";
+import {
+  getVerifiedFleetUser,
+  canViewEhsApprovedDriversRegister,
+  canManageEhsApprovedDrivers,
+} from "@/lib/server-auth";
 import { normalizeEmail } from "@/lib/vehicle-check-approvers";
 import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
 import {
@@ -30,7 +34,7 @@ function rowWithMeta(
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || !canViewEhsApprovedDrivers(user.role, user.department)) {
+  if (!user || !canViewEhsApprovedDriversRegister(user.role, user.department)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";

@@ -463,7 +463,8 @@ const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
     title: "EHS approved drivers register",
     body:
       "This workflow shows how the EHS team curates the list of drivers who may use fleet vehicles. The register is country-scoped per organisation and feeds the vehicle-check driver dropdown and vehicle requests.",
-    suggestion: "You must have EHS or fleet-management access. If the sidebar item is hidden, ask an admin.",
+    suggestion:
+      "Everyone signed in to Fleet Hub can view this page. Adding, editing, or removing drivers requires the EHS department (synced from PR) or an admin role.",
   },
   {
     id: "ehs-page",

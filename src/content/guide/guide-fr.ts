@@ -135,7 +135,7 @@ export const guideFr: GuideContent = {
           "Véhicules — parc ; ouvrir une fiche pour détails, historique et GPS.",
           "Trajets — enregistrement départ / retour avec odomètre et itinéraire.",
           "Contrôles véhicule — checklist conducteur avant déploiement ; les défauts peuvent exiger validation.",
-          "Conducteurs agréés (EHS) — registre des conducteurs autorisés à utiliser les véhicules de la flotte (permis + quatre tests). Visible par la direction flotte et EHS ; modifié par les utilisateurs du département EHS et les admins.",
+          "Conducteurs agréés (EHS) — registre des conducteurs autorisés à utiliser les véhicules de la flotte (permis + quatre tests). Visible par tous les utilisateurs connectés ; seuls le département EHS et les admins peuvent modifier.",
           "Ordres de travail — maintenance (souvent liés aux inspections).",
           "Maintenance — entretien planifié et échéances.",
           "Mécaniciens — activité et affectations.",
@@ -437,9 +437,9 @@ export const guideFr: GuideContent = {
         id: "who",
         title: "Qui voit et qui modifie",
         bullets: [
-          "Consultation : responsable flotte, manager, admin, et toute personne dont le département PR est EHS.",
-          "Modification : utilisateurs du département EHS ou admins. Les responsables flotte / managers voient le statut mais ne modifient pas les dates.",
-          "Si Conducteurs agréés (EHS) n’apparaît pas dans le menu, votre rôle ou département ne donne pas accès.",
+          "Consultation : tout utilisateur connecté à Fleet Hub — le registre est en lecture seule pour tous, afin que les conducteurs vérifient leur statut et que les demandeurs voient qui est éligible.",
+          "Modification : uniquement le département EHS (département PR = EHS) ou les admins. Les managers et responsables flotte voient le registre mais ne peuvent pas modifier les dates, charger des permis, ni ajouter / retirer des personnes.",
+          "Le chargeur d’employés RH en haut de la page reste réservé à EHS, la direction flotte et les admins (il expose l’annuaire RH contenant des données personnelles).",
         ],
       },
       {
@@ -562,8 +562,8 @@ export const guideFr: GuideContent = {
         bullets: [
           "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche et vérifier statut = actif, quatre dates de tests remplies, au moins un scan de permis, dates conformes à la règle des deux ans.",
           "Message « Pas sur la liste des conducteurs agréés » sous le champ Conducteur → EHS n’a pas encore ajouté cette personne pour l’organisation, ou elle est suspendue.",
-          "La liste RH est vide → cliquer sur Charger les employés depuis RH (avec filtre pays éventuel) ; le portail RH peut être lent au premier appel après un déploiement.",
-          "Vous n’accédez pas à la page → vous n’êtes pas en EHS, direction flotte ou admin. Contactez EHS ou un admin.",
+          "La liste RH est vide → le chargeur RH n’est visible que pour EHS, la direction flotte et les admins ; cliquer sur Charger les employés depuis RH (avec filtre pays éventuel) si les boutons sont disponibles. Le portail RH peut être lent au premier appel après un déploiement.",
+          "Vous n’accédez pas à la page → connectez-vous à Fleet Hub ; le registre est visible par tout utilisateur connecté. Seuls les contrôles d’édition nécessitent des droits EHS / admin.",
         ],
       },
     ],

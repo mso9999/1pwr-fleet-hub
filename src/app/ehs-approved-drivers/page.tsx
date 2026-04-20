@@ -9,7 +9,10 @@ import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
 import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
-import { canViewEhsApprovedDrivers, canManageEhsApprovedDrivers } from "@/lib/fleet-roles";
+import {
+  canViewEhsApprovedDriversRegister,
+  canManageEhsApprovedDrivers,
+} from "@/lib/fleet-roles";
 import { evaluateLicenseContinuity } from "@/lib/ehs-approved-drivers";
 
 interface HrEmp {
@@ -45,7 +48,7 @@ interface DriverRecord {
 
 export default function EhsApprovedDriversPage(): React.ReactElement {
   const { organizationId, user } = useAuth();
-  const canView = user && canViewEhsApprovedDrivers(user.role, user.department);
+  const canView = user && canViewEhsApprovedDriversRegister(user.role, user.department);
   const canEdit = user && canManageEhsApprovedDrivers(user.role, user.department);
 
   const [drivers, setDrivers] = useState<DriverRecord[]>([]);
@@ -162,8 +165,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   if (!canView) {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        You do not have access to the EHS approved driver register. It is visible to fleet management; editing
-        requires the EHS department in PR (synced here) or an admin role.
+        Sign in to Fleet Hub to view the approved drivers register.
       </div>
     );
   }
@@ -171,10 +173,13 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   return (
     <div className="space-y-6 max-w-5xl" data-tutorial="tutorial-ehs-page">
       <p className="text-sm text-zinc-600 leading-relaxed">
-        Staff with the <strong>EHS</strong> department in PR (synced to Fleet Hub) maintain this list from the HR
-        employee directory: license scan on file, license dates that show{" "}
+        Read-only list of drivers approved to operate 1PWR fleet vehicles in this organisation. Staff with the{" "}
+        <strong>EHS</strong> department in PR (synced to Fleet Hub) maintain the list from the HR employee directory:
+        license scan on file, license dates that show{" "}
         <strong>continuous validity for at least the past two years</strong>, and pass dates for written, road, eye,
-        and reaction tests. Fleet lead and managers can view the register; EHS department users and admins edit it.
+        and reaction tests.{" "}
+        <strong>Everyone with a Fleet Hub login can view</strong> the register; only EHS department users and admins
+        can edit it.
       </p>
 
       {canEdit && (

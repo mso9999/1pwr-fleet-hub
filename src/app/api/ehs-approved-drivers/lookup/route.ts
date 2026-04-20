@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, canViewEhsApprovedDrivers } from "@/lib/server-auth";
+import { getVerifiedFleetUser, canViewEhsApprovedDriversRegister } from "@/lib/server-auth";
 import { normalizeEmail } from "@/lib/vehicle-check-approvers";
 import { EHS_DRIVER_MEDIA_ENTITY } from "@/lib/ehs-driver-media";
 import { isEhsDriverFullyCompliant, type EhsDriverRow } from "@/lib/ehs-approved-drivers";
@@ -11,7 +11,7 @@ import { isEhsDriverFullyCompliant, type EhsDriverRow } from "@/lib/ehs-approved
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || !canViewEhsApprovedDrivers(user.role, user.department)) {
+  if (!user || !canViewEhsApprovedDriversRegister(user.role, user.department)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const sp = request.nextUrl.searchParams;

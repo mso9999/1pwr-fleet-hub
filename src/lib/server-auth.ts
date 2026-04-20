@@ -7,6 +7,7 @@ import {
   isFinanceOrSuperAdmin as financeOrSuper,
   isFleetManagementRole as fleetMgmt,
   canViewEhsApprovedDrivers as viewEhsDrivers,
+  canViewEhsApprovedDriversRegister as viewEhsRegister,
 } from "@/lib/fleet-roles";
 
 export type VerifiedFleetUser = {
@@ -60,4 +61,12 @@ export function canManageEhsApprovedDrivers(
 
 export function canViewEhsApprovedDrivers(role: string, department?: string | null): boolean {
   return viewEhsDrivers(role, department);
+}
+
+/** Anyone signed in can see the approved-drivers register (read-only). */
+export function canViewEhsApprovedDriversRegister(
+  role: string,
+  department?: string | null
+): boolean {
+  return viewEhsRegister(role, department);
 }

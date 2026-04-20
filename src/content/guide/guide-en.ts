@@ -136,7 +136,7 @@ export const guideEn: GuideContent = {
           "Vehicles — browse assets; open a vehicle for specifications, history, and GPS.",
           "Trips — check-out / check-in style trip logging with odometer and route.",
           "Vehicle Checks — mandatory driver checklist before deployment; failures may need manager approval.",
-          "Approved drivers (EHS) — register of drivers eligible to operate fleet vehicles (licence + four tests). Visible to fleet management and EHS; editable by EHS department users and admins.",
+          "Approved drivers (EHS) — register of drivers eligible to operate fleet vehicles (licence + four tests). Visible to everyone signed in; only EHS department users and admins can edit.",
           "Work Orders — maintenance and repair jobs (often linked from failed inspections).",
           "Maintenance — scheduled service and due dates.",
           "Mechanics — activity and assignment views.",
@@ -439,9 +439,9 @@ export const guideEn: GuideContent = {
         id: "who",
         title: "Who sees and edits the register",
         bullets: [
-          "View: fleet lead, manager, admin, and anyone whose PR department is EHS.",
-          "Edit: EHS department users or admins. Fleet lead / manager can view test status but cannot change dates.",
-          "If you don’t see Approved drivers (EHS) in the sidebar, your role or department does not grant access.",
+          "View: any signed-in Fleet Hub user — the register is read-only for everyone so drivers can confirm their status and requesters can see who is eligible.",
+          "Edit: EHS department users (PR department = EHS) or admins only. Managers and fleet leads see the register but cannot change dates, upload licences, or add / remove people.",
+          "HR employee loader at the top of the page is still restricted to EHS, fleet management, and admins (it exposes the HR directory, which contains PII).",
         ],
       },
       {
@@ -564,8 +564,8 @@ export const guideEn: GuideContent = {
         bullets: [
           "Driver does not appear in the check dropdown → open their card and check status = active, all four test dates filled, at least one licence file attached, licence dates pass the two-year rule.",
           "‘Not on the EHS approved list’ warning under the Driver field → EHS has not added this person for the current organisation, or they are suspended.",
-          "HR list is empty → click Load employees from HR (optionally with a country filter); the HR Portal may be slow for the first call after a deploy.",
-          "Can’t see the page at all → you are not in EHS, fleet management, or admin. Ask EHS or an admin.",
+          "HR list is empty → the loader is only visible to EHS, fleet management, and admins; click Load employees from HR (optionally with a country filter) if the buttons are available. The HR Portal may be slow for the first call after a deploy.",
+          "Can’t see the page at all → sign in to Fleet Hub; the register is visible to every signed-in user. Only the edit controls require EHS / admin rights.",
         ],
       },
     ],
