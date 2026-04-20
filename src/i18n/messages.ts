@@ -43,6 +43,7 @@ const en = {
     allTopics: "All guide topics",
     onThisPage: "On this page",
     goToInspections: "Go to Inspections",
+    goToApprovedDrivers: "Go to Approved drivers (EHS)",
   },
   auth: {
     signedInAs: "Signed in as",
@@ -192,6 +193,7 @@ const fr: MessageTree = {
     allTopics: "Tous les sujets",
     onThisPage: "Sur cette page",
     goToInspections: "Ouvrir Inspections",
+    goToApprovedDrivers: "Ouvrir Conducteurs agréés (EHS)",
   },
   auth: {
     signedInAs: "Connecté en tant que",

@@ -454,6 +454,77 @@ const COUNTRY_TRANSFER_STEPS: TutorialStep[] = [
   },
 ];
 
+/** EHS approved drivers register: country filter → HR loader → add → licence/tests → back to check form */
+const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
+  {
+    id: "ehs-intro",
+    path: "/ehs-approved-drivers",
+    target: "nav-ehs-approved-drivers",
+    title: "EHS approved drivers register",
+    body:
+      "This workflow shows how the EHS team curates the list of drivers who may use fleet vehicles. The register is country-scoped per organisation and feeds the vehicle-check driver dropdown and vehicle requests.",
+    suggestion: "You must have EHS or fleet-management access. If the sidebar item is hidden, ask an admin.",
+  },
+  {
+    id: "ehs-page",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-page",
+    title: "1. Open Approved drivers (EHS)",
+    body:
+      "The page lists every driver already on the register for this organisation, plus a loader for adding people from the HR directory. Each driver card is green (Ready for fleet use) only when licence, four tests, and licence file all check out.",
+  },
+  {
+    id: "ehs-country-filter",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-country-filter",
+    title: "2. Load HR by country",
+    body:
+      "Country-aware: enter the ISO code (e.g. LS, ZM, BJ) to pull only employees for that country, then click Load employees from HR. The register is per organisation so a driver approved in Lesotho is not automatic in Zambia.",
+    suggestion: "Skip the filter to load everyone, but expect a larger list.",
+  },
+  {
+    id: "ehs-hr-picker",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-hr-picker",
+    title: "3. Pick and add",
+    body:
+      "Search the loaded list by name, email, or employee ID, pick the person, then click Add to register. Anyone already listed is disabled in the dropdown so you don’t duplicate them.",
+  },
+  {
+    id: "ehs-drivers-list",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-drivers-list",
+    title: "4. Driver cards",
+    body:
+      "New entries appear here with empty licence and test dates. Green (Ready for fleet use) means every rule is satisfied; amber (Incomplete) means something is missing — open the card to see which field.",
+  },
+  {
+    id: "ehs-license",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-license-upload",
+    title: "5. Upload the licence scan",
+    body:
+      "At least one licence file is required. Upload here on the card. The two-year continuity rule is checked against the valid-from and expiry dates below — the card shows a short hint when they pass.",
+    suggestion: "If no driver card is visible, add one from the HR loader first.",
+  },
+  {
+    id: "ehs-tests",
+    path: "/ehs-approved-drivers",
+    target: "tutorial-ehs-tests-grid",
+    title: "6. Licence dates and four tests",
+    body:
+      "Fill the licence valid-from / expiry and the four pass dates (written, road, eye, reaction). Set Status = active and Save. Once everything is filled and the licence passes continuity, the card turns green.",
+  },
+  {
+    id: "ehs-effect-checks",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-form",
+    title: "7. How the register shows up on a vehicle check",
+    body:
+      "The Driver field on the check form is a searchable dropdown of fully compliant drivers for this organisation — non-listed names can still be written in but are flagged amber. Suspending or removing a driver in EHS removes them from this dropdown.",
+  },
+];
+
 /** Create a work order */
 const WORK_ORDER_STEPS: TutorialStep[] = [
   {
@@ -499,6 +570,11 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
     steps: VEHICLE_INSPECTION_STEPS,
   },
   vehicleRequest: { id: "vehicleRequest", label: "Request a vehicle", steps: VEHICLE_REQUEST_STEPS },
+  ehsDriverRegister: {
+    id: "ehsDriverRegister",
+    label: "EHS approved drivers register",
+    steps: EHS_DRIVER_REGISTER_STEPS,
+  },
   workOrder: { id: "workOrder", label: "Create a work order", steps: WORK_ORDER_STEPS },
   loadoutManifest: {
     id: "loadoutManifest",
@@ -515,6 +591,7 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
 export const TUTORIAL_TRACK_ORDER: string[] = [
   "overview",
   "driverCheck",
+  "ehsDriverRegister",
   "vehicleInspection",
   "vehicleRequest",
   "countryTransfer",

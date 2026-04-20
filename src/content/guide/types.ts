@@ -45,6 +45,7 @@ export type GuideContent = {
   dailyWorkflows: GuideArticle;
   inspections: GuideArticle;
   vehicleChecks: GuideArticle;
+  ehsApprovedDrivers: GuideArticle;
   fleetAndMap: GuideArticle;
   maintenanceAndWork: GuideArticle;
   insightsAndField: GuideArticle;

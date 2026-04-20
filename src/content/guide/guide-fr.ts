@@ -47,6 +47,12 @@ export const guideFr: GuideContent = {
         description: "Checklist avant départ, équipement, défauts et validation hiérarchique des exceptions.",
       },
       {
+        href: "/guide/ehs-approved-drivers",
+        title: "Registre des conducteurs agréés (EHS)",
+        description:
+          "Qui peut conduire les véhicules de la flotte : liste issue des RH, dates de permis, quatre tests (écrit, route, vue, réaction) et lien avec les contrôles et demandes.",
+      },
+      {
         href: "/guide/inspections",
         title: "Inspections véhicule",
         description: "Inspections structurées : types, Pass / Alerte / Échec, photos, schéma carrosserie et ordres de travail.",
@@ -129,6 +135,7 @@ export const guideFr: GuideContent = {
           "Véhicules — parc ; ouvrir une fiche pour détails, historique et GPS.",
           "Trajets — enregistrement départ / retour avec odomètre et itinéraire.",
           "Contrôles véhicule — checklist conducteur avant déploiement ; les défauts peuvent exiger validation.",
+          "Conducteurs agréés (EHS) — registre des conducteurs autorisés à utiliser les véhicules de la flotte (permis + quatre tests). Visible par la direction flotte et EHS ; modifié par les utilisateurs du département EHS et les admins.",
           "Ordres de travail — maintenance (souvent liés aux inspections).",
           "Maintenance — entretien planifié et échéances.",
           "Mécaniciens — activité et affectations.",
@@ -252,6 +259,11 @@ export const guideFr: GuideContent = {
             " permet de demander un véhicule du pool ; les managers valident et assignent un véhicule opérationnel.",
           ],
           [
+            "Seuls les conducteurs inscrits au ",
+            L("/guide/ehs-approved-drivers", "registre des conducteurs agréés (EHS)"),
+            " peuvent soumettre une demande (superadmin excepté). Si votre demande est bloquée pour ce motif, demandez à EHS de vous ajouter.",
+          ],
+          [
             "Lorsque vous choisissez une ",
             B("destination"),
             " dans la liste des sites, Fleet Hub estime la ",
@@ -341,10 +353,26 @@ export const guideFr: GuideContent = {
         bullets: [
           "Contrôles véhicule → + Nouveau contrôle.",
           "Choisir Départ du siège ou Retour au siège.",
-          "Sélectionner le véhicule, nom du conducteur, kilométrage (facultatif), itinéraire départ / arrivée.",
+          "Sélectionner le véhicule, choisir le conducteur dans la liste agréée, kilométrage (facultatif), itinéraire départ / arrivée.",
           "Pour chaque ligne d’état : ✓ (OK) ou ✗ (échec). Si échec, décrire dans le champ.",
           "Pour l’équipement : Oui ou Non.",
           "Ajouter des remarques puis Envoyer.",
+        ],
+      },
+      {
+        id: "driver-picker",
+        title: "Sélecteur de conducteur (agréés EHS)",
+        paragraphs: [
+          [
+            "Le champ Conducteur est une liste déroulante recherchable alimentée par le ",
+            L("/guide/ehs-approved-drivers", "registre des conducteurs agréés (EHS)"),
+            " pour l’organisation en cours. Seuls les conducteurs pleinement conformes (permis + quatre tests + scan de permis) apparaissent.",
+          ],
+          [
+            "Si l’utilisateur connecté figure dans la liste, le champ est pré-rempli. Un nom saisi qui ne correspond à aucun conducteur enregistré est accepté comme ",
+            B("saisie libre"),
+            " et signalé en orange sous le champ — EHS devrait ajouter cette personne au registre si elle conduit régulièrement.",
+          ],
         ],
       },
       {
@@ -375,6 +403,167 @@ export const guideFr: GuideContent = {
           [
             "L’équipement manquant est journalisé (ex. triangle, cric). Appliquez la politique locale sur la possibilité de partir ou non.",
           ],
+        ],
+      },
+    ],
+  },
+
+  ehsApprovedDrivers: {
+    title: "Registre des conducteurs agréés (EHS)",
+    subtitle:
+      "Comment EHS tient à jour la liste des conducteurs autorisés à utiliser les véhicules 1PWR, et comment elle alimente les contrôles et les demandes.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Objectif",
+        paragraphs: [
+          [
+            "Le registre ",
+            L("/ehs-approved-drivers", "Conducteurs agréés (EHS)"),
+            " est la liste de référence des personnes autorisées à conduire les véhicules de la flotte pour une organisation. Le ",
+            B("département EHS"),
+            " le maintient à partir de l’annuaire RH, enregistre le permis et les dates de réussite des quatre tests, et fixe le statut de chaque conducteur.",
+          ],
+          [
+            "Fleet Hub l’utilise à deux endroits : le ",
+            L("/guide/vehicle-checks", "contrôle conducteur"),
+            " (sélecteur de conducteur) et les ",
+            L("/guide/daily-workflows", "demandes de véhicules"),
+            " (le demandeur doit figurer au registre).",
+          ],
+        ],
+      },
+      {
+        id: "who",
+        title: "Qui voit et qui modifie",
+        bullets: [
+          "Consultation : responsable flotte, manager, admin, et toute personne dont le département PR est EHS.",
+          "Modification : utilisateurs du département EHS ou admins. Les responsables flotte / managers voient le statut mais ne modifient pas les dates.",
+          "Si Conducteurs agréés (EHS) n’apparaît pas dans le menu, votre rôle ou département ne donne pas accès.",
+        ],
+      },
+      {
+        id: "country-aware",
+        title: "Liste par pays",
+        paragraphs: [
+          [
+            "Le registre est par organisation (= pays : Lesotho / Zambie / Bénin). Un conducteur agréé dans un pays n’apparaît pas automatiquement dans un autre — EHS doit l’ajouter dans chaque organisation où il conduit.",
+          ],
+          [
+            "Le chargeur RH en haut de page propose un ",
+            B("filtre pays"),
+            " optionnel (ex. ",
+            B("LS"),
+            ", ",
+            B("ZM"),
+            ", ",
+            B("BJ"),
+            ") pour restreindre la liste avant sélection.",
+          ],
+        ],
+      },
+      {
+        id: "add-driver",
+        title: "Ajouter un conducteur depuis les RH",
+        paragraphs: [],
+        bullets: [
+          "Ouvrir Conducteurs agréés (EHS) dans le menu.",
+          "Sous « Ajouter un conducteur depuis l’annuaire RH », saisir un filtre pays optionnel puis cliquer sur Charger les employés depuis RH.",
+          "Rechercher dans la liste (nom, e-mail, matricule).",
+          "Sélectionner la personne dans la liste Employé. Les personnes déjà enregistrées sont marquées « (déjà listée) ».",
+          "Cliquer sur Ajouter au registre. Une nouvelle fiche apparaît avec permis et tests à compléter.",
+        ],
+      },
+      {
+        id: "licence-and-tests",
+        title: "Permis et quatre tests",
+        paragraphs: [
+          [
+            "Pour chaque fiche conducteur, EHS renseigne et enregistre :",
+          ],
+        ],
+        bullets: [
+          "Permis valide depuis / Permis expire le (dates du document physique).",
+          "Test écrit réussi le.",
+          "Test sur route réussi le.",
+          "Test de vue réussi le.",
+          "Test de réaction réussi le.",
+          "Au moins un scan de permis chargé sous « Scan du permis (chargement) ».",
+          "Statut — actif (peut conduire) ou suspendu (temporairement bloqué).",
+          "Notes — usage interne (facultatif).",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              B("Règle de continuité de deux ans : "),
+              "la date de validité du permis doit dater d’au moins deux ans, et l’expiration ne doit pas être dépassée. La fiche affiche un indicateur vert/orange confirmant la conformité de ces dates.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "ready-for-use",
+        title: "Prêt pour le parc",
+        paragraphs: [
+          [
+            "Un conducteur est ",
+            B("pleinement conforme"),
+            " — et apparaît dans la liste déroulante du contrôle — lorsque ",
+            B("toutes"),
+            " ces conditions sont réunies :",
+          ],
+        ],
+        bullets: [
+          "Statut actif.",
+          "Au moins un scan de permis attaché.",
+          "Les quatre dates de tests renseignées.",
+          "Dates de permis conformes à la règle des deux ans, expiration non dépassée.",
+        ],
+        callout: {
+          variant: "success",
+          paragraphs: [
+            [
+              "Les fiches vertes (Prêt pour le parc) respectent toutes les règles. Les fiches orange (Incomplet) ont un champ manquant — ouvrez-les pour voir lequel corriger.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "suspending",
+        title: "Suspendre ou retirer un conducteur",
+        paragraphs: [
+          [
+            "Pour bloquer temporairement un conducteur (permis expirant, problème médical), passez le ",
+            B("Statut"),
+            " à ",
+            B("suspendu"),
+            " et enregistrez. Il sort de la liste du contrôle et ne peut plus soumettre de demande.",
+          ],
+          [
+            "Utilisez ",
+            B("Retirer du registre"),
+            " uniquement lorsque la personne ne doit plus figurer du tout (départ, retrait définitif).",
+          ],
+        ],
+      },
+      {
+        id: "effects",
+        title: "Ce que le registre contrôle",
+        bullets: [
+          "Formulaire de contrôle → champ Conducteur : seuls les conducteurs pleinement conformes de cette organisation apparaissent. Les saisies libres sont acceptées mais signalées en orange.",
+          "Demandes de véhicules → l’utilisateur connecté doit figurer au registre (superadmin excepté). L’API renvoie un message clair sinon.",
+          "Administration → Approbateurs de contrôles est une liste séparée (qui peut valider les exceptions d’un contrôle). Être approbateur ne rend pas automatiquement conducteur agréé.",
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Dépannage",
+        bullets: [
+          "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche et vérifier statut = actif, quatre dates de tests remplies, au moins un scan de permis, dates conformes à la règle des deux ans.",
+          "Message « Pas sur la liste des conducteurs agréés » sous le champ Conducteur → EHS n’a pas encore ajouté cette personne pour l’organisation, ou elle est suspendue.",
+          "La liste RH est vide → cliquer sur Charger les employés depuis RH (avec filtre pays éventuel) ; le portail RH peut être lent au premier appel après un déploiement.",
+          "Vous n’accédez pas à la page → vous n’êtes pas en EHS, direction flotte ou admin. Contactez EHS ou un admin.",
         ],
       },
     ],

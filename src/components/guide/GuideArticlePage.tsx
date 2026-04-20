@@ -86,6 +86,14 @@ export function GuideArticlePage({ articleKey }: { articleKey: GuideArticleKey }
             {t("guide.goToInspections")}
           </Link>
         )}
+        {articleKey === "ehsApprovedDrivers" && (
+          <Link
+            href="/ehs-approved-drivers"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {t("guide.goToApprovedDrivers")}
+          </Link>
+        )}
         <Link
           href="/guide"
           className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"

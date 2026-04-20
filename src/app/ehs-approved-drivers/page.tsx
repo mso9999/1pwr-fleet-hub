@@ -169,7 +169,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 max-w-5xl" data-tutorial="tutorial-ehs-page">
       <p className="text-sm text-zinc-600 leading-relaxed">
         Staff with the <strong>EHS</strong> department in PR (synced to Fleet Hub) maintain this list from the HR
         employee directory: license scan on file, license dates that show{" "}
@@ -178,7 +178,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
       </p>
 
       {canEdit && (
-        <Card>
+        <Card data-tutorial="tutorial-ehs-hr-loader">
           <CardHeader>
             <CardTitle className="text-base">Add driver from HR directory</CardTitle>
             <p className="text-sm text-zinc-500 font-normal">
@@ -187,7 +187,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-wrap gap-3 items-end" data-tutorial="tutorial-ehs-country-filter">
               <Input
                 label="Filter HR by country (optional)"
                 value={countryFilter}
@@ -208,7 +208,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
                   onChange={(e) => setHrFilter(e.target.value)}
                   placeholder="Name, email, or employee ID"
                 />
-                <div className="grid gap-3 sm:grid-cols-2 items-end">
+                <div className="grid gap-3 sm:grid-cols-2 items-end" data-tutorial="tutorial-ehs-hr-picker">
                   <div>
                     <label className="text-sm font-medium text-zinc-700 block mb-1">Employee</label>
                     <select
@@ -252,8 +252,8 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
       ) : drivers.length === 0 ? (
         <p className="text-zinc-500">No drivers on the register yet{canEdit ? " — add someone from HR above." : "."}</p>
       ) : (
-        <div className="space-y-4">
-          {drivers.map((d) => (
+        <div className="space-y-4" data-tutorial="tutorial-ehs-drivers-list">
+          {drivers.map((d, idx) => (
             <DriverCard
               key={d.id}
               driver={d}
@@ -261,6 +261,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
               userName={user.name || user.email}
               userId={user.id}
               onSaved={loadDrivers}
+              tutorialFirst={idx === 0}
             />
           ))}
         </div>
@@ -275,12 +276,14 @@ function DriverCard({
   userName,
   userId,
   onSaved,
+  tutorialFirst,
 }: {
   driver: DriverRecord;
   canEdit: boolean;
   userName: string;
   userId: string;
   onSaved: () => Promise<void>;
+  tutorialFirst?: boolean;
 }): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [local, setLocal] = useState({
@@ -347,7 +350,10 @@ function DriverCard({
   }
 
   return (
-    <Card className={d.fully_compliant ? "border-emerald-200" : "border-zinc-200"}>
+    <Card
+      className={d.fully_compliant ? "border-emerald-200" : "border-zinc-200"}
+      data-tutorial={tutorialFirst ? "tutorial-ehs-driver-card" : undefined}
+    >
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -386,7 +392,10 @@ function DriverCard({
 
         {canEdit ? (
           <>
-            <div className="rounded-lg border border-zinc-100 bg-zinc-50/80 p-3 space-y-2">
+            <div
+              className="rounded-lg border border-zinc-100 bg-zinc-50/80 p-3 space-y-2"
+              data-tutorial={tutorialFirst ? "tutorial-ehs-license-upload" : undefined}
+            >
               <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">License scan (upload)</div>
               <MediaUpload
                 entityType={EHS_DRIVER_MEDIA_ENTITY}
@@ -397,7 +406,10 @@ function DriverCard({
               />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div
+              className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+              data-tutorial={tutorialFirst ? "tutorial-ehs-tests-grid" : undefined}
+            >
               <Input
                 label="License valid from *"
                 type="date"

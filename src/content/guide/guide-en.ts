@@ -47,6 +47,12 @@ export const guideEn: GuideContent = {
         description: "Pre-trip checklist, equipment, failures, and management approval for exceptions.",
       },
       {
+        href: "/guide/ehs-approved-drivers",
+        title: "EHS approved drivers register",
+        description:
+          "Who may drive fleet vehicles: HR-sourced list, licence dates, four tests (written, road, eye, reaction), and how it drives the check and request flows.",
+      },
+      {
         href: "/guide/inspections",
         title: "Vehicle inspection checklists",
         description: "Formal inspections: types, Pass/Warn/Fail, photos, body diagram, and work orders.",
@@ -130,6 +136,7 @@ export const guideEn: GuideContent = {
           "Vehicles — browse assets; open a vehicle for specifications, history, and GPS.",
           "Trips — check-out / check-in style trip logging with odometer and route.",
           "Vehicle Checks — mandatory driver checklist before deployment; failures may need manager approval.",
+          "Approved drivers (EHS) — register of drivers eligible to operate fleet vehicles (licence + four tests). Visible to fleet management and EHS; editable by EHS department users and admins.",
           "Work Orders — maintenance and repair jobs (often linked from failed inspections).",
           "Maintenance — scheduled service and due dates.",
           "Mechanics — activity and assignment views.",
@@ -253,6 +260,11 @@ export const guideEn: GuideContent = {
             " is where teams request vehicles from the pool; managers approve and assign an operational vehicle.",
           ],
           [
+            "Only drivers on the ",
+            L("/guide/ehs-approved-drivers", "EHS approved-drivers register"),
+            " may submit a request (superadmin excepted). If a request is blocked because you are not on the register, ask EHS to add you.",
+          ],
+          [
             "When you choose a ",
             B("destination"),
             " from the site list, Fleet Hub estimates ",
@@ -343,10 +355,26 @@ export const guideEn: GuideContent = {
         bullets: [
           "Open Vehicle Checks → + New vehicle check.",
           "Choose Leaving HQ or Returning to HQ.",
-          "Select the vehicle, enter driver name, mileage (optional), and route from / to.",
+          "Select the vehicle, pick the driver from the approved list, enter mileage (optional), and route from / to.",
           "For each status line, tap ✓ (pass) or ✗ (fail). If you fail, describe the issue in the text box.",
           "For each equipment line, tap Yes or No.",
           "Add remarks if needed, then Submit.",
+        ],
+      },
+      {
+        id: "driver-picker",
+        title: "Driver picker (EHS approved drivers)",
+        paragraphs: [
+          [
+            "The Driver field is a searchable dropdown backed by the ",
+            L("/guide/ehs-approved-drivers", "EHS approved-drivers register"),
+            " for the current organisation. Only fully compliant drivers (licence + all four tests + licence file on record) appear in the list.",
+          ],
+          [
+            "If the signed-in user is on the list, the field is pre-filled. A typed name that does not match a registered driver is accepted as a ",
+            B("write-in"),
+            " and flagged amber under the field — EHS should add that person to the register if they will be driving regularly.",
+          ],
         ],
       },
       {
@@ -377,6 +405,167 @@ export const guideEn: GuideContent = {
           [
             "Missing equipment is logged (e.g. triangle, jack). Follow local policy on whether the vehicle may still depart.",
           ],
+        ],
+      },
+    ],
+  },
+
+  ehsApprovedDrivers: {
+    title: "EHS approved drivers register",
+    subtitle:
+      "How EHS maintains the list of drivers who may operate 1PWR fleet vehicles, and how it drives checks and requests.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Purpose",
+        paragraphs: [
+          [
+            "The ",
+            L("/ehs-approved-drivers", "Approved drivers (EHS)"),
+            " register is the authoritative list of people allowed to operate fleet vehicles for an organisation. The ",
+            B("EHS department"),
+            " curates this list from the HR directory, records licence evidence and four test pass dates, and sets each driver’s status.",
+          ],
+          [
+            "Fleet Hub uses the register in two places: the ",
+            L("/guide/vehicle-checks", "driver vehicle check"),
+            " (driver picker) and ",
+            L("/guide/daily-workflows", "vehicle requests"),
+            " (requester must be on the register).",
+          ],
+        ],
+      },
+      {
+        id: "who",
+        title: "Who sees and edits the register",
+        bullets: [
+          "View: fleet lead, manager, admin, and anyone whose PR department is EHS.",
+          "Edit: EHS department users or admins. Fleet lead / manager can view test status but cannot change dates.",
+          "If you don’t see Approved drivers (EHS) in the sidebar, your role or department does not grant access.",
+        ],
+      },
+      {
+        id: "country-aware",
+        title: "Country-aware list",
+        paragraphs: [
+          [
+            "The register is scoped per organisation (= country: Lesotho / Zambia / Benin). A driver approved in one country does not automatically appear in another — EHS must add them in each organisation where they drive.",
+          ],
+          [
+            "The HR loader at the top of the page supports an optional ",
+            B("country filter"),
+            " (e.g. ",
+            B("LS"),
+            ", ",
+            B("ZM"),
+            ", ",
+            B("BJ"),
+            ") to narrow the employee list before you pick someone to add.",
+          ],
+        ],
+      },
+      {
+        id: "add-driver",
+        title: "Adding a driver from HR",
+        paragraphs: [],
+        bullets: [
+          "Open Approved drivers (EHS) in the sidebar.",
+          "Under ‘Add driver from HR directory’, enter an optional country filter and click Load employees from HR.",
+          "Search the loaded list by name, email, or employee ID.",
+          "Pick the employee in the Employee dropdown. Entries already on the register are marked ‘(already listed)’.",
+          "Click Add to register. The new card appears below, starting with empty licence and test dates.",
+        ],
+      },
+      {
+        id: "licence-and-tests",
+        title: "Licence and four tests",
+        paragraphs: [
+          [
+            "For each driver card, EHS fills and saves:",
+          ],
+        ],
+        bullets: [
+          "License valid from / License expiry (dates on the physical licence).",
+          "Written test pass date.",
+          "Road test pass date.",
+          "Eye test pass date.",
+          "Reaction test pass date.",
+          "At least one licence scan uploaded under ‘License scan (upload)’.",
+          "Status — active (can drive) or suspended (temporarily blocked).",
+          "Notes — internal (optional).",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              B("Two-year continuity rule: "),
+              "the licence’s valid-from date must be at least two years before today, and the expiry must not be in the past. The card shows a short green/amber hint confirming whether the licence dates pass this rule.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "ready-for-use",
+        title: "Ready for fleet use",
+        paragraphs: [
+          [
+            "A driver is considered ",
+            B("fully compliant"),
+            " — and appears in the vehicle-check driver dropdown — when ",
+            B("all"),
+            " of the following are true:",
+          ],
+        ],
+        bullets: [
+          "Status is active.",
+          "At least one licence scan is attached.",
+          "All four test pass dates are filled.",
+          "Licence dates pass the two-year continuity rule and the expiry is not in the past.",
+        ],
+        callout: {
+          variant: "success",
+          paragraphs: [
+            [
+              "Cards in green (Ready for fleet use) satisfy every rule. Cards in amber (Incomplete) are missing something — open them to see which field to fix.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "suspending",
+        title: "Suspending or removing a driver",
+        paragraphs: [
+          [
+            "To temporarily block a driver (e.g. licence expiring, medical issue) change ",
+            B("Status"),
+            " to ",
+            B("suspended"),
+            " and Save. They drop out of the vehicle-check dropdown and are no longer eligible to submit vehicle requests.",
+          ],
+          [
+            "Use ",
+            B("Remove from register"),
+            " only when a person should no longer be on the list at all (left the organisation, permanently revoked).",
+          ],
+        ],
+      },
+      {
+        id: "effects",
+        title: "What the register controls",
+        bullets: [
+          "Vehicle check form → Driver field: only fully-compliant drivers for this organisation appear in the dropdown. Typed write-ins are accepted but flagged amber.",
+          "Vehicle requests → the signed-in user must be on the register (superadmin excepted). The API returns a clear error if they are not.",
+          "Admin → Vehicle-check approvers is a separate list (who may approve exception failures on a check). Being an approver does not by itself make someone an approved driver.",
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Troubleshooting",
+        bullets: [
+          "Driver does not appear in the check dropdown → open their card and check status = active, all four test dates filled, at least one licence file attached, licence dates pass the two-year rule.",
+          "‘Not on the EHS approved list’ warning under the Driver field → EHS has not added this person for the current organisation, or they are suspended.",
+          "HR list is empty → click Load employees from HR (optionally with a country filter); the HR Portal may be slow for the first call after a deploy.",
+          "Can’t see the page at all → you are not in EHS, fleet management, or admin. Ask EHS or an admin.",
         ],
       },
     ],
