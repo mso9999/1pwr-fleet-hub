@@ -22,18 +22,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const origin = getRouteOrigin(db, organizationId);
   const dest = getSiteCoordsByCode(db, organizationId, siteCode);
-  if (!origin || !dest) {
+  if (!origin) {
     return NextResponse.json({
       ok: false,
       message:
-        "Could not resolve route: set GPS on this site in Admin (Sites), or set fleet HQ coordinates.",
+        "Could not resolve route: fleet HQ coordinates are not set for this organisation. Admins can set them in Admin.",
+      distanceKm: null,
+      fuelLiters: null,
+      lPer100km: null,
+    });
+  }
+  if (!dest) {
+    return NextResponse.json({
+      ok: false,
+      message:
+        `Could not resolve route: set GPS on site '${siteCode}' in Admin (Sites) so the distance can be estimated.`,
       distanceKm: null,
       fuelLiters: null,
       lPer100km: null,
     });
   }
 
-  const distanceKm = await drivingDistanceKm(origin, dest);
+  // HQ → HQ (or any zero-length route) should resolve locally; skip the OSRM hop.
+  const sameOriginAsDest =
+    Math.abs(origin.lat - dest.lat) < 1e-6 && Math.abs(origin.lng - dest.lng) < 1e-6;
+  const distanceKm = sameOriginAsDest ? 0 : await drivingDistanceKm(origin, dest);
   if (distanceKm === null) {
     return NextResponse.json({
       ok: false,

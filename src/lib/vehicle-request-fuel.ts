@@ -59,10 +59,20 @@ export function getSiteCoordsByCode(
        WHERE organization_id = ? AND type = 'site' AND code = ? AND active = 1 LIMIT 1`
     )
     .get(organizationId, siteCode) as { meta: string } | undefined;
-  if (!row) return null;
-  const { lat, lng } = parseMeta(row.meta);
-  if (lat === undefined || lng === undefined) return null;
-  return { lat, lng };
+  if (row) {
+    const { lat, lng } = parseMeta(row.meta);
+    if (lat !== undefined && lng !== undefined) return { lat, lng };
+  }
+
+  // HQ is the route origin by definition. If nobody has filled in GPS on the HQ site row,
+  // use the organisation's route origin (populated by migrateOrganizationsRouteOrigin for
+  // 1pwr_lesotho, admin-editable for other orgs). This unblocks HQ-destination estimates
+  // that would otherwise surface "Could not resolve route" despite the origin being valid.
+  if (siteCode.toUpperCase() === "HQ") {
+    return getRouteOrigin(db, organizationId);
+  }
+
+  return null;
 }
 
 /**
