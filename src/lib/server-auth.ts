@@ -8,6 +8,8 @@ import {
   isFleetManagementRole as fleetMgmt,
   canViewEhsApprovedDrivers as viewEhsDrivers,
   canViewEhsApprovedDriversRegister as viewEhsRegister,
+  canManageFleetMechanics as manageFleetMechs,
+  canViewFleetMechanicsRegister as viewFleetMechs,
 } from "@/lib/fleet-roles";
 
 export type VerifiedFleetUser = {
@@ -69,4 +71,20 @@ export function canViewEhsApprovedDriversRegister(
   department?: string | null
 ): boolean {
   return viewEhsRegister(role, department);
+}
+
+/** Admin / fleet management / DPO / HR / IT / Fleet department may curate fleet mechanics. */
+export function canManageFleetMechanics(
+  role: string,
+  department?: string | null
+): boolean {
+  return manageFleetMechs(role, department);
+}
+
+/** Anyone signed in can see the fleet mechanics roster. */
+export function canViewFleetMechanicsRegister(
+  role: string,
+  department?: string | null
+): boolean {
+  return viewFleetMechs(role, department);
 }

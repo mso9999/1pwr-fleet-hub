@@ -33,6 +33,27 @@ export function isFleetTeamDepartment(department: string | null | undefined): bo
   return /\bfleet\b/i.test(d);
 }
 
+/** HR department (word match). */
+export function isHrDepartment(department: string | null | undefined): boolean {
+  const d = String(department ?? "").trim();
+  if (!d) return false;
+  return /\bhr\b/i.test(d) || /\bhuman\s+resources\b/i.test(d);
+}
+
+/** IT department (word match, also matches "IT Support" and "Information Technology"). */
+export function isItDepartment(department: string | null | undefined): boolean {
+  const d = String(department ?? "").trim();
+  if (!d) return false;
+  return /\bit\b/i.test(d) || /\binformation\s+technology\b/i.test(d);
+}
+
+/** Data Protection Officer (department or role title carries DPO). */
+export function isDpoDepartment(department: string | null | undefined): boolean {
+  const d = String(department ?? "").trim();
+  if (!d) return false;
+  return /\bdpo\b/i.test(d) || /\bdata\s+protection\b/i.test(d);
+}
+
 /**
  * Move a work order through its workflow (status transitions). Limited to Fleet team
  * department affiliation in PR, plus superadmin for break-glass access.
@@ -71,5 +92,32 @@ export function canViewEhsApprovedDrivers(role: string, department?: string | nu
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function canViewEhsApprovedDriversRegister(role: string, department?: string | null): boolean {
+  return true;
+}
+
+/**
+ * Curate the fleet mechanics roster (add / edit / retire). Explicitly NOT gated on EHS —
+ * the list is operational / data-governance, not EHS.
+ *
+ * Roles: admin, superadmin, manager, fleet_lead.
+ * Departments (from PR): DPO, HR, IT, Fleet.
+ */
+export function canManageFleetMechanics(role: string, department?: string | null): boolean {
+  if (isFleetManagementRole(role)) return true;
+  const r = (role || "").toLowerCase();
+  if (r === "superadmin") return true;
+  if (isFleetTeamDepartment(department)) return true;
+  if (isDpoDepartment(department)) return true;
+  if (isHrDepartment(department)) return true;
+  if (isItDepartment(department)) return true;
+  return false;
+}
+
+/** Every signed-in user can see the fleet mechanics roster (read-only). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function canViewFleetMechanicsRegister(
+  role: string,
+  department?: string | null
+): boolean {
   return true;
 }

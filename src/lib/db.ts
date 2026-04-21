@@ -262,6 +262,8 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateDriverVehicleChecksTripId(db);
   migrateEhsApprovedDrivers(db);
   migrateEhsOperatorRegister(db);
+  migrateFleetMechanics(db);
+  migrateRecordMutationLog(db);
   migrateOrganizationsRouteOrigin(db);
 
   const hasScheduledMaintenance = db
@@ -605,6 +607,8 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
+    ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
+    ["migrateRecordMutationLog", () => migrateRecordMutationLog(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
@@ -812,6 +816,74 @@ function migrateEhsOperatorRegister(db: Database.Database): void {
       datetime('now'),
       datetime('now')
     FROM ehs_approved_drivers d
+  `);
+}
+
+/**
+ * Curated roster of fleet mechanics per organisation. Edited by admin / superadmin /
+ * manager / fleet_lead or PR department DPO / HR / IT / Fleet; read by everyone.
+ * Drives the Work Order Assign-to / Worker pickers (replacing the hardcoded list).
+ */
+function migrateFleetMechanics(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fleet_mechanics (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      hr_user_id INTEGER,
+      hr_employee_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      mechanic_role TEXT NOT NULL DEFAULT 'mechanic',  -- mechanic | trainer | supervisor | apprentice
+      specialties TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',            -- active | inactive
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by_id TEXT NOT NULL DEFAULT '',
+      created_by_name TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_by_id TEXT NOT NULL DEFAULT '',
+      updated_by_name TEXT NOT NULL DEFAULT '',
+      UNIQUE (organization_id, display_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_mechanics_org ON fleet_mechanics(organization_id);
+    CREATE INDEX IF NOT EXISTS idx_fleet_mechanics_status ON fleet_mechanics(organization_id, status);
+  `);
+
+  // Seed the eight historical names once so Work Order Assign-to pickers keep functioning
+  // on an existing DB. On a second run the UNIQUE constraint + INSERT OR IGNORE skips them.
+  const seedNames = ["Tebesi", "Kola", "Thene", "Molefe", "Khanare", "Seutloali", "Kubutu", "Kelebone"];
+  const insertSeed = db.prepare(
+    `INSERT OR IGNORE INTO fleet_mechanics (id, organization_id, display_name, status, created_by_name, updated_by_name)
+     VALUES (lower(hex(randomblob(16))), '1pwr_lesotho', ?, 'active', 'system-seed', 'system-seed')`
+  );
+  for (const n of seedNames) insertSeed.run(n);
+}
+
+/**
+ * Shared append-only audit log. Any entity_type/entity_id pair can write rows here; we use
+ * it today for ehs_approved_drivers and fleet_mechanics. `before_json` / `after_json` are
+ * free-form JSON so callers can record whichever columns matter.
+ */
+function migrateRecordMutationLog(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS record_mutation_log (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,          -- 'fleet_mechanic' | 'ehs_approved_driver' | ...
+      entity_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,               -- 'create' | 'update' | 'delete' | 'attest' | ...
+      actor_id TEXT NOT NULL DEFAULT '',
+      actor_name TEXT NOT NULL DEFAULT '',
+      actor_role TEXT NOT NULL DEFAULT '',
+      actor_department TEXT NOT NULL DEFAULT '',
+      before_json TEXT NOT NULL DEFAULT '{}',
+      after_json TEXT NOT NULL DEFAULT '{}',
+      reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_record_mutation_log_entity ON record_mutation_log(entity_type, entity_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_record_mutation_log_org ON record_mutation_log(organization_id, created_at DESC);
   `);
 }
 

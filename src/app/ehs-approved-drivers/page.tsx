@@ -621,8 +621,91 @@ function OperatorCard({
             <AuthorizationsSummary authorizations={d.authorizations} />
           </>
         )}
+
+        <HistoryPanel operatorId={d.id} />
       </CardContent>
     </Card>
+  );
+}
+
+function HistoryPanel({ operatorId }: { operatorId: string }): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<Array<{
+    id: string;
+    action: string;
+    actor_name: string;
+    actor_role: string;
+    actor_department: string;
+    before_json: string;
+    after_json: string;
+    reason: string;
+    created_at: string;
+  }> | null>(null);
+
+  async function load(): Promise<void> {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/ehs-approved-drivers/${operatorId}/history`, {
+        headers: await jsonHeadersWithBearer(),
+      });
+      const data = (await res.json()) as { history?: typeof rows };
+      setRows(data.history ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="pt-3 border-t border-zinc-100">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          if (!open) void load();
+          setOpen((o) => !o);
+        }}
+      >
+        {open ? "Hide history" : "View history"}
+      </Button>
+      {open && (
+        <div className="mt-3 rounded-lg border border-zinc-100 bg-zinc-50/50 p-3 space-y-2">
+          <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">
+            Mutation history
+          </div>
+          {loading ? (
+            <p className="text-sm text-zinc-500">Loading…</p>
+          ) : rows && rows.length > 0 ? (
+            <ol className="space-y-2">
+              {rows.map((h) => (
+                <li
+                  key={h.id}
+                  className="text-xs text-zinc-700 border-b border-zinc-100 pb-2 last:border-b-0"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="text-[10px] uppercase">
+                      {h.action}
+                    </Badge>
+                    <span className="text-zinc-500">
+                      {new Date(h.created_at).toLocaleString()}
+                    </span>
+                    <span className="text-zinc-900 font-medium">{h.actor_name || "—"}</span>
+                    {h.actor_role && <span className="text-zinc-500">{h.actor_role}</span>}
+                    {h.actor_department && (
+                      <span className="text-zinc-400">· {h.actor_department}</span>
+                    )}
+                  </div>
+                  {h.reason && <p className="mt-1 italic text-zinc-600">“{h.reason}”</p>}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-zinc-500">No history yet.</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

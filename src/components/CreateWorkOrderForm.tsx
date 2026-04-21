@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { AssigneeCombo } from "@/components/AssigneeCombo";
+import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
 
 export interface VehicleOption {
   id: string;
@@ -54,6 +55,7 @@ export function CreateWorkOrderForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [repairLoc, setRepairLoc] = useState("hq");
   const [assignedTo, setAssignedTo] = useState("");
+  const { names: mechanicOptions } = useFleetMechanicOptions(organizationId);
 
   const lockedVehicle = lockVehicle && defaultVehicleId
     ? vehicles.find((v) => v.id === defaultVehicleId)
@@ -134,7 +136,7 @@ export function CreateWorkOrderForm({
             label="Assign To"
             value={assignedTo}
             onChange={setAssignedTo}
-            options={WORK_ORDER_MECHANICS}
+            options={mechanicOptions}
             otherPlaceholder="Type mechanic name"
           />
           <Select name="repairLocation" label="Repair Location" value={repairLoc} onChange={(e) => setRepairLoc(e.target.value)}>

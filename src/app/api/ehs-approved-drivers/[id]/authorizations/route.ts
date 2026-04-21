@@ -9,6 +9,7 @@ import {
   isKnownOperatorCategory,
   isOperatorGrant,
 } from "@/lib/ehs-operator-categories";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 /**
  * POST /api/ehs-approved-drivers/[id]/authorizations
@@ -48,16 +49,18 @@ export async function POST(
 
   const db = getDb();
   const operator = db
-    .prepare("SELECT id FROM ehs_approved_drivers WHERE id = ?")
-    .get(id) as { id: string } | undefined;
+    .prepare("SELECT id, organization_id FROM ehs_approved_drivers WHERE id = ?")
+    .get(id) as { id: string; organization_id: string } | undefined;
   if (!operator) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const now = new Date().toISOString();
   const existing = db
     .prepare(
-      `SELECT id FROM ehs_operator_authorizations WHERE operator_id = ? AND category_code = ?`
+      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ? AND category_code = ?`
     )
-    .get(id, categoryCode) as { id: string } | undefined;
+    .get(id, categoryCode) as
+    | { id: string; grant: string; notes: string }
+    | undefined;
 
   const tx = db.transaction(() => {
     if (existing) {
@@ -90,5 +93,23 @@ export async function POST(
       `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ? AND category_code = ?`
     )
     .get(id, categoryCode);
+
+  recordMutation(db, {
+    entityType: "ehs_approved_driver",
+    entityId: id,
+    organizationId: String(operator.organization_id || ""),
+    action: "authorization",
+    actor: actorFrom(user),
+    before: existing
+      ? {
+          category_code: categoryCode,
+          grant: existing.grant,
+          notes: existing.notes,
+        }
+      : { category_code: categoryCode, grant: "none", notes: "" },
+    after: { category_code: categoryCode, grant, notes },
+    reason: "Authorization updated",
+  });
+
   return NextResponse.json(row);
 }

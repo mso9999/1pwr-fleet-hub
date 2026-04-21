@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { PvrRatesAdmin } from "@/components/PvrRatesAdmin";
 import { SiteCoordsPicker } from "@/components/SiteCoordsPicker";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
+import { canManageFleetMechanics } from "@/lib/fleet-roles";
 
 interface RefItem {
   id: string;
@@ -69,6 +71,8 @@ export default function AdminPage() {
   const canEditRouteOrigin =
     user &&
     ["fleet_lead", "manager", "admin", "finance", "superadmin"].includes(user.role);
+  const canManageMechanicsRegister =
+    user && canManageFleetMechanics(user.role, user.department);
   const [items, setItems] = useState<RefItem[]>([]);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [selectedType, setSelectedType] = useState("site");
@@ -259,6 +263,28 @@ export default function AdminPage() {
           {syncMessage}
         </p>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Fleet mechanics</CardTitle>
+          <p className="text-sm text-slate-500 font-normal mt-1">
+            Curated roster behind the Work Order <em>Assign to</em> and Labour pickers.
+            Every change is recorded with the actor and a before/after snapshot — visible
+            per-record on that page.
+            {canManageMechanicsRegister
+              ? " Edit access: admin, fleet management, and PR departments DPO / HR / IT / Fleet."
+              : " Read-only for your role — editing is limited to admin, fleet management, and PR departments DPO / HR / IT / Fleet."}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <Link
+            href="/admin/fleet-mechanics"
+            className="inline-flex min-h-[40px] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Open Fleet mechanics
+          </Link>
+        </CardContent>
+      </Card>
 
       {canEditRouteOrigin && currentOrg && (
         <Card>

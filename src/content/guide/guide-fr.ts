@@ -854,9 +854,19 @@ export const guideFr: GuideContent = {
           "Synchro depuis PR — récupérer les listes partagées depuis Firestore (lecture seule, pas d’écriture en retour).",
           "Approbateurs de contrôles — charger l’annuaire RH et choisir qui peut valider les exceptions de contrôle (par e-mail).",
           "Tarifs indemnité véhicule perso — tarif km et base LSL par organisation ; les valeurs par défaut s’appliquent tant qu’aucun tarif n’est enregistré.",
+          "Mécaniciens de la flotte — registre canonique alimentant les sélecteurs Assigné à / Ouvrier dans les OT. Droits d’édition : admin, direction flotte (fleet_lead / manager) et départements PR DPO / HR / IT / Flotte (EHS exclu). Chaque création / modification / suppression / changement de statut est enregistré dans un journal de mutations append-only visible par fiche.",
           "GPS des sites — définir le GPS via la carte ou lat / long. Requis pour les distances sur les demandes.",
           "Point de départ trajet (siège flotte) — coordonnée utilisée pour la distance cartographiée ; fallback d’organisation quand l’origine véhicule / mission est inconnue.",
         ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              B("Journal de mutations : "),
+              "les mécaniciens de la flotte et le registre EHS enregistrent chaque modification (acteur, rôle, département, snapshot avant / après, motif facultatif) dans une table d’audit append-only partagée. Le bouton « Voir l’historique » sur une fiche ouvre le journal.",
+            ],
+          ],
+        },
       },
     ],
   },

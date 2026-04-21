@@ -18,6 +18,7 @@ import {
   type EhsOperatorAuthorization,
 } from "@/lib/ehs-approved-drivers";
 import { OPERATOR_CATEGORIES } from "@/lib/ehs-operator-categories";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 type RowWithMeta = Record<string, unknown> & {
   license_media_count: number;
@@ -216,5 +217,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Seed authorization rows for every known category so the matrix renders immediately.
   buildAuthorizationStubsIfMissing(db, id);
   const row = db.prepare("SELECT * FROM ehs_approved_drivers WHERE id = ?").get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "ehs_approved_driver",
+    entityId: id,
+    organizationId,
+    action: "create",
+    actor: actorFrom(user),
+    before: null,
+    after: {
+      display_name: displayName,
+      email,
+      hr_user_id: body.hrUserId ?? null,
+      hr_employee_id: body.hrEmployeeId || "",
+      status: "active",
+    },
+    reason: "Added from HR directory",
+  });
+
   return NextResponse.json(rowWithMeta(db, row), { status: 201 });
 }

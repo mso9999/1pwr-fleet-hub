@@ -16,6 +16,29 @@ import {
   type EhsOperatorAuthorization,
 } from "@/lib/ehs-approved-drivers";
 import { isAssessmentResult } from "@/lib/ehs-operator-categories";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+
+/** Whitelist the fields we log so private/PII columns don't end up in the audit table. */
+function ehsSnapshot(row: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    "display_name",
+    "email",
+    "status",
+    "license_valid_from",
+    "license_expiry",
+    "vision_result",
+    "hearing_result",
+    "reaction_result",
+    "written_offroad_result",
+    "practical_result",
+    "notes",
+    "attested_by_name",
+    "attested_at",
+  ];
+  const out: Record<string, unknown> = {};
+  for (const k of keys) out[k] = row[k];
+  return out;
+}
 
 function countLicenceMedia(db: ReturnType<typeof getDb>, operatorId: string): number {
   const cnt = db
@@ -186,6 +209,18 @@ export async function PATCH(
   db.prepare(`UPDATE ehs_approved_drivers SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
   const row = db.prepare("SELECT * FROM ehs_approved_drivers WHERE id = ?").get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "ehs_approved_driver",
+    entityId: id,
+    organizationId: String(existing.organization_id || ""),
+    action: "update",
+    actor: actorFrom(user),
+    before: ehsSnapshot(existing),
+    after: ehsSnapshot(row),
+    reason: typeof body.reason === "string" ? body.reason : "",
+  });
+
   return NextResponse.json(rowWithMeta(db, row));
 }
 
@@ -199,7 +234,23 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = getDb();
+  const existing = db
+    .prepare("SELECT * FROM ehs_approved_drivers WHERE id = ?")
+    .get(id) as Record<string, unknown> | undefined;
   const r = db.prepare("DELETE FROM ehs_approved_drivers WHERE id = ?").run(id);
   if (r.changes === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  if (existing) {
+    recordMutation(db, {
+      entityType: "ehs_approved_driver",
+      entityId: id,
+      organizationId: String(existing.organization_id || ""),
+      action: "delete",
+      actor: actorFrom(user),
+      before: ehsSnapshot(existing),
+      after: null,
+      reason: "",
+    });
+  }
   return NextResponse.json({ success: true });
 }

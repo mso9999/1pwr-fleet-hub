@@ -16,11 +16,11 @@ import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
 import {
   CreateWorkOrderForm,
-  WORK_ORDER_MECHANICS,
   WORK_ORDER_THIRD_PARTY_SHOPS,
   type VehicleOption,
 } from "@/components/CreateWorkOrderForm";
 import { AssigneeCombo } from "@/components/AssigneeCombo";
+import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 interface WorkOrderRow {
@@ -197,6 +197,7 @@ function WorkOrdersPageContent(): React.ReactElement {
       {selectedId && (
         <WorkOrderDetailPanel
           workOrderId={selectedId}
+          organizationId={organizationId}
           onClose={() => setSelectedId(null)}
           onUpdated={loadOrders}
         />
@@ -287,13 +288,15 @@ function WorkOrderListItem({ order, onClick }: { order: WorkOrderRow; onClick: (
   );
 }
 
-function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
+function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId }: {
+  organizationId: string;
   workOrderId: string;
   onClose: () => void;
   onUpdated: () => void;
 }): React.ReactElement {
   const { user } = useAuth();
   const canAdvanceStatus = canAdvanceWorkOrderStatus(user?.role ?? "", user?.department);
+  const { names: mechanicOptions } = useFleetMechanicOptions(organizationId);
   const [detail, setDetail] = useState<WorkOrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -510,7 +513,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
             label="Assigned To"
             value={detail.assigned_to || ""}
             onChange={(v) => updateField("assignedTo", v)}
-            options={WORK_ORDER_MECHANICS}
+            options={mechanicOptions}
             otherPlaceholder="Type mechanic name"
           />
           <Select label="Repair Location" value={detail.repair_location} onChange={(e) => updateField("repairLocation", e.target.value)}>
@@ -557,7 +560,13 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
             <div className="text-xs font-medium text-zinc-500 uppercase">Labour Log ({detail.labor.length} entries · {(detail.total_labour_hours || 0).toFixed(1)}h total)</div>
             <Button size="sm" variant="outline" onClick={() => setShowAddLabor(!showAddLabor)}>+ Add Labour</Button>
           </div>
-          {showAddLabor && <LaborEntryForm onSubmit={addLabor} onCancel={() => setShowAddLabor(false)} />}
+          {showAddLabor && (
+            <LaborEntryForm
+              onSubmit={addLabor}
+              onCancel={() => setShowAddLabor(false)}
+              mechanics={mechanicOptions}
+            />
+          )}
           {detail.labor.length > 0 && (
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
@@ -758,9 +767,11 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated }: {
 function LaborEntryForm({
   onSubmit,
   onCancel,
+  mechanics,
 }: {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   onCancel: () => void;
+  mechanics: string[];
 }): React.ReactElement {
   const [workerName, setWorkerName] = useState("");
   return (
@@ -770,7 +781,7 @@ function LaborEntryForm({
         label="Worker"
         value={workerName}
         onChange={setWorkerName}
-        options={WORK_ORDER_MECHANICS}
+        options={mechanics}
         allowEmpty={false}
         required
         otherPlaceholder="Type mechanic name"

@@ -4,6 +4,7 @@ import {
   getVerifiedFleetUser,
   canManageEhsApprovedDrivers,
 } from "@/lib/server-auth";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 /**
  * POST /api/ehs-approved-drivers/[id]/attest
@@ -23,8 +24,8 @@ export async function POST(
   }
   const db = getDb();
   const existing = db
-    .prepare("SELECT id FROM ehs_approved_drivers WHERE id = ?")
-    .get(id) as { id: string } | undefined;
+    .prepare("SELECT id, organization_id FROM ehs_approved_drivers WHERE id = ?")
+    .get(id) as { id: string; organization_id: string } | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const now = new Date().toISOString();
@@ -33,6 +34,17 @@ export async function POST(
      SET attested_by_id = ?, attested_by_name = ?, attested_at = ?, updated_at = ?
      WHERE id = ?`
   ).run(user.id, user.name || user.email, now, now, id);
+
+  recordMutation(db, {
+    entityType: "ehs_approved_driver",
+    entityId: id,
+    organizationId: String(existing.organization_id || ""),
+    action: "attest",
+    actor: actorFrom(user),
+    before: null,
+    after: { attested_by_name: user.name || user.email, attested_at: now },
+    reason: "EHS sign-off",
+  });
 
   return NextResponse.json({ attested_at: now, attested_by_id: user.id, attested_by_name: user.name || user.email });
 }

@@ -912,9 +912,19 @@ export const guideEn: GuideContent = {
           "Sync from PR — pull the shared reference lists from the PR app's Firestore (one click; read-only sync, doesn't write back).",
           "Vehicle-check approvers — load employees from the HR directory and pick who may approve failed vehicle-check exceptions (matched by email).",
           "Personal-vehicle reimbursement rates — per-km and HQ-basis LSL rate by organisation; built-in defaults apply until a custom rate is saved.",
+          "Fleet mechanics — canonical roster behind the Work Order Assign-to / Worker pickers. Edit access: admin, fleet management (fleet_lead / manager), and PR departments DPO / HR / IT / Fleet (EHS excluded). Every create / update / delete / status change is recorded in an append-only mutation log visible per-record.",
           "Site GPS — open each site and Set GPS via the map picker or lat/long. Needed for accurate driving-distance estimates on vehicle requests.",
           "Trip route start (fleet HQ) — the coordinate the routing engine uses as the starting point for mapped distance on a vehicle request; org-level fallback when vehicle/mission origin is unknown.",
         ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              B("Mutation log: "),
+              "Fleet mechanics and the EHS approved operator register both write every change (actor, role, department, before / after snapshot, optional reason) into a shared append-only audit table. Open the View history button on any record to inspect it.",
+            ],
+          ],
+        },
       },
     ],
   },
