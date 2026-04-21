@@ -44,6 +44,8 @@ const en = {
     onThisPage: "On this page",
     goToInspections: "Go to Inspections",
     goToApprovedDrivers: "Go to Approved drivers (EHS)",
+    goToPvr: "Go to Personal vehicle claim",
+    goToCountryTransfers: "Go to Country transfers",
   },
   auth: {
     signedInAs: "Signed in as",
@@ -285,6 +287,8 @@ const fr: MessageTree = {
     onThisPage: "Sur cette page",
     goToInspections: "Ouvrir Inspections",
     goToApprovedDrivers: "Ouvrir Conducteurs agréés (EHS)",
+    goToPvr: "Ouvrir Indemnité véhicule perso",
+    goToCountryTransfers: "Ouvrir Transferts de pays",
   },
   auth: {
     signedInAs: "Connecté en tant que",

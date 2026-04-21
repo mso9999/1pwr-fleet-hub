@@ -550,6 +550,113 @@ const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
   },
 ];
 
+/** Personal vehicle reimbursement (F006): submit a claim from attachments through approval and CSV export. */
+const PVR_STEPS: TutorialStep[] = [
+  {
+    id: "pvr-intro",
+    path: "/personal-vehicle-reimbursement",
+    target: "nav-personal-vehicle-reimbursement",
+    title: "Personal vehicle reimbursement",
+    body:
+      "Submit an F006 mileage claim when no fleet vehicle is available. This tour walks through eligibility, attachments, trip details, manager approval, and the finance export.",
+    suggestion: "Open Personal vehicle claim from the sidebar.",
+  },
+  {
+    id: "pvr-page",
+    path: "/personal-vehicle-reimbursement",
+    target: "tutorial-pvr-page",
+    title: "1. Open the page",
+    body:
+      "The page shows an Eligibility banner, a New claim button, and your existing claims list below. Submission is blocked whenever a fleet vehicle is available for the trip window.",
+  },
+  {
+    id: "pvr-eligibility",
+    path: "/personal-vehicle-reimbursement",
+    target: "tutorial-pvr-eligibility",
+    title: "2. Eligibility banner",
+    body:
+      "Green 'Eligible' → go ahead. Amber 'Blocked' → pause and book a fleet vehicle through Requests instead. Managers can still approve claims that were submitted before eligibility changed.",
+  },
+  {
+    id: "pvr-attachments",
+    path: "/personal-vehicle-reimbursement",
+    target: "tutorial-pvr-attachments",
+    title: "3. Attach evidence first",
+    body:
+      "Submit stays disabled until at least one attachment is uploaded. Include the current valid insurance plus odometer photos (or a route screenshot). Optional fuel / toll / parking receipts help finance during audits.",
+    suggestion: "Use the camera button on phones to capture the odometer without leaving the form.",
+  },
+  {
+    id: "pvr-trip-details",
+    path: "/personal-vehicle-reimbursement",
+    target: "tutorial-pvr-trip-details",
+    title: "4. Trip details",
+    body:
+      "Date, route from / route to, purpose, kilometres, optional notes. The estimated LSL previews below the form using your organisation's per-km rate (Admin → PVR rates).",
+  },
+  {
+    id: "pvr-claims",
+    path: "/personal-vehicle-reimbursement",
+    target: "tutorial-pvr-claims",
+    title: "5. Claims list & approval",
+    body:
+      "Submitted claims appear below. Managers tap Approve — the card turns green and the LSL total locks. Reject bounces it back with a reason. Editing after approval re-opens the claim (sign-off cleared, same pattern as the EHS register).",
+  },
+  {
+    id: "pvr-export",
+    path: "/reports",
+    target: "nav-reports",
+    title: "6. Finance export",
+    body:
+      "Finance pulls 'Personal vehicle reimbursement claims (finance)' from Reports. Only approved claims are included; the date filter at the top of Reports limits the output.",
+  },
+];
+
+/** Field report → work order: file an issue and follow it through to a work order. */
+const FIELD_ISSUE_STEPS: TutorialStep[] = [
+  {
+    id: "fi-intro",
+    path: "/report-issue",
+    target: "nav-report-issue",
+    title: "Field issue → work order",
+    body:
+      "Use Report Issue when something goes wrong on the road and a full inspection is not practical. This tour walks through filing, attaching photos, and watching the issue become a work order.",
+    suggestion: "Open Report Issue from the sidebar.",
+  },
+  {
+    id: "fi-page",
+    path: "/report-issue",
+    target: "tutorial-report-issue-page",
+    title: "1. Open Report Issue",
+    body:
+      "The header and success banner live above the form. A ticket ID appears here once your submission is saved so you can refer to it later.",
+  },
+  {
+    id: "fi-form",
+    path: "/report-issue",
+    target: "tutorial-report-issue-form",
+    title: "2. Fill the form",
+    body:
+      "Pick the vehicle, give a short title, describe the problem, and set a severity. Attach photos; the camera button opens the rear camera on phones. Submit saves a field_report row that the fleet team can triage.",
+  },
+  {
+    id: "fi-nav-work-orders",
+    path: "/work-orders",
+    target: "nav-work-orders",
+    title: "3. Where it lands next",
+    body:
+      "Fleet leads and mechanics see field reports alongside work orders. They can convert a field report into a work order in one click — photos, description, and reporter carry over, with a status of 'submitted'.",
+  },
+  {
+    id: "fi-follow-up",
+    path: "/work-orders",
+    target: "tutorial-work-orders-header",
+    title: "4. Follow the job",
+    body:
+      "Once converted, the usual work-order flow takes over: status transitions, labour hours, parts, status history, and close-out. The originating field report stays linked for audit.",
+  },
+];
+
 /** Create a work order */
 const WORK_ORDER_STEPS: TutorialStep[] = [
   {
@@ -601,6 +708,11 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
     steps: EHS_DRIVER_REGISTER_STEPS,
   },
   workOrder: { id: "workOrder", label: "Create a work order", steps: WORK_ORDER_STEPS },
+  fieldIssueToWorkOrder: {
+    id: "fieldIssueToWorkOrder",
+    label: "Field issue → work order",
+    steps: FIELD_ISSUE_STEPS,
+  },
   loadoutManifest: {
     id: "loadoutManifest",
     label: "Load-out manifests (AM)",
@@ -610,6 +722,11 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
     id: "countryTransfer",
     label: "Country / organisation transfers",
     steps: COUNTRY_TRANSFER_STEPS,
+  },
+  personalVehicleReimbursement: {
+    id: "personalVehicleReimbursement",
+    label: "Personal vehicle reimbursement (F006)",
+    steps: PVR_STEPS,
   },
 };
 
@@ -621,7 +738,9 @@ export const TUTORIAL_TRACK_ORDER: string[] = [
   "vehicleRequest",
   "countryTransfer",
   "workOrder",
+  "fieldIssueToWorkOrder",
   "loadoutManifest",
+  "personalVehicleReimbursement",
 ];
 
 /** @deprecated Use TUTORIAL_TRACKS.overview.steps */

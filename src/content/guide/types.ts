@@ -49,6 +49,8 @@ export type GuideContent = {
   fleetAndMap: GuideArticle;
   maintenanceAndWork: GuideArticle;
   insightsAndField: GuideArticle;
+  personalVehicleReimbursement: GuideArticle;
+  countryTransfers: GuideArticle;
 };
 
 export type GuideContentByLocale = Record<Locale, GuideContent>;

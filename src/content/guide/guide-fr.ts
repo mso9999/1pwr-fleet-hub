@@ -63,6 +63,18 @@ export const guideFr: GuideContent = {
         description: "Cycle de vie des OT, maintenance planifiée, activité mécaniciens et triage.",
       },
       {
+        href: "/guide/personal-vehicle-reimbursement",
+        title: "Indemnité véhicule personnel (F006)",
+        description:
+          "Soumettre une indemnité kilométrique quand aucun véhicule de la flotte n’est disponible : éligibilité, pièces jointes, approbation, export CSV finance.",
+      },
+      {
+        href: "/guide/country-transfers",
+        title: "Transferts de pays / organisation",
+        description:
+          "Corriger un pays mal codé, enregistrer un détachement ou acter un transfert transfrontalier permanent avec les bons approbateurs.",
+      },
+      {
         href: "/guide/insights-and-field",
         title: "TCO, rapports, point quotidien et terrain",
         description: "Exports analytiques, rapports terrain, triage, référence admin et GPS des sites / départ trajet.",
@@ -139,8 +151,10 @@ export const guideFr: GuideContent = {
           "Ordres de travail — maintenance (souvent liés aux inspections).",
           "Maintenance — entretien planifié et échéances.",
           "Mécaniciens — activité et affectations.",
-          "Triage — priorisation (selon le process équipe).",
+          "Triage — priorisation des OT avec scoring §9 (garder siège / revoir / tiers) et indicateurs de capacité.",
           "Demandes — demandes de véhicules et affectation depuis le pool.",
+          "Transferts de pays — file d’approbation pour corrections, détachements et transferts transfrontaliers permanents.",
+          "Indemnité véhicule perso — indemnité F006 quand aucun véhicule flotte n’est disponible ; le manager valide, la finance exporte le CSV.",
           "Point quotidien — texte généré pour WhatsApp ou e-mail.",
           "TCO et analyses — coûts et performance.",
           "Rapports — exports CSV.",
@@ -750,8 +764,14 @@ export const guideFr: GuideContent = {
         paragraphs: [
           [
             L("/tco", "TCO et analyses"),
-            " propose des vues coûts et performance pour les décisions.",
+            " donne une vue coûts / performance par véhicule et par cohorte (catégorie, année, pool). Les métriques sont construites depuis la fiche véhicule, les trajets, les coûts main-d’œuvre / pièces / tiers des OT et l’entretien planifié.",
           ],
+        ],
+        bullets: [
+          "TCO par véhicule : prix d’achat, coût de réparation, assurance, vie attendue ; met en évidence les véhicules au-dessus du budget.",
+          "Score fin de vie (EOL) : combine km vs vie attendue, tendance coût/km et fiabilité récente pour signaler les remplacements.",
+          "Comparaison cohortes : 4WD vs poids lourd vs tracteur vs engins, par année / pool / localisation, pour les achats.",
+          "Export CSV via Rapports pour affiner en tableur.",
         ],
       },
       {
@@ -760,8 +780,20 @@ export const guideFr: GuideContent = {
         paragraphs: [
           [
             L("/reports", "Rapports"),
-            " permet des exports CSV pour tableurs et audits. Filtrez par type et période.",
+            " propose des CSV téléchargeables. Définissez une plage de dates en haut (applicable aux trajets et OT) ; le registre véhicule l’ignore. Chaque ligne est un lien de téléchargement.",
           ],
+        ],
+        bullets: [
+          "Ordres de travail (avec jours d’immobilisation).",
+          "Registre véhicules.",
+          "Trajets (check-out / check-in avec odomètre, itinéraire, conducteur, type de mission).",
+          "Synthèse coûts par véhicule.",
+          "Inspections et checklists.",
+          "TCO et analyse fin de vie.",
+          "Contrôles conducteur (avant déploiement).",
+          "Entretien planifié (intervalles, prochains entretiens, retards).",
+          "Demandes de véhicules.",
+          "Indemnités véhicule perso (finance) — uniquement les demandes approuvées.",
         ],
       },
       {
@@ -770,55 +802,60 @@ export const guideFr: GuideContent = {
         paragraphs: [
           [
             L("/daily-update", "Point quotidien"),
-            " construit un résumé narratif à partir des données en direct.",
+            " compose un court texte (véhicules immobilisés, OT ouverts / fermés, trajets en cours, alertes) à coller dans le brief WhatsApp ou e-mail.",
           ],
+        ],
+        bullets: [
+          "Générer — texte construit depuis les données live au clic.",
+          "Modifier — sortie éditable dans un textarea avant copie.",
+          "Copier — presse-papier en un clic ; la langue suit EN / FR.",
+          "Ré-générer plus tard pour un instantané actualisé.",
         ],
       },
       {
         id: "report-issue",
-        title: "Signaler un problème",
+        title: "Signaler un problème (rapports terrain)",
         paragraphs: [
           [
             L("/report-issue", "Signaler un problème"),
-            " capture rapidement un incident lorsqu’une inspection complète n’est pas possible.",
+            " est la voie terrain pour flagger un incident (panne, choc, bruit suspect, sécurité). Plus rapide qu’une inspection complète, convertible en OT par la flotte / les mécaniciens.",
           ],
         ],
+        bullets: [
+          "Choisir le véhicule, un titre court, une description, une gravité.",
+          "Ajouter des photos — capture caméra sur téléphone.",
+          "Envoyer — visible dans les vues Mécaniciens / OT pour triage.",
+          "Convertir en OT — les managers ouvrent le rapport et cliquent sur « Convertir en OT » ; photos et description suivent.",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              "Rapports terrain et contrôles conducteur ont des buts différents. Utilisez un ",
+              B("contrôle"),
+              " avant un trajet planifié. Utilisez un ",
+              B("rapport"),
+              " pour un imprévu sur la route.",
+            ],
+          ],
+        },
       },
       {
         id: "admin",
-        title: "Administration (référence et approbateurs)",
+        title: "Administration (référence, approbateurs, tarifs, GPS)",
         paragraphs: [
           [
             L("/admin", "Administration"),
-            " est réservé aux profils autorisés : données de référence (sites, départements, types de mission, ateliers tiers) et synchronisation Firestore PR le cas échéant.",
+            " est gérée par rôle : la donnée de référence est modifiable par admin flotte et superadmin ; les tarifs PVR par finance / superadmin ; les approbateurs par admin flotte. Les autres voient la page sans contrôles d’édition.",
           ],
-          [
-            "Les administrateurs peuvent aussi définir ",
-            B("qui peut approuver les exceptions de contrôle véhicule"),
-            " en chargeant l’annuaire RH et en sélectionnant des personnes (correspondance par e-mail).",
-          ],
-          [
-            "Les rôles ",
-            B("finance"),
-            " ou ",
-            B("superadmin"),
-            " peuvent fixer les ",
-            B("tarifs financiers d’indemnité véhicule personnel"),
-            " (LSL/km et base km pour le forfait aller-retour) ; sinon les valeurs par défaut du tableur F006 s’appliquent.",
-          ],
-          [
-            "Pour des ",
-            B("distances cohérentes"),
-            " sur les demandes, les administrateurs renseignent le ",
-            B("GPS"),
-            " de chaque ",
-            B("site / destination"),
-            " (Sites dans Admin) : ",
-            B("Définir le GPS"),
-            " avec la carte ou saisie latitude / longitude. Les profils autorisés peuvent aussi définir le ",
-            B("point de départ du trajet (siège / flotte)"),
-            " ; sinon des valeurs par défaut s’appliquent.",
-          ],
+        ],
+        bullets: [
+          "Données de référence — éditer sites, départements, types de mission et ateliers tiers utilisés dans toute l’app.",
+          "Synchro depuis PR — récupérer les listes partagées depuis Firestore (lecture seule, pas d’écriture en retour).",
+          "Approbateurs de contrôles — charger l’annuaire RH et choisir qui peut valider les exceptions de contrôle (par e-mail).",
+          "Tarifs indemnité véhicule perso — tarif km et base LSL par organisation ; les valeurs par défaut s’appliquent tant qu’aucun tarif n’est enregistré.",
+          "GPS des sites — définir le GPS via la carte ou lat / long. Requis pour les distances sur les demandes.",
+          "Point de départ trajet (siège flotte) — coordonnée utilisée pour la distance cartographiée ; fallback d’organisation quand l’origine véhicule / mission est inconnue.",
         ],
       },
     ],
@@ -946,6 +983,226 @@ export const guideFr: GuideContent = {
           "Modifier — mettre à jour véhicule, inspecteur ou lignes.",
           "Supprimer — définitif après confirmation.",
           "Exporter — via Rapports en CSV.",
+        ],
+      },
+    ],
+  },
+
+  personalVehicleReimbursement: {
+    title: "Indemnité véhicule personnel (F006)",
+    subtitle:
+      "Soumettre, approuver et exporter les indemnités kilométriques 1PWR lorsqu’aucun véhicule de la flotte n’est disponible.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Objectif",
+        paragraphs: [
+          [
+            L("/personal-vehicle-reimbursement", "Indemnité véhicule perso"),
+            " remplace le tableur F006 lorsque la flotte 1PWR ne peut pas assigner de véhicule et que l’employé a conduit le sien. L’éligibilité est vérifiée côté serveur, le manager valide dans l’application, et la finance exporte les dossiers approuvés en CSV.",
+          ],
+        ],
+      },
+      {
+        id: "eligibility",
+        title: "Éligibilité",
+        paragraphs: [
+          [
+            "Le bloc ",
+            B("Éligibilité"),
+            " en haut de page indique si vous pouvez soumettre. Une demande est bloquée tant que la flotte a un véhicule opérationnel disponible pour la plage du trajet — c’est voulu : le véhicule personnel est un recours, pas un choix.",
+          ],
+        ],
+        bullets: [
+          "« Éligible » en vert → vous pouvez soumettre.",
+          "« Bloqué » en orange → un véhicule de la flotte est disponible ; utilisez Demandes.",
+          "Dérogation manager / admin : les managers peuvent approuver des demandes soumises avant un changement d’éligibilité.",
+        ],
+      },
+      {
+        id: "attachments",
+        title: "1. Pièces jointes avant envoi",
+        paragraphs: [
+          [
+            "Chargez les pièces justificatives en premier — le bouton Envoyer ne se débloque qu’ensuite :",
+          ],
+        ],
+        bullets: [
+          "Attestation d’assurance à jour (image ou PDF).",
+          "Photo(s) du compteur en début et fin de trajet (ou capture d’itinéraire).",
+          "Facultatif : reçu carburant, péage, parking — tout ce qu’un audit finance demanderait.",
+        ],
+      },
+      {
+        id: "trip-details",
+        title: "2. Détails du trajet",
+        bullets: [
+          "Date du trajet (obligatoire).",
+          "Départ / Arrivée — choisir dans la liste des sites ou saisir en texte libre.",
+          "Motif — aligné avec les motifs des demandes de véhicules.",
+          "Kilométrage — total aller-retour ; le formulaire calcule l’indemnité estimée en LSL au tarif en vigueur.",
+          "Notes — tout ce qui sort de l’ordinaire (détour, attente, escorte).",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              "Le tarif affiché vient de ",
+              B("Administration → tarifs PVR"),
+              " (finance / superadmin) pour votre organisation. La valeur par défaut s’applique tant qu’un tarif personnalisé n’a pas été enregistré.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "approval",
+        title: "3. Approbation du manager",
+        paragraphs: [
+          [
+            "Chaque demande part en statut ",
+            B("soumise"),
+            ". Un manager (ou admin) ouvre la carte et clique sur ",
+            B("Approuver"),
+            " — la carte devient verte et le montant LSL est figé. ",
+            B("Rejeter"),
+            " avec un motif renvoie au demandeur.",
+          ],
+          [
+            "Modifier la demande après approbation ré-ouvre le dossier et efface l’approbation, selon le même principe « toute modification efface la signature » que le registre EHS.",
+          ],
+        ],
+      },
+      {
+        id: "export",
+        title: "4. Export finance",
+        paragraphs: [
+          [
+            "La finance récupère les demandes ",
+            B("approuvées"),
+            " depuis ",
+            L("/reports", "Rapports"),
+            " → « Personal vehicle reimbursement claims (finance) ». Le CSV contient le demandeur, le manager approbateur, le kilométrage, le tarif, le montant LSL, le nombre de pièces jointes et les détails du trajet, filtrés par la plage de dates en haut de Rapports.",
+          ],
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Dépannage",
+        bullets: [
+          "Le bouton Envoyer reste désactivé → une pièce jointe manque ou l’éligibilité est bloquée. Vérifiez les deux blocs en haut.",
+          "Tarif incorrect → ouvrir Administration → tarifs PVR (finance / superadmin) et confirmer le tarif par km.",
+          "Demande absente du CSV → elle est encore en état soumise. Seules les approuvées s’exportent — faites-la approuver.",
+          "Le manager ne trouve pas la demande → vérifier qu’il est dans la même organisation (sélecteur en bas du menu).",
+        ],
+      },
+    ],
+  },
+
+  countryTransfers: {
+    title: "Transferts de pays / organisation",
+    subtitle:
+      "Corriger un pays erroné sur un véhicule, enregistrer un détachement temporaire ou acter un transfert permanent, avec les bonnes validations.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Objectif",
+        paragraphs: [
+          [
+            "Chaque véhicule est rattaché à un pays (via l’",
+            B("organisation"),
+            " — Lesotho, Zambie, Bénin). La file ",
+            L("/vehicle-country-changes", "Transferts de pays"),
+            " permet à la direction flotte de corriger ce rattachement s’il est faux, d’enregistrer un détachement, ou d’acter un transfert transfrontalier permanent avec les pièces requises.",
+          ],
+        ],
+      },
+      {
+        id: "three-types",
+        title: "Les trois types de changement",
+        bullets: [
+          "Correction de données — le véhicule a été mal codé (erreur, mauvaise organisation lors du seed). Justificatif : courte note. Approbateur : responsable flotte / manager / admin.",
+          "Détachement — le véhicule opère temporairement dans un autre pays (projet, mission courte). Justificatifs : mission + inspection mécanique réussie. Approbateur : rôle executive (CEO / CFO / COO / superadmin).",
+          "Transfert permanent — véhicule réaffecté durablement à une autre organisation. Mêmes justificatifs qu’un détachement avec une date de retour « jamais ». Approbateur : executive.",
+        ],
+      },
+      {
+        id: "submit",
+        title: "Soumettre un changement",
+        paragraphs: [
+          [
+            "Les soumissions partent de la fiche véhicule, pas de la file. Ouvrez un ",
+            L("/vehicles", "véhicule"),
+            " → carte ",
+            B("Pays / organisation"),
+            " → ",
+            B("Demander un changement"),
+            ".",
+          ],
+        ],
+        bullets: [
+          "Choisir le type : correction / détachement / transfert permanent.",
+          "Choisir l’organisation de destination.",
+          "Rédiger une courte explication. Pour détachement et transfert, relier la mission et la dernière inspection mécanique (transfert transfrontalier) réussie.",
+          "Envoyer — la demande apparaît dans la file pour le bon rôle approbateur.",
+        ],
+      },
+      {
+        id: "approve",
+        title: "Approuver une demande",
+        paragraphs: [
+          [
+            "Sur ",
+            L("/vehicle-country-changes", "Transferts de pays"),
+            ", les approbateurs éligibles voient un bouton ",
+            B("Approuver"),
+            ". Les corrections sont approuvées par responsable flotte / manager / admin. Les détachements et transferts permanents nécessitent une signature executive et afficheront une bannière explicative si le rôle manque.",
+          ],
+          [
+            B("Rejeter"),
+            " avec un motif renvoie la demande sans modifier la fiche véhicule.",
+          ],
+        ],
+        callout: {
+          variant: "warning",
+          paragraphs: [
+            [
+              "Approuver change immédiatement l’",
+              B("organization_id"),
+              " du véhicule — tableaux de bord, historique des trajets et filtre pays dans le menu se réajustent. Le véhicule disparaît des listes de l’ancien pays après approbation.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "inspections-required",
+        title: "Inspection mécanique pour transfert",
+        paragraphs: [
+          [
+            "Pour les détachements et transferts permanents, les approbateurs recherchent une ",
+            B("inspection mécanique (transfert transfrontalier)"),
+            " récente et réussie (dans ",
+            L("/inspections", "Inspections"),
+            "). L’inspection mécanique détaillée peut faire foi si le template transfert n’existe pas dans votre organisation.",
+          ],
+        ],
+      },
+      {
+        id: "history",
+        title: "Historique récent",
+        paragraphs: [
+          [
+            "Le bas de la page affiche les demandes récemment décidées (approuvées + rejetées). Utile comme piste d’audit ou pour confirmer qu’un changement a bien pris effet avant un contrôle ou un départ de trajet.",
+          ],
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Dépannage",
+        bullets: [
+          "Transferts de pays absent du menu → le lien est visible pour tout utilisateur connecté ; rafraîchir la session si vous voyez « Connexion requise ».",
+          "« Approuver » désactivé avec bannière → votre rôle ne correspond pas au type de changement. Demandez au bon approbateur (flotte pour correction, executive pour transfert).",
+          "Le véhicule affiche encore l’ancien pays → rafraîchir la page ou changer l’organisation dans le menu ; les requêtes d’autres onglets peuvent être en cache.",
+          "Pas de template « mécanique (transfert transfrontalier) » → faites une inspection mécanique détaillée et référencez-la dans la note.",
         ],
       },
     ],

@@ -184,7 +184,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl" data-tutorial="tutorial-pvr-page">
       <div>
         <h2 className="text-2xl font-bold text-zinc-900">Personal vehicle reimbursement</h2>
         <p className="text-sm text-zinc-500 mt-1">
@@ -200,7 +200,10 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
       )}
 
       {eligibility && (
-        <Card className={eligibility.eligible ? "border-emerald-200" : "border-amber-200"}>
+        <Card
+          className={eligibility.eligible ? "border-emerald-200" : "border-amber-200"}
+          data-tutorial="tutorial-pvr-eligibility"
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Eligibility</CardTitle>
           </CardHeader>
@@ -231,8 +234,8 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
       </div>
 
       {showForm && eligibility?.eligible && (
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Card className="border-blue-200">
+        <form onSubmit={handleSubmit} className="space-y-6" data-tutorial="tutorial-pvr-form">
+          <Card className="border-blue-200" data-tutorial="tutorial-pvr-attachments">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">1. Attachments (before submit)</CardTitle>
             </CardHeader>
@@ -267,7 +270,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card data-tutorial="tutorial-pvr-trip-details">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">2. Trip details</CardTitle>
             </CardHeader>
@@ -356,7 +359,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
         </form>
       )}
 
-      <Card>
+      <Card data-tutorial="tutorial-pvr-claims">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Claims</CardTitle>
         </CardHeader>

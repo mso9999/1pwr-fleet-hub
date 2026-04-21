@@ -340,7 +340,7 @@ export default function ReportIssuePage(): React.ReactElement {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
+    <div className="space-y-6 max-w-2xl mx-auto" data-tutorial="tutorial-report-issue-page">
       <div>
         <h2 className="text-2xl font-bold">Report Vehicle Issue</h2>
         <p className="text-sm text-zinc-500 mt-1">Use this form to report a vehicle problem from the field. Include photos if possible.</p>
@@ -357,7 +357,7 @@ export default function ReportIssuePage(): React.ReactElement {
         </div>
       )}
 
-      <Card>
+      <Card data-tutorial="tutorial-report-issue-form">
         <CardHeader>
           <CardTitle>New Issue Report</CardTitle>
         </CardHeader>

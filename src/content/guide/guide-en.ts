@@ -63,6 +63,18 @@ export const guideEn: GuideContent = {
         description: "WO lifecycle, scheduled maintenance, mechanic activity, and triage.",
       },
       {
+        href: "/guide/personal-vehicle-reimbursement",
+        title: "Personal vehicle reimbursement (F006)",
+        description:
+          "Submit mileage claims when no fleet vehicle is available: eligibility, attachments, manager approval, finance CSV export.",
+      },
+      {
+        href: "/guide/country-transfers",
+        title: "Country / organisation transfers",
+        description:
+          "Fix a miscoded country, register a secondment, or approve a cross-border transfer with the right role and evidence.",
+      },
+      {
         href: "/guide/insights-and-field",
         title: "TCO, reports, daily update & field",
         description: "Analytics exports, field reports, triage, admin reference data, and GPS for sites / route start.",
@@ -140,8 +152,10 @@ export const guideEn: GuideContent = {
           "Work Orders — maintenance and repair jobs (often linked from failed inspections).",
           "Maintenance — scheduled service and due dates.",
           "Mechanics — activity and assignment views.",
-          "Triage — prioritize issues and capacity (per team process).",
+          "Triage — prioritise open work orders with §9 scoring (keep HQ / review / 3rd party) and capacity flags.",
           "Requests — vehicle pool requests and assignments.",
+          "Country transfers — approval queue for data corrections, secondments, and permanent cross-border moves.",
+          "Personal vehicle claim — F006-style mileage claim when no fleet vehicle is available; manager approves and finance exports CSV.",
           "Daily Update — generated text for WhatsApp or email updates.",
           "TCO & Analytics — cost and performance views.",
           "Reports — CSV exports for analysis.",
@@ -637,9 +651,27 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/map", "Fleet Map"),
-            " shows vehicle positions on a map when GPS data is available. Use it for situational awareness and coordination.",
+            " plots live and last-known vehicle positions on an interactive map. Markers are colour-coded by status (operational, deployed, maintenance, grounded). Tap a marker to open its pop-up with vehicle code, driver (if on an active trip), last fix time, and shortcuts into the vehicle detail or the active trip.",
           ],
         ],
+        bullets: [
+          "Site overlays: configured sites (HQ, destinations) appear as pins so you can see how far a vehicle is from base.",
+          "Trail / history: recent trip breadcrumbs render when available, so you can replay how a vehicle reached its current point.",
+          "Country framing: the map auto-frames on the organisation picked in the sidebar — switch country to re-frame.",
+          "Tracker gaps: a vehicle with no recent fix shows as 'last known' — good for coordination but not real-time.",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              "Map accuracy depends on two admin inputs: ",
+              B("per-site GPS"),
+              " (sites → Set GPS) and the ",
+              B("trip route start (fleet HQ)"),
+              ". Without those, distance estimates on vehicle requests fall back to org defaults.",
+            ],
+          ],
+        },
       },
       {
         id: "vehicles",
@@ -647,8 +679,25 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/vehicles", "Vehicles"),
-            " lists every vehicle for the selected organization. Open a vehicle to see details, status, trips, inspections, work orders, and tracking information where configured.",
+            " lists every vehicle for the selected organisation. Filter by ",
+            B("status"),
+            ", ",
+            B("category (asset class)"),
+            ", ",
+            B("home location"),
+            ", ",
+            B("current location"),
+            ", and ",
+            B("pool"),
+            " at the top of the table. Click a code to open the vehicle detail page with dashboard tabs.",
           ],
+        ],
+        bullets: [
+          "Overview tab: spec sheet (make / model / year / licence plate / VIN / engine number), asset class, home and current location, fuel type, transmission, drivetrain.",
+          "TCO tab: purchase price, in-service date, total mileage, service intervals, cost-to-date, end-of-life score.",
+          "History tab: trips, inspections, work orders filtered to this vehicle (with quick links).",
+          "Tracker tab: GPS provider, IMEI / SIM, current status, last fix time, and recent tracking-report CSV summary.",
+          "Country / organisation card (detail page): this is where you submit a country-transfer request (see Country transfers article).",
         ],
       },
       {
@@ -702,8 +751,14 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/mechanics", "Mechanics"),
-            " supports views of mechanic activity and workload.",
+            " is the workload view for HQ workshop staff. It surfaces who is currently assigned, labour hours logged, and a per-mechanic activity feed so fleet leads can balance jobs.",
           ],
+        ],
+        bullets: [
+          "Assigned-to me: each mechanic sees their open work orders at the top with status badges.",
+          "Labour log: quick-add hours against a job without opening the full work-order detail panel.",
+          "Activity feed: status transitions and updates from the last few days, so a shift handover can read one screen and catch up.",
+          "Workload: simple counts of open work orders per mechanic to spot bottlenecks.",
         ],
       },
       {
@@ -712,9 +767,24 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/triage", "Triage"),
-            " helps fleet leads sort and prioritize issues across vehicles.",
+            " ranks open work orders by the 1PWR §9 scoring rule so fleet leads can decide which jobs to keep at HQ and which to send to a third-party shop. The table shows the composite score plus the four inputs it came from.",
           ],
         ],
+        bullets: [
+          "Parts ready — are the parts on site or on order / in-transit (from the linked PRs cache)?",
+          "Operational urgency — how much does the fleet rely on this vehicle right now (status, mission priority).",
+          "HQ skill match — does HQ have the right skills / equipment to fix this class of problem?",
+          "Days waiting — older work orders get a bump so they don't starve.",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              B("Thresholds: "),
+              "above 70 = keep at HQ; 40–70 = review with a mechanic; below 40 = consider sending to a 3rd-party shop. The capacity toggle flags jobs beyond current HQ capacity.",
+            ],
+          ],
+        },
       },
       {
         id: "inspections-wo",
@@ -752,8 +822,14 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/tco", "TCO & Analytics"),
-            " provides cost and performance analytics for fleet decision-making.",
+            " gives fleet management a cost and performance view per vehicle and per cohort (asset class, year, pool). Metrics are built from vehicle records, trips, work-order labour/parts/third-party costs, and scheduled maintenance.",
           ],
+        ],
+        bullets: [
+          "Per-vehicle TCO: purchase price, repair cost, insurance, and expected life; highlight vehicles running over budget.",
+          "End-of-life (EOL) score: combines mileage vs expected life, cost-per-km trend, and recent reliability to flag candidates for replacement.",
+          "Cohort performance: compare 4WD vs cargo-truck vs tractor vs plant, or by year / pool / location, for sourcing decisions.",
+          "Export to CSV via Reports if you want to slice further in a spreadsheet.",
         ],
       },
       {
@@ -762,8 +838,20 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/reports", "Reports"),
-            " offers CSV exports for spreadsheets and audits. Filter by type and date where available.",
+            " offers downloadable CSVs. Set an optional date range at the top (applies to trips and work orders); the vehicle registry ignores it. Every row below is a click-to-download link.",
           ],
+        ],
+        bullets: [
+          "Work orders (with downtime days) — one row per work order with status, priority, assignee, cost breakdown, downtime days.",
+          "Vehicle registry — current spec + status + location for every vehicle in the organisation.",
+          "Trips — check-out / check-in pairs with odometer, route, driver, mission type.",
+          "Cost summary by vehicle — labour + parts + third-party totals aggregated per code.",
+          "Inspections / checklists — every line, rating, note, and photo count from structured inspections.",
+          "TCO & EOL analysis — purchase price, repair cost, EOL score, flagged statuses.",
+          "Driver vehicle checks (pre-deployment) — one row per check with pass/fail per line and exception status.",
+          "Scheduled maintenance — intervals, last done, next due, overdue flag.",
+          "Vehicle allocation requests — status, destination, assigned vehicle, fuel estimate, rent-return flag.",
+          "Personal vehicle reimbursement claims (finance) — only approved claims; used by finance for payroll.",
         ],
       },
       {
@@ -772,55 +860,60 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/daily-update", "Daily Update"),
-            " builds a narrative summary from live data—useful for operational briefings.",
+            " composes a short text summary (vehicles down, jobs opened / closed, trips in progress, alerts) that fleet leads paste into the daily WhatsApp / email briefing.",
           ],
+        ],
+        bullets: [
+          "Generate — builds the text from live data at the moment you click; no scheduling required.",
+          "Edit — the output is plain text in a textarea, so you can tweak the opening line, add context, or redact before copying.",
+          "Copy — one-click copy to clipboard; language follows the EN / FR toggle.",
+          "Signing off — leave the generator open through the day and re-generate when you need an updated snapshot.",
         ],
       },
       {
         id: "report-issue",
-        title: "Report issue",
+        title: "Report issue (field reports)",
         paragraphs: [
           [
             L("/report-issue", "Report Issue"),
-            " captures field problems quickly when a full inspection is not practical.",
+            " is the field-first way to flag a problem when filling a full inspection is not practical (breakdown, damage, suspicious noise, safety concern). It's quicker than Inspections and can be converted into a work order by fleet / mechanics afterwards.",
           ],
         ],
+        bullets: [
+          "Pick the vehicle, a short title, a description, and a severity.",
+          "Attach photos — camera-capture works on phones so you can take the shot without leaving the form.",
+          "Submit — a field_report row is saved and appears in the Mechanics / Work Orders triage views so HQ can decide to convert it.",
+          "Convert to work order — managers open the field report and hit 'Convert to work order'; the photos and description carry across with a status of 'submitted'.",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              "Field reports and driver vehicle checks serve different purposes. Use a ",
+              B("check"),
+              " before a planned trip (structured list). Use a ",
+              B("report"),
+              " when something unexpected happens on the road.",
+            ],
+          ],
+        },
       },
       {
         id: "admin",
-        title: "Admin (reference data & approvers)",
+        title: "Admin (reference data, approvers, rates, GPS)",
         paragraphs: [
           [
             L("/admin", "Admin"),
-            " is for users with permission: manage dropdown reference data (sites, departments, mission types, shops) and sync lists from the PR app Firestore where configured.",
+            " is role-gated: reference data is editable by fleet admins and superadmins; PVR rates are finance / superadmin only; approvers are fleet admins. Everyone else sees the page but without editing controls.",
           ],
-          [
-            "Fleet admins can also configure ",
-            B("who may approve vehicle check exceptions"),
-            " by loading employees from the HR directory and selecting approvers (matched by email).",
-          ],
-          [
-            "Users with the ",
-            B("finance"),
-            " or ",
-            B("superadmin"),
-            " role can set ",
-            B("personal vehicle reimbursement financial rates"),
-            " (per-km and HQ basis); others see built-in defaults until those are saved.",
-          ],
-          [
-            "For accurate ",
-            B("route distance"),
-            " on requests, admins should set ",
-            B("GPS coordinates"),
-            " on each ",
-            B("site / destination"),
-            " (Sites in Admin): use ",
-            B("Set GPS"),
-            " with the map picker or enter latitude and longitude. Eligible roles can also set ",
-            B("Trip route start (fleet HQ)"),
-            " so the driving route starts from your operating base; if unset, defaults apply.",
-          ],
+        ],
+        bullets: [
+          "Reference data — edit sites, departments, mission types, and third-party shop lists used in dropdowns across the app.",
+          "Sync from PR — pull the shared reference lists from the PR app's Firestore (one click; read-only sync, doesn't write back).",
+          "Vehicle-check approvers — load employees from the HR directory and pick who may approve failed vehicle-check exceptions (matched by email).",
+          "Personal-vehicle reimbursement rates — per-km and HQ-basis LSL rate by organisation; built-in defaults apply until a custom rate is saved.",
+          "Site GPS — open each site and Set GPS via the map picker or lat/long. Needed for accurate driving-distance estimates on vehicle requests.",
+          "Trip route start (fleet HQ) — the coordinate the routing engine uses as the starting point for mapped distance on a vehicle request; org-level fallback when vehicle/mission origin is unknown.",
         ],
       },
     ],
@@ -956,6 +1049,226 @@ export const guideEn: GuideContent = {
           "Edit — change vehicle, inspector, or any line; save updates the record.",
           "Delete — permanently removes that inspection after confirmation.",
           "Export — use Reports for CSV exports.",
+        ],
+      },
+    ],
+  },
+
+  personalVehicleReimbursement: {
+    title: "Personal vehicle reimbursement (F006)",
+    subtitle:
+      "Submit, approve, and export 1PWR personal-vehicle mileage claims when no fleet vehicle is available for assignment.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Purpose",
+        paragraphs: [
+          [
+            L("/personal-vehicle-reimbursement", "Personal vehicle claim"),
+            " replaces the F006 spreadsheet for cases where a 1PWR fleet vehicle could not be assigned and the employee drove their own car. Eligibility is checked server-side, the manager approves in-app, and finance exports approved claims as CSV.",
+          ],
+        ],
+      },
+      {
+        id: "eligibility",
+        title: "Eligibility",
+        paragraphs: [
+          [
+            "The ",
+            B("Eligibility"),
+            " panel at the top of the page tells you whether you can submit right now. A claim is blocked while the fleet has an operational vehicle available for the trip window — this is deliberate: personal-vehicle use is a fall-back, not a preference.",
+          ],
+        ],
+        bullets: [
+          "Green 'Eligible' → go ahead and submit.",
+          "Amber 'Blocked' → a fleet vehicle is available; use Requests to book one instead.",
+          "Manager / admin override: managers can still approve claims that were submitted before eligibility changed.",
+        ],
+      },
+      {
+        id: "attachments",
+        title: "1. Attach evidence before you submit",
+        paragraphs: [
+          [
+            "Upload the supporting documents first — the submit button only unlocks when they are attached:",
+          ],
+        ],
+        bullets: [
+          "Current valid vehicle insurance (image or PDF).",
+          "Odometer photo(s) at start and end of the trip (or a route-tracking screenshot).",
+          "Optional: fuel receipt, toll slip, or parking receipt — anything finance will want in an audit.",
+        ],
+      },
+      {
+        id: "trip-details",
+        title: "2. Trip details",
+        bullets: [
+          "Trip date (required).",
+          "Route from / Route to — pick sites from the dropdown, or type a free-text location.",
+          "Purpose — mirrors a vehicle-request purpose so reports reconcile.",
+          "Kilometres — round-trip total; the form multiplies by the per-km rate to show the estimated LSL.",
+          "Notes — anything unusual (detour, waiting time, escort, etc.).",
+        ],
+        callout: {
+          variant: "info",
+          paragraphs: [
+            [
+              "The rate shown is the current ",
+              B("per-km rate for your organisation"),
+              " from Admin → PVR rates (finance / superadmin edit). You see the built-in default until a custom rate is saved.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "approval",
+        title: "3. Manager approval",
+        paragraphs: [
+          [
+            "Each claim posts as ",
+            B("submitted"),
+            ". A manager (or admin) reviews the card and taps ",
+            B("Approve"),
+            " — the card turns green and the final LSL amount is locked. ",
+            B("Reject"),
+            " with a reason bounces it back to the submitter.",
+          ],
+          [
+            "Editing the claim after approval re-opens it and clears the approval, the same 'any-edit-clears-sign-off' pattern used on the EHS register.",
+          ],
+        ],
+      },
+      {
+        id: "export",
+        title: "4. Finance export",
+        paragraphs: [
+          [
+            "Finance users can pull all ",
+            B("approved"),
+            " claims from ",
+            L("/reports", "Reports"),
+            " → 'Personal vehicle reimbursement claims (finance)'. The CSV includes the submitter, manager approver, distance, rate, LSL total, attachments count, and trip details, filtered by the date range set at the top of Reports.",
+          ],
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Troubleshooting",
+        bullets: [
+          "Submit button stays disabled → at least one attachment is missing, or eligibility is blocked. Re-check the Attachments and Eligibility panels.",
+          "Rate looks wrong → open Admin → PVR rates (finance / superadmin only) and confirm the per-km rate for your org.",
+          "Claim did not appear in Reports CSV → it is still in submitted state. Only approved claims export; ask the manager to approve first.",
+          "Manager can't find the claim → check they are in the same organisation (country dropdown at the bottom of the sidebar).",
+        ],
+      },
+    ],
+  },
+
+  countryTransfers: {
+    title: "Country / organisation transfers",
+    subtitle:
+      "Fix a miscoded country on a vehicle, record a temporary secondment, or register a permanent cross-border move — with the right approvals.",
+    sections: [
+      {
+        id: "purpose",
+        title: "Purpose",
+        paragraphs: [
+          [
+            "Every vehicle is registered against a country (via the ",
+            B("organisation"),
+            " — Lesotho, Zambia, or Benin). The ",
+            L("/vehicle-country-changes", "Country transfers"),
+            " queue lets fleet operations correct that assignment when it is wrong, and record secondments or permanent cross-border moves with evidence.",
+          ],
+        ],
+      },
+      {
+        id: "three-types",
+        title: "The three change types",
+        bullets: [
+          "Data correction — the vehicle was miscoded (typo, wrong org at seed time). Evidence: a short note. Approver: fleet lead / manager / admin.",
+          "Secondment — the vehicle is temporarily operating in another country (project, short-term deployment). Evidence: mission record + passed mechanical inspection. Approver: an executive role (CEO / CFO / COO / superadmin).",
+          "Permanent transfer — the vehicle is permanently re-assigned to another organisation. Same evidence as a secondment plus a clear return date of 'never'. Approver: executive.",
+        ],
+      },
+      {
+        id: "submit",
+        title: "Submitting a change",
+        paragraphs: [
+          [
+            "Submissions start from the vehicle detail page, not from the approvals queue. Open any ",
+            L("/vehicles", "vehicle"),
+            " → ",
+            B("Country / organisation"),
+            " card → ",
+            B("Request change"),
+            ".",
+          ],
+        ],
+        bullets: [
+          "Choose the change type: data correction / secondment / permanent transfer.",
+          "Pick the destination organisation.",
+          "Write a short explanation. For secondments and permanent transfers, link the mission and the latest passed Mechanical (cross-border transfer) inspection.",
+          "Submit — the request appears in the Country transfers queue for the right approver role.",
+        ],
+      },
+      {
+        id: "approve",
+        title: "Approving a request",
+        paragraphs: [
+          [
+            "On the ",
+            L("/vehicle-country-changes", "Country transfers"),
+            " page, eligible approvers see an ",
+            B("Approve"),
+            " button next to each request. Data corrections are approved by fleet lead / manager / admin. Secondments and permanent transfers require an executive sign-off and will show an explanatory banner if you lack the role.",
+          ],
+          [
+            B("Reject"),
+            " with a reason bounces the request back to the submitter without changing the vehicle record.",
+          ],
+        ],
+        callout: {
+          variant: "warning",
+          paragraphs: [
+            [
+              "Approving immediately changes the vehicle's ",
+              B("organization_id"),
+              " — dashboards, trip history, and the country-specific sidebar organisation filter all re-scope that vehicle. Expect it to disappear from the previous country's lists after approval.",
+            ],
+          ],
+        },
+      },
+      {
+        id: "inspections-required",
+        title: "Mechanical inspection for transfers",
+        paragraphs: [
+          [
+            "For secondments and permanent transfers, approvers look for a recent ",
+            B("Mechanical (cross-border transfer)"),
+            " inspection (under ",
+            L("/inspections", "Inspections"),
+            ") with an overall pass. Detailed mechanical also counts if cross-border transfer is unavailable in your org's templates.",
+          ],
+        ],
+      },
+      {
+        id: "history",
+        title: "Recent history",
+        paragraphs: [
+          [
+            "The bottom of the Country transfers page shows recently decided requests (approved + rejected). Use it as an audit trail or to confirm a change took effect before a vehicle check or trip checkout.",
+          ],
+        ],
+      },
+      {
+        id: "troubleshooting",
+        title: "Troubleshooting",
+        bullets: [
+          "Can't see Country transfers in the sidebar → the link is visible to signed-in users; if you land on a 'sign in required' card, refresh your session.",
+          "'Approve' disabled with a banner → your role does not match the change type. Ask the right approver (fleet lead for corrections; executive for transfers).",
+          "Vehicle still shows the old country after approval → hard-refresh the page or switch the organisation dropdown in the sidebar; cached queries in other tabs can linger until reload.",
+          "No Mechanical (cross-border transfer) inspection available → the templates were not seeded for this org; file a Detailed mechanical inspection instead and reference it in the note.",
         ],
       },
     ],
