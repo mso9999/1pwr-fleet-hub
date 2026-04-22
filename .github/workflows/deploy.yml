@@ -29,16 +29,41 @@ jobs:
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          # Ship secrets from GitHub into the SSH session so the remote
+          # script can write them to /var/www/fleet-hub/.env without any
+          # human in the loop. appleboy/ssh-action inherits step env vars
+          # when listed in `envs:`.
+          HR_API_BASE_URL: ${{ secrets.HR_API_BASE_URL }}
+          HR_API_KEY: ${{ secrets.HR_API_KEY }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: HR_API_BASE_URL,HR_API_KEY
           script: |
+            set -e
             cd /var/www/fleet-hub
             git fetch origin
             git reset --hard origin/main
             npm ci --production=false
             npm run build
+
+            # Refresh server .env with the HR Portal read-only API creds.
+            # Dedupe any prior HR_API_* lines before appending so re-runs
+            # stay idempotent and rotations land cleanly.
+            touch /var/www/fleet-hub/.env
+            sed -i.bak '/^HR_API_BASE_URL=/d; /^HR_API_KEY=/d' /var/www/fleet-hub/.env
+            if [ -n "$HR_API_BASE_URL" ] && [ -n "$HR_API_KEY" ]; then
+              printf 'HR_API_BASE_URL=%s\n' "$HR_API_BASE_URL" >> /var/www/fleet-hub/.env
+              printf 'HR_API_KEY=%s\n'      "$HR_API_KEY"      >> /var/www/fleet-hub/.env
+              echo "HR_API creds written to .env (key length: ${#HR_API_KEY})"
+            else
+              echo "WARNING: HR_API_BASE_URL or HR_API_KEY missing from GH secrets — skipping .env write"
+            fi
+
+            # --update-env re-reads process env; Next.js itself also picks
+            # up .env at boot because cwd is /var/www/fleet-hub.
             pm2 restart fleet-hub --update-env
             echo "Fleet Hub deployed successfully"
 
