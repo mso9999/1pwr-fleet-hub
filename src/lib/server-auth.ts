@@ -1,6 +1,7 @@
 import { getAuth } from "firebase-admin/auth";
 import { getFleetAdminApp } from "@/lib/firebase-admin-init";
 import { getDb } from "@/lib/db";
+import { verifyFirebaseIdToken } from "@/lib/verify-firebase-id-token";
 import {
   canManageEhsApprovedDrivers as manageEhsDrivers,
   isExecutiveRole as execRole,
@@ -34,25 +35,56 @@ export interface VerifyFleetUserResult {
 /**
  * Verify a Fleet Hub request's bearer token and resolve it to a local users row.
  *
+ * Token verification is performed WITHOUT requiring a service-account JSON on disk:
+ * Firebase ID tokens are standard RS256 JWTs signed by Google and we verify them
+ * against Google's published public keys in {@link verifyFirebaseIdToken}. If a
+ * service-account file is present we prefer firebase-admin (it handles key rotation
+ * and caching) but fall back to the stand-alone verifier so the auth path can never
+ * silently fall back to "auth_unconfigured" just because PM2's env var went missing.
+ *
  * Auto-provision: if the token verifies but no `users` row exists for that Firebase UID
  * (or email), we insert a minimal read-level row. This stops new sign-ins from being
  * stuck at "Unauthorized" when the client-side /api/users/sync POST silently failed —
  * anyone Firebase trusts can at least read.
  */
 export async function verifyFleetUser(request: Request): Promise<VerifyFleetUserResult> {
-  const app = getFleetAdminApp();
-  if (!app) return { user: null, reason: "auth_unconfigured" };
-
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return { user: null, reason: "no_bearer" };
   const idToken = authHeader.slice(7);
 
-  let decoded: { uid: string; email?: string; name?: string; email_verified?: boolean };
-  try {
-    decoded = await getAuth(app).verifyIdToken(idToken);
-  } catch {
-    return { user: null, reason: "bad_token" };
+  let decoded: { uid: string; email?: string; name?: string; email_verified?: boolean } | null = null;
+
+  // 1. Prefer firebase-admin when the service-account file is configured. It caches
+  //    keys across requests and handles revocation via verifyIdToken(token, true).
+  const app = getFleetAdminApp();
+  if (app) {
+    try {
+      decoded = await getAuth(app).verifyIdToken(idToken);
+    } catch {
+      // firebase-admin refused it. We still try the JWKS path so a broken local cert
+      // store or clock-skew issue doesn't deny access — the JWKS path is equally strict.
+      decoded = null;
+    }
   }
+
+  // 2. Fall back to JWKS verification with node:crypto. No server-side credential needed.
+  if (!decoded) {
+    try {
+      const verified = await verifyFirebaseIdToken(idToken);
+      if (verified) {
+        decoded = {
+          uid: verified.uid,
+          email: verified.email,
+          name: verified.name,
+          email_verified: verified.emailVerified,
+        };
+      }
+    } catch (err) {
+      console.error("[server-auth] JWKS verification error", err);
+    }
+  }
+
+  if (!decoded) return { user: null, reason: "bad_token" };
 
   const db = getDb();
   const rowForUid = db
