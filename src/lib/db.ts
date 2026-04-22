@@ -257,9 +257,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateFieldIssueTicketing(db);
   migrateVehicleGpsSnapshots(db);
   migrateTripsPhase1(db);
-  migrateDriverVehicleChecksTravelPhone(db);
-  migrateDriverVehicleChecksApprovedById(db);
-  migrateDriverVehicleChecksTripId(db);
+  migrateDriverVehicleChecksSchema(db);
   migrateEhsApprovedDrivers(db);
   migrateEhsOperatorRegister(db);
   migrateFleetMechanics(db);
@@ -971,42 +969,89 @@ function migrateVehiclesPhase1(db: Database.Database): void {
   }
 }
 
-function migrateDriverVehicleChecksTravelPhone(db: Database.Database): void {
+/**
+ * Legacy SQLite DBs may have an older `driver_vehicle_checks` shape (CREATE TABLE IF NOT EXISTS
+ * never adds new columns). Align with current API / createPhase1Tables by adding any missing columns.
+ */
+function migrateDriverVehicleChecksSchema(db: Database.Database): void {
   const exists = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
     .get();
   if (!exists) return;
 
-  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
-  if (cols.some((c) => c.name === "travel_phone_number")) return;
+  const colNames = new Set(
+    (db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
 
-  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN travel_phone_number TEXT NOT NULL DEFAULT ''");
-}
+  const additions: Array<[string, string]> = [
+    ["organization_id", "TEXT NOT NULL DEFAULT '1pwr_lesotho'"],
+    ["trip_id", "TEXT DEFAULT NULL"],
+    ["driver_id", "TEXT NOT NULL DEFAULT ''"],
+    ["driver_name", "TEXT NOT NULL DEFAULT ''"],
+    ["mileage_km", "INTEGER"],
+    ["check_date", "TEXT NOT NULL DEFAULT ''"],
+    ["route_from", "TEXT NOT NULL DEFAULT ''"],
+    ["route_to", "TEXT NOT NULL DEFAULT ''"],
+    ["direction", "TEXT NOT NULL DEFAULT 'departing'"],
+    ["electrics_front_lights", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_rear_lights", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_indicators", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_brake_lights", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_horn", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_windows", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_central_locking", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_wipers", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_dashboard_gauges", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["electrics_ac_heating", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["fluids_engine_oil", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["fluids_engine_coolant", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["fluids_power_steering", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["fluids_transmission", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["fluids_fuel", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["drive_steering", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["drive_brakes", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["drive_tire_pressure", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["visual_spare_wheel_condition", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["visual_doors", "TEXT NOT NULL DEFAULT 'pass'"],
+    ["failure_descriptions", "TEXT NOT NULL DEFAULT '{}'"],
+    ["remarks", "TEXT NOT NULL DEFAULT ''"],
+    ["travel_phone_number", "TEXT NOT NULL DEFAULT ''"],
+    ["equip_jack", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_spare_wheel", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_triangle", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_jump_leads", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_fire_extinguisher", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_phone_charger", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_first_aid_kit", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_flashlight", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_wheel_spanners", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_multimeter", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_cable_cutters", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_pliers", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_tow_straps", "INTEGER NOT NULL DEFAULT 1"],
+    ["equip_tool_inverter", "INTEGER NOT NULL DEFAULT 1"],
+    ["has_exceptions", "INTEGER NOT NULL DEFAULT 0"],
+    ["exception_items", "TEXT NOT NULL DEFAULT '[]'"],
+    ["exception_approved", "INTEGER NOT NULL DEFAULT 0"],
+    ["approved_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["approved_by", "TEXT DEFAULT ''"],
+    ["approved_at", "TEXT DEFAULT NULL"],
+    ["approval_method", "TEXT DEFAULT ''"],
+    ["overall_pass", "INTEGER NOT NULL DEFAULT 1"],
+    ["created_at", "TEXT NOT NULL DEFAULT ''"],
+    ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+  ];
 
-function migrateDriverVehicleChecksApprovedById(db: Database.Database): void {
-  const exists = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
-    .get();
-  if (!exists) return;
+  for (const [col, def] of additions) {
+    if (!colNames.has(col)) {
+      db.exec(`ALTER TABLE driver_vehicle_checks ADD COLUMN ${col} ${def}`);
+      colNames.add(col);
+    }
+  }
 
-  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
-  if (cols.some((c) => c.name === "approved_by_id")) return;
-
-  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN approved_by_id TEXT NOT NULL DEFAULT ''");
-}
-
-/** Older DBs predate trip_id on driver_vehicle_checks; API INSERT requires this column. */
-function migrateDriverVehicleChecksTripId(db: Database.Database): void {
-  const exists = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='driver_vehicle_checks' LIMIT 1")
-    .get();
-  if (!exists) return;
-
-  const cols = db.prepare("PRAGMA table_info(driver_vehicle_checks)").all() as Array<{ name: string }>;
-  if (cols.some((c) => c.name === "trip_id")) return;
-
-  db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN trip_id TEXT DEFAULT NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_vehicle ON driver_vehicle_checks(vehicle_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date)");
 }
 
 function migrateVehicleCountryChangeWorkflow(db: Database.Database): void {
