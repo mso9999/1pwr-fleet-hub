@@ -1296,7 +1296,17 @@ function RequestForm({
                         </span>
                       )}
                       {!routeEstimateLoading && routeEstimate && !routeEstimate.ok && (
-                        <span className="text-amber-900">{routeEstimate.message || "Could not estimate route."}</span>
+                        <span className="text-amber-900">
+                          {routeEstimate.message || "Could not estimate route."}{" "}
+                          {routeEstimate.message && /set GPS on site/i.test(routeEstimate.message) && (
+                            <a
+                              href="/admin"
+                              className="text-blue-700 underline underline-offset-2"
+                            >
+                              Open Admin → Sites
+                            </a>
+                          )}
+                        </span>
                       )}
                     </div>
                   )}

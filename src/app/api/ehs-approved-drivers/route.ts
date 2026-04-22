@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/lib/db";
 import {
-  getVerifiedFleetUser,
+  verifyFleetUser,
   canViewEhsApprovedDriversRegister,
   canManageEhsApprovedDrivers,
 } from "@/lib/server-auth";
@@ -19,6 +19,22 @@ import {
 } from "@/lib/ehs-approved-drivers";
 import { OPERATOR_CATEGORIES } from "@/lib/ehs-operator-categories";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import type { AuthFailure } from "@/lib/server-auth";
+
+function explainAuthFailure(reason: AuthFailure | undefined): string {
+  switch (reason) {
+    case "no_bearer":
+      return "Sign in to continue.";
+    case "bad_token":
+      return "Your session has expired — sign out and sign in again.";
+    case "deactivated":
+      return "Your Fleet Hub account is deactivated. Contact an admin to re-enable it.";
+    case "auth_unconfigured":
+      return "Fleet Hub authentication is not configured on this server. Contact IT.";
+    default:
+      return "Unauthorized";
+  }
+}
 
 type RowWithMeta = Record<string, unknown> & {
   license_media_count: number;
@@ -144,9 +160,15 @@ function rowWithMeta(
  * List operator records for the org. Visible to every signed-in user (read-only).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const user = await getVerifiedFleetUser(request);
-  if (!user || !canViewEhsApprovedDriversRegister(user.role, user.department)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, reason } = await verifyFleetUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: explainAuthFailure(reason), reason },
+      { status: 401 }
+    );
+  }
+  if (!canViewEhsApprovedDriversRegister(user.role, user.department)) {
+    return NextResponse.json({ error: "You don't have access to this register." }, { status: 403 });
   }
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const db = getDb();
@@ -164,9 +186,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * Add an employee from the HR directory to the register (EHS managers only).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const user = await getVerifiedFleetUser(request);
-  if (!user || !canManageEhsApprovedDrivers(user.role, user.department)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, reason } = await verifyFleetUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: explainAuthFailure(reason), reason },
+      { status: 401 }
+    );
+  }
+  if (!canManageEhsApprovedDrivers(user.role, user.department)) {
+    return NextResponse.json(
+      {
+        error:
+          "You don't have permission to add approved drivers. This is limited to EHS department users, ehs_manager, admin, or superadmin roles.",
+      },
+      { status: 403 }
+    );
   }
   const body = (await request.json()) as {
     organizationId?: string;
