@@ -76,7 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         error:
-          "Link this request to an approved mission (missionId). Create a mission first and wait for PR approval if needed.",
+          "Link this request to an approved mission (missionId). Create a mission first and wait for management approval if needed.",
       },
       { status: 400 }
     );
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         error:
-          "This mission is not approved yet. PR-credentialed approvers must approve the mission before you can request a vehicle.",
+          "This mission is not approved yet. An authorised manager must approve the mission before you can request a vehicle.",
       },
       { status: 400 }
     );

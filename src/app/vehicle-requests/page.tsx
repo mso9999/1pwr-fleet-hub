@@ -400,7 +400,7 @@ export default function VehicleRequestsPage() {
       {canApproveMission && pendingMissions.length > 0 && (
         <Card className="border-amber-200 bg-amber-50/40">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Missions pending PR approval</CardTitle>
+            <CardTitle className="text-base">Missions pending management approval</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
               Approve or reject trip plans. Drivers can only request a vehicle after the mission is approved.
             </p>
@@ -1182,7 +1182,7 @@ function RequestForm({
     setMissionSubmitting(false);
     if (res.ok) {
       setMissionMessage(
-        "Mission submitted for PR approval. You cannot request a vehicle until a credentialed approver approves this mission."
+        "Mission submitted for management approval. You cannot request a vehicle until an authorised manager approves this mission."
       );
       e.currentTarget.reset();
       setDestinationChoice("");
@@ -1252,7 +1252,7 @@ function RequestForm({
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            Trip plans start as pending PR approval. Fleet does not allocate a vehicle until the mission is approved and you submit a vehicle request as an approved driver.
+            Trip plans start as pending management approval. Fleet does not allocate a vehicle until the mission is approved and you submit a vehicle request as an approved driver.
           </p>
         </CardHeader>
         <CardContent>
@@ -1366,7 +1366,7 @@ function RequestForm({
                 </select>
                 {!missionsLoading && approvedMissions.length === 0 && (
                   <p className="text-xs text-amber-800 mt-1">
-                    No approved missions yet. Create a mission above and wait for PR approval.
+                    No approved missions yet. Create a mission above and wait for management approval.
                   </p>
                 )}
               </div>

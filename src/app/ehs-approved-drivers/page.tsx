@@ -241,7 +241,16 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
                 {loadingHr ? "Loading HR…" : "Load employees from HR"}
               </Button>
             </div>
-            {hrError && <p className="text-sm text-red-600">{hrError}</p>}
+            {hrError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-1">
+                <p>
+                  <strong>HR directory unavailable:</strong> {hrError}
+                </p>
+                <p className="text-xs">
+                  You can still add an operator using the manual form below.
+                </p>
+              </div>
+            )}
             {hrEmployees.length > 0 && (
               <>
                 <Input
@@ -285,6 +294,14 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
         </Card>
       )}
 
+      {canEdit && (
+        <ManualAddOperatorCard
+          organizationId={organizationId}
+          existingEmails={existingEmails}
+          onAdded={loadOperators}
+        />
+      )}
+
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{loadError}</div>
       )}
@@ -292,7 +309,12 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
       {loading ? (
         <p className="text-zinc-500">Loading…</p>
       ) : operators.length === 0 ? (
-        <p className="text-zinc-500">No operators on the register yet{canEdit ? " — add someone from HR above." : "."}</p>
+        <p className="text-zinc-500">
+          No operators on the register yet
+          {canEdit
+            ? " — use the HR loader or the manual-add form above."
+            : "."}
+        </p>
       ) : (
         <div className="space-y-4" data-tutorial="tutorial-ehs-drivers-list">
           {operators.map((d, idx) => (
@@ -948,5 +970,114 @@ function AuthorizationsSummary({
         })}
       </ul>
     </div>
+  );
+}
+
+/**
+ * Fallback "type it in by hand" card. Always available to edit-capable users so EHS isn't
+ * blocked when the HR directory integration (HR_API_BASE_URL / HR_API_KEY) is offline or
+ * the person isn't in the HR Portal yet.
+ */
+function ManualAddOperatorCard({
+  organizationId,
+  existingEmails,
+  onAdded,
+}: {
+  organizationId: string;
+  existingEmails: Set<string>;
+  onAdded: () => Promise<void>;
+}): React.ReactElement {
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [hrEmployeeId, setHrEmployeeId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    setError(null);
+    const nm = displayName.trim();
+    const em = email.trim();
+    if (!nm || !em) {
+      setError("Name and email are both required.");
+      return;
+    }
+    if (existingEmails.has(em.toLowerCase())) {
+      setError("An operator with this email is already on the register.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/ehs-approved-drivers", {
+        method: "POST",
+        headers: await jsonHeadersWithBearer(),
+        body: JSON.stringify({
+          organizationId,
+          email: em,
+          displayName: nm,
+          hrEmployeeId: hrEmployeeId.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error || "Could not add operator.");
+        return;
+      }
+      setDisplayName("");
+      setEmail("");
+      setHrEmployeeId("");
+      await onAdded();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Add operator manually</CardTitle>
+        <p className="text-sm text-zinc-500 font-normal">
+          Use this form if the HR directory is unavailable, or if the person has not yet
+          been added to the HR Portal. Every manual add is still recorded in the mutation
+          log (visible per record) with the EHS user who added them.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={(e) => void submit(e)} className="grid gap-3 sm:grid-cols-3 items-end">
+          <Input
+            label="Display name *"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="e.g. Retšelisitsoe Thene"
+            required
+          />
+          <Input
+            label="Email *"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@1pwr.com"
+            required
+          />
+          <Input
+            label="HR employee ID (optional)"
+            value={hrEmployeeId}
+            onChange={(e) => setHrEmployeeId(e.target.value)}
+            placeholder="e.g. 1PWR130"
+          />
+          <div className="sm:col-span-3 flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Adding…" : "Add to register"}
+            </Button>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <p className="text-xs text-zinc-500">
+              The 16-category authorisation grid is seeded with “none” grants; fill in the
+              assessments, licence, and relevant grants afterwards, then tick the
+              attestation checkbox to sign off.
+            </p>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
