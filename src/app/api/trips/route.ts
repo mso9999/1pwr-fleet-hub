@@ -18,7 +18,7 @@ export function GET(request: NextRequest): NextResponse {
   let query = `
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM trips t
-    JOIN vehicles v ON t.vehicle_id = v.id
+    LEFT JOIN vehicles v ON t.vehicle_id = v.id
     WHERE ${allOrgs ? "t.vehicle_id = ?" : "t.organization_id = ?"}
   `;
   const params: string[] = allOrgs ? [vehicleId as string] : [org];
@@ -47,52 +47,64 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const id = uuidv4();
   const now = new Date().toISOString();
   const organizationId = body.organizationId || "1pwr_lesotho";
-
-  const readiness = evaluateTripReadiness(db, {
-    organizationId,
-    vehicleId: body.vehicleId,
-    missionProfile: body.missionProfile,
-    checkDate: now.slice(0, 10),
-    referenceNow: new Date(now),
-  });
+  const rawVehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
+  const hasVehicle = rawVehicleId.length > 0;
 
   const overrideReasonRaw = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
   let overrideApplied = false;
+  let readiness: ReturnType<typeof evaluateTripReadiness> | null = null;
 
-  if (!readiness.ok) {
-    if (overrideReasonRaw.length === 0) {
-      return NextResponse.json(
-        {
-          error: "Trip readiness requirements are not met. Complete the items below, then try again.",
-          gates: readiness.gates,
-          missionProfile: readiness.missionProfile,
-        },
-        { status: 400 },
-      );
+  if (hasVehicle) {
+    readiness = evaluateTripReadiness(db, {
+      organizationId,
+      vehicleId: rawVehicleId,
+      missionProfile: body.missionProfile,
+      checkDate: now.slice(0, 10),
+      referenceNow: new Date(now),
+    });
+
+    if (!readiness.ok) {
+      if (overrideReasonRaw.length === 0) {
+        return NextResponse.json(
+          {
+            error: "Trip readiness requirements are not met. Complete the items below, then try again.",
+            gates: readiness.gates,
+            missionProfile: readiness.missionProfile,
+          },
+          { status: 400 },
+        );
+      }
+      if (!canOverridePrerequisite(db, organizationId, user.email, user.role)) {
+        return NextResponse.json(
+          {
+            error:
+              "You do not have permission to override the trip readiness gate. Ask a fleet manager or PR-credentialed approver.",
+            gates: readiness.gates,
+            missionProfile: readiness.missionProfile,
+          },
+          { status: 403 },
+        );
+      }
+      if (overrideReasonRaw.length < 8) {
+        return NextResponse.json(
+          {
+            error: "Provide a longer override reason (at least 8 characters) so this bypass is auditable.",
+            gates: readiness.gates,
+            missionProfile: readiness.missionProfile,
+          },
+          { status: 400 },
+        );
+      }
+      overrideApplied = true;
     }
-    if (!canOverridePrerequisite(db, organizationId, user.email, user.role)) {
-      return NextResponse.json(
-        {
-          error:
-            "You do not have permission to override the trip readiness gate. Ask a fleet manager or PR-credentialed approver.",
-          gates: readiness.gates,
-          missionProfile: readiness.missionProfile,
-        },
-        { status: 403 },
-      );
-    }
-    if (overrideReasonRaw.length < 8) {
-      return NextResponse.json(
-        {
-          error: "Provide a longer override reason (at least 8 characters) so this bypass is auditable.",
-          gates: readiness.gates,
-          missionProfile: readiness.missionProfile,
-        },
-        { status: 400 },
-      );
-    }
-    overrideApplied = true;
   }
+
+  const resolvedMissionProfile = readiness?.missionProfile ?? body.missionProfile ?? "local";
+  const odoStart =
+    body.odoStart === undefined || body.odoStart === null || body.odoStart === ""
+      ? null
+      : Number(body.odoStart);
+  const defaultApprovalStatus = hasVehicle ? "auto-approved" : "pending";
 
   db.prepare(`
     INSERT INTO trips (
@@ -105,14 +117,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   `).run(
     id,
     organizationId,
-    body.vehicleId,
+    hasVehicle ? rawVehicleId : null,
     body.driverId || "",
     body.driverName || "",
-    body.odoStart,
+    odoStart,
     body.departureLocation,
     body.destination,
     body.missionType || "other",
-    readiness.missionProfile,
+    resolvedMissionProfile,
     body.passengers || "",
     body.loadOut || "",
     body.loadIn || "",
@@ -122,7 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     JSON.stringify(body.loadoutManifest || []),
     body.expectedReturnAt || null,
     body.missionPriority || "normal",
-    body.approvalStatus || "auto-approved",
+    body.approvalStatus || defaultApprovalStatus,
     body.approvedBy || "",
     JSON.stringify(body.amAllocationIds || [])
   );
@@ -139,20 +151,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const vehicleBefore = db.prepare("SELECT status FROM vehicles WHERE id = ?").get(body.vehicleId) as { status: string } | undefined;
+  if (hasVehicle) {
+    const vehicleBefore = db.prepare("SELECT status FROM vehicles WHERE id = ?").get(rawVehicleId) as { status: string } | undefined;
 
-  db.prepare("UPDATE vehicles SET current_location = ?, status = 'deployed', updated_at = ? WHERE id = ?")
-    .run(body.destination, now, body.vehicleId);
+    db.prepare("UPDATE vehicles SET current_location = ?, status = 'deployed', updated_at = ? WHERE id = ?")
+      .run(body.destination, now, rawVehicleId);
+
+    db.prepare(
+      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run("vehicle", rawVehicleId, vehicleBefore?.status || "operational", "deployed", body.driverName || "", now);
+  }
 
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("vehicle", body.vehicleId, vehicleBefore?.status || "operational", "deployed", body.driverName || "", now);
+  ).run("trip", id, null, hasVehicle ? "checked-out" : "pending-allocation", body.driverName || "", now);
 
-  db.prepare(
-    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("trip", id, null, "checked-out", body.driverName || "", now);
-
-  if (overrideApplied) {
+  if (overrideApplied && readiness) {
     recordMutation(db, {
       entityType: "trip",
       entityId: id,
@@ -160,7 +174,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       action: "prerequisite_override",
       actor: actorFrom(user),
       after: {
-        vehicleId: body.vehicleId,
+        vehicleId: rawVehicleId,
         missionProfile: readiness.missionProfile,
         gatesBypassed: readiness.gates
           .filter((g) => g.status !== "satisfied")
@@ -171,7 +185,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const trip = db.prepare(`
-    SELECT t.*, v.code as vehicle_code FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?
+    SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
+    FROM trips t LEFT JOIN vehicles v ON t.vehicle_id = v.id
+    WHERE t.id = ?
   `).get(id);
   return NextResponse.json(trip, { status: 201 });
 }

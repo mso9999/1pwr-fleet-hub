@@ -22,12 +22,12 @@ import { useOverrideCapability } from "@/lib/useOverrideCapability";
 
 interface TripRow {
   id: string;
-  vehicle_id: string;
-  vehicle_code: string;
-  vehicle_make: string;
-  vehicle_model: string;
+  vehicle_id: string | null;
+  vehicle_code: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
   driver_name: string;
-  odo_start: number;
+  odo_start: number | null;
   odo_end: number | null;
   departure_location: string;
   destination: string;
@@ -187,7 +187,7 @@ function TripsPageContent(): React.ReactElement {
       <div className="flex items-center justify-between">
         <p className="text-sm text-zinc-500">{activeTrips.length} active · {completedTrips.length} completed</p>
         <span data-tutorial="tutorial-trips-checkout">
-          <Button onClick={() => setShowCheckout(!showCheckout)} size="lg">+ Check Out Vehicle</Button>
+          <Button onClick={() => setShowCheckout(!showCheckout)} size="lg">+ Create Trip</Button>
         </span>
       </div>
 
@@ -225,25 +225,34 @@ function TripsPageContent(): React.ReactElement {
                   <div className="flex items-center justify-between p-4">
                     <div>
                       <div className="flex items-center gap-2 font-medium flex-wrap">
-                        <Badge variant="info">{trip.vehicle_code}</Badge>
+                        {trip.vehicle_code ? (
+                          <Badge variant="info">{trip.vehicle_code}</Badge>
+                        ) : (
+                          <Badge variant="secondary">Pending allocation</Badge>
+                        )}
                         {(trip.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? (
                           <Badge variant="destructive" className="text-[10px]">Field deployment</Badge>
                         ) : (
                           <Badge variant="secondary" className="text-[10px]">Local</Badge>
                         )}
-                        {trip.vehicle_make} {trip.vehicle_model}
+                        {trip.vehicle_make ? `${trip.vehicle_make} ${trip.vehicle_model}` : null}
                       </div>
                       <div className="text-sm text-zinc-600 mt-1">
                         {trip.departure_location} → {trip.destination}
                         {trip.load_out && <span className="ml-2 text-xs text-amber-600">Load: {trip.load_out}</span>}
                       </div>
                       <div className="text-xs text-zinc-400 mt-1">
-                        Driver: {trip.driver_name || "—"} · ODO: {trip.odo_start.toLocaleString()} km
+                        Driver: {trip.driver_name || "—"}
+                        {trip.odo_start != null ? ` · ODO: ${Number(trip.odo_start).toLocaleString()} km` : ""}
                         · Out: {new Date(trip.checkout_at).toLocaleString()}
                         {trip.source !== "manual" && <Badge variant="secondary" className="ml-2 text-[10px]">{trip.source}</Badge>}
                       </div>
                     </div>
-                    <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
+                    {trip.vehicle_code ? (
+                      <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
+                    ) : (
+                      <span className="text-xs text-zinc-500">Awaiting fleet allocation</span>
+                    )}
                   </div>
                   <div className="px-4 pb-4 space-y-3">
                     <LoadoutManifestsSection
@@ -253,7 +262,7 @@ function TripsPageContent(): React.ReactElement {
                     <TripOdometerLog
                       tripId={trip.id}
                       organizationId={organizationId}
-                      odoStart={trip.odo_start}
+                      odoStart={trip.odo_start ?? 0}
                       active
                       recordedById={user?.id ?? ""}
                       recordedByName={user?.name || user?.email || ""}
@@ -354,6 +363,10 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
   const [overrideReason, setOverrideReason] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
 
+  const availableVehicles = vehicles.filter(
+    (v) => !v.status || v.status === "operational" || v.id === checkoutVehicleId,
+  );
+
   useEffect(() => {
     if (!checkoutVehicleId) {
       setReadiness(null);
@@ -438,32 +451,40 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
     }
   }
 
-  const readinessFailing = readiness !== null && !readiness.ok;
+  const readinessFailing = checkoutVehicleId !== "" && readiness !== null && !readiness.ok;
   const overrideValid =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
   const submitBlocked =
-    !checkoutVehicleId ||
-    readinessLoading ||
+    (checkoutVehicleId !== "" && readinessLoading) ||
     (readinessFailing && !overrideValid);
 
   return (
     <Card className="border-blue-200 bg-blue-50/30">
-      <CardHeader><CardTitle>Check Out Vehicle</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Create Trip</CardTitle>
+        <p className="text-sm text-zinc-500 font-normal">
+          Pick a vehicle from the available pool now, or leave it blank — fleet management
+          and approvers can assign or reassign a vehicle later. Trip readiness gates only
+          apply once a vehicle is on the trip.
+        </p>
+      </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <EntityPickerField
               name="vehicleId"
-              label="Vehicle"
-              required
+              label="Vehicle (optional)"
               value={checkoutVehicleId}
               onChange={setCheckoutVehicleId}
-              modalTitle="Pick a vehicle"
-              modalDescription="Operational vehicles you can check out today."
+              modalTitle="Pick a vehicle from the available pool"
+              modalDescription="Operational vehicles in your organization. Leave blank if you want fleet to assign one."
               searchPlaceholder="Search by code, make, model, location…"
-              placeholder="Select vehicle…"
+              placeholder="Leave to fleet (no preference)…"
               showCount
-              options={vehicles.map<EntityPickerOption>((v) => ({
+              allowClear
+              clearLabel="Leave to fleet — no preference"
+              helperText="Optional. Fleet management and approvers can reassign or replace this later."
+              options={availableVehicles.map<EntityPickerOption>((v) => ({
                 value: v.id,
                 label: `${v.code} — ${v.make} ${v.model}`,
                 description: v.current_location ?? undefined,
@@ -485,7 +506,13 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
               </select>
             </div>
             <Input name="driverName" label="Driver Name *" required placeholder="Your name" />
-            <Input name="odoStart" label="ODO Reading (km) *" type="number" required placeholder="e.g. 271964" />
+            <Input
+              name="odoStart"
+              label={checkoutVehicleId ? "ODO Reading (km) *" : "ODO Reading (km)"}
+              type="number"
+              required={!!checkoutVehicleId}
+              placeholder={checkoutVehicleId ? "e.g. 271964" : "Fill once a vehicle is assigned"}
+            />
             <Select name="departureLocation" label="Departing From *" required>
               {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
             </Select>
@@ -502,6 +529,14 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
               <textarea name="loadOut" rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" placeholder="e.g. 20x panels, 5x batteries, tools" />
             </div>
           </div>
+
+          {!checkoutVehicleId && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              No vehicle selected. The trip will be created as <strong>pending fleet allocation</strong>.
+              A fleet manager or approver can assign or reassign a vehicle later. ODO and trip-readiness
+              gates will run once a vehicle is on the trip.
+            </div>
+          )}
 
           {checkoutVehicleId && (
             <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 space-y-2">
@@ -622,11 +657,11 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
 
           <div className="flex gap-3 flex-wrap items-center">
             <Button type="submit" disabled={isSubmitting || submitBlocked} size="lg">
-              {isSubmitting ? "Checking out..." : "Confirm Check-Out"}
+              {isSubmitting ? "Creating…" : "Create Trip"}
             </Button>
             <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
             {submitBlocked && checkoutVehicleId && !readinessLoading && (
-              <span className="text-xs text-amber-700">Complete all requirements above to enable check-out.</span>
+              <span className="text-xs text-amber-700">Complete all requirements above, or use the manager override, to create the trip.</span>
             )}
           </div>
         </form>
@@ -661,12 +696,15 @@ function CheckinForm({ trip, sites, onComplete, onCancel }: {
   return (
     <Card className="border-emerald-200 bg-emerald-50/30">
       <CardHeader>
-        <CardTitle>Check In: {trip.vehicle_code}</CardTitle>
-        <p className="text-sm text-zinc-500">{trip.departure_location} → {trip.destination} · ODO out: {trip.odo_start.toLocaleString()} km</p>
+        <CardTitle>Check In: {trip.vehicle_code ?? "—"}</CardTitle>
+        <p className="text-sm text-zinc-500">
+          {trip.departure_location} → {trip.destination}
+          {trip.odo_start != null ? ` · ODO out: ${Number(trip.odo_start).toLocaleString()} km` : ""}
+        </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
-          <Input name="odoEnd" label="Current ODO (km) *" type="number" required placeholder="e.g. 272100" min={trip.odo_start} />
+          <Input name="odoEnd" label="Current ODO (km) *" type="number" required placeholder="e.g. 272100" min={trip.odo_start ?? 0} />
           <Select name="arrivalLocation" label="Arrived At *" required>
             {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
           </Select>
@@ -709,7 +747,7 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
         className={`border-b border-zinc-100 cursor-pointer hover:bg-zinc-50 scroll-mt-24 ${isExpanded ? "bg-blue-50/50" : ""}`}
         onClick={onToggle}
       >
-        <td className="py-2.5 pr-3 font-medium">{trip.vehicle_code}</td>
+        <td className="py-2.5 pr-3 font-medium">{trip.vehicle_code || <span className="text-zinc-400 italic">pending</span>}</td>
         <td className="py-2.5 pr-3 text-zinc-600">{trip.departure_location} → {trip.arrival_location || trip.destination}</td>
         <td className="py-2.5 pr-3 hidden sm:table-cell text-zinc-600">{trip.driver_name || "—"}</td>
         <td className="py-2.5 pr-3 hidden md:table-cell text-zinc-600 capitalize">{(trip.mission_type || "").replace(/-/g, " ")}</td>
@@ -729,7 +767,7 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                 <form onSubmit={onSave} className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <Input name="driverName" label="Driver Name" defaultValue={trip.driver_name} />
-                    <Input name="odoStart" label="ODO Start (km)" type="number" defaultValue={trip.odo_start.toString()} />
+                    <Input name="odoStart" label="ODO Start (km)" type="number" defaultValue={trip.odo_start?.toString() ?? ""} />
                     <Input name="odoEnd" label="ODO End (km)" type="number" defaultValue={trip.odo_end?.toString() || ""} />
                     <Select name="departureLocation" label="Departure" defaultValue={trip.departure_location}>
                       {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
@@ -772,7 +810,11 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Vehicle</div>
-                      <div className="font-medium">{trip.vehicle_code} — {trip.vehicle_make} {trip.vehicle_model}</div>
+                      <div className="font-medium">
+                        {trip.vehicle_code
+                          ? `${trip.vehicle_code} — ${trip.vehicle_make ?? ""} ${trip.vehicle_model ?? ""}`.trim()
+                          : <span className="text-amber-700">Pending fleet allocation</span>}
+                      </div>
                     </div>
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Driver</div>
@@ -792,7 +834,7 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                     </div>
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">ODO Start → End</div>
-                      <div>{trip.odo_start.toLocaleString()} → {trip.odo_end ? trip.odo_end.toLocaleString() : "—"} km</div>
+                      <div>{trip.odo_start != null ? Number(trip.odo_start).toLocaleString() : "—"} → {trip.odo_end ? trip.odo_end.toLocaleString() : "—"} km</div>
                     </div>
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Route</div>
@@ -835,7 +877,7 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                   <TripOdometerLog
                     tripId={trip.id}
                     organizationId={organizationId}
-                    odoStart={trip.odo_start}
+                    odoStart={trip.odo_start ?? 0}
                     active={false}
                     recordedById=""
                     recordedByName=""
