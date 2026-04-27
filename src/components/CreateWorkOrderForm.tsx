@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { AssigneeCombo } from "@/components/AssigneeCombo";
@@ -55,6 +59,12 @@ export function CreateWorkOrderForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [repairLoc, setRepairLoc] = useState("hq");
   const [assignedTo, setAssignedTo] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(() => {
+    if (defaultVehicleId) return defaultVehicleId;
+    if (lockVehicle) return "";
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
+  });
   const { names: mechanicOptions } = useFleetMechanicOptions(organizationId);
 
   const lockedVehicle = lockVehicle && defaultVehicleId
@@ -104,12 +114,22 @@ export function CreateWorkOrderForm({
               <input type="hidden" name="vehicleId" value={lockedVehicle.id} />
             </div>
           ) : (
-            <Select name="vehicleId" label="Vehicle *" required defaultValue={defaultVehicleId || ""}>
-              <option value="">Select vehicle...</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+            <EntityPickerField
+              name="vehicleId"
+              label="Vehicle"
+              required
+              value={selectedVehicleId}
+              onChange={setSelectedVehicleId}
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
           )}
           <Input name="title" label="Title *" required placeholder="e.g. Engine rebuild" />
           <div className="sm:col-span-2">

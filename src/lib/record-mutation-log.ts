@@ -9,9 +9,20 @@ import { v4 as uuidv4 } from "uuid";
  * Log rows are never mutated after they are written.
  */
 
-export type MutationAction = "create" | "update" | "delete" | "attest" | "authorization";
+export type MutationAction =
+  | "create"
+  | "update"
+  | "delete"
+  | "attest"
+  | "authorization"
+  | "prerequisite_override";
 
-export type MutationEntityType = "fleet_mechanic" | "ehs_approved_driver";
+export type MutationEntityType =
+  | "fleet_mechanic"
+  | "ehs_approved_driver"
+  | "trip"
+  | "vehicle_request"
+  | "vehicle_country_change_request";
 
 export interface MutationActor {
   id: string;

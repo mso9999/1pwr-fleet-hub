@@ -5,8 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { auth } from "@/lib/firebase";
 import { MECHANICAL_INSPECTION_TYPES_FOR_TRANSFER } from "@/lib/vehicle-country-change";
+import { useOverrideCapability } from "@/lib/useOverrideCapability";
 
 interface OrgRow {
   id: string;
@@ -62,6 +67,9 @@ export function VehicleCountryChangeDialog({
   const [inspections, setInspections] = useState<InspRow[]>([]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const { canOverride } = useOverrideCapability(fromOrganizationId);
 
   const loadOrgs = useCallback(() => {
     fetch("/api/organizations")
@@ -137,6 +145,9 @@ export function VehicleCountryChangeDialog({
       body.transferSummary = transferSummary.trim();
       body.missionTripId = missionTripId;
       body.mechanicalInspectionId = mechanicalInspectionId;
+      if (canOverride && overrideEnabled && overrideReason.trim().length >= 8) {
+        body.overrideReason = overrideReason.trim();
+      }
     }
 
     setSubmitting(true);
@@ -292,41 +303,110 @@ export function VehicleCountryChangeDialog({
                   />
                 </div>
 
-                <Select
-                  label="Linked mission (trip) *"
+                <EntityPickerField
+                  label="Linked mission (trip)"
+                  required
                   name="mission"
                   value={missionTripId}
-                  onChange={(e) => setMissionTripId(e.target.value)}
-                  required
-                >
-                  <option value="">Select a trip…</option>
-                  {trips.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {new Date(t.checkout_at).toLocaleString()} · {t.mission_type} → {t.destination}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setMissionTripId}
+                  modalTitle="Pick a trip for this transfer"
+                  modalDescription={`All trips recorded against ${vehicleCode}, across organizations.`}
+                  searchPlaceholder="Search by destination, mission type, date…"
+                  placeholder="Select a trip…"
+                  showCount
+                  options={trips.map<EntityPickerOption>((t) => ({
+                    value: t.id,
+                    label: `${t.mission_type} → ${t.destination}`,
+                    description: new Date(t.checkout_at).toLocaleString(),
+                    searchTokens: [t.mission_type, t.destination],
+                  }))}
+                  createCta={{
+                    label: "Create a trip",
+                    href: `/trips?vehicleId=${encodeURIComponent(vehicleId)}&returnTo=${encodeURIComponent(
+                      `/vehicles/${vehicleId}`,
+                    )}`,
+                    helperText:
+                      "Opens the Trips page with this vehicle preselected. Come back here once the trip is logged.",
+                  }}
+                  emptyState={
+                    <span>
+                      No trips yet for this vehicle. Use <strong>Create a trip</strong> above.
+                    </span>
+                  }
+                />
 
-                <Select
-                  label="Completed mechanical inspection *"
+                <EntityPickerField
+                  label="Completed mechanical inspection"
+                  required
                   name="insp"
                   value={mechanicalInspectionId}
-                  onChange={(e) => setMechanicalInspectionId(e.target.value)}
-                  required
-                >
-                  <option value="">Select inspection…</option>
-                  {inspections.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.type.replace(/-/g, " ")} · {new Date(i.created_at).toLocaleString()}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setMechanicalInspectionId}
+                  modalTitle="Pick a passing mechanical inspection"
+                  modalDescription="Detailed mechanical or Mechanical (cross-border transfer) inspections with an overall pass."
+                  searchPlaceholder="Search by inspection type or date…"
+                  placeholder="Select inspection…"
+                  showCount
+                  options={inspections.map<EntityPickerOption>((i) => ({
+                    value: i.id,
+                    label: i.type.replace(/-/g, " "),
+                    description: new Date(i.created_at).toLocaleString(),
+                    meta: "Pass",
+                    metaTone: "success",
+                  }))}
+                  createCta={{
+                    label: "Run an inspection",
+                    href: `/inspections?vehicleId=${encodeURIComponent(vehicleId)}&returnTo=${encodeURIComponent(
+                      `/vehicles/${vehicleId}`,
+                    )}`,
+                    helperText:
+                      "Opens the Inspections page. Pick Detailed mechanical or Mechanical (cross-border transfer).",
+                  }}
+                  emptyState={
+                    <span>
+                      No qualifying inspections yet. Complete a <strong>Detailed mechanical</strong> or{" "}
+                      <strong>Mechanical (cross-border transfer)</strong> checklist with an overall pass.
+                    </span>
+                  }
+                />
                 {inspections.length === 0 && (
                   <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                    No qualifying inspections yet. Complete a <strong>Detailed mechanical</strong> or{" "}
-                    <strong>Mechanical (cross-border transfer)</strong> checklist with an overall pass on the Inspections
-                    page.
+                    No qualifying inspections yet. Use the <strong>Run an inspection</strong> button in the picker
+                    above.
                   </p>
+                )}
+
+                {canOverride && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={overrideEnabled}
+                        onChange={(e) => setOverrideEnabled(e.target.checked)}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="font-medium text-amber-900">
+                          Manager / approver override
+                        </span>
+                        <span className="block text-xs text-amber-800">
+                          Bypass the trip and / or mechanical inspection requirement. Override and
+                          reason are logged with the request.
+                        </span>
+                      </span>
+                    </label>
+                    {overrideEnabled && (
+                      <textarea
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        rows={2}
+                        placeholder="Why is the trip / inspection requirement waived for this transfer?"
+                        className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      />
+                    )}
+                    {overrideEnabled && overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
+                      <p className="text-xs text-amber-700">Reason needs at least 8 characters.</p>
+                    )}
+                  </div>
                 )}
               </>
             )}

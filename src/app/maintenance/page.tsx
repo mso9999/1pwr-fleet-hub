@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 
 interface VehicleOption {
@@ -236,6 +240,10 @@ function ScheduleForm({
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
+  });
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -273,12 +281,22 @@ function ScheduleForm({
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Select name="vehicleId" label="Vehicle *" required>
-              <option value="">Select vehicle…</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+            <EntityPickerField
+              name="vehicleId"
+              label="Vehicle"
+              required
+              value={selectedVehicleId}
+              onChange={setSelectedVehicleId}
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
             <Select name="maintenanceType" label="Type *" required>
               {MAINTENANCE_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>

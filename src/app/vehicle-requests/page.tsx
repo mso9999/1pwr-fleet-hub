@@ -7,11 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 import { lPer100kmToUsMpg } from "@/lib/vehicle-fuel-lookup";
+import { useOverrideCapability } from "@/lib/useOverrideCapability";
 import { cn } from "@/lib/utils";
 
 interface RequestRow {
@@ -923,19 +928,29 @@ function RequestDetailModal({
           {canAllocateVehicle && (r.status === "approved" || r.status === "requested") && !r.assigned_vehicle_id && (
             <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="flex-1 min-w-[200px]">
-                <label className="text-xs font-medium text-zinc-600 block mb-1">Assign vehicle</label>
-                <select
+                <EntityPickerField
+                  label="Assign vehicle"
                   value={assignVehicleId}
-                  onChange={(e) => setAssignVehicleId(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white"
-                >
-                  <option value="">Select available vehicle…</option>
-                  {availableVehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.code} — {v.make} {v.model} ({v.pool})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setAssignVehicleId}
+                  modalTitle="Pick an available vehicle"
+                  modalDescription="Operational vehicles in the pool, grouped by make + model."
+                  searchPlaceholder="Search by code, make, model, pool…"
+                  placeholder="Select available vehicle…"
+                  showCount
+                  options={availableVehicles.map<EntityPickerOption>((v) => ({
+                    value: v.id,
+                    label: `${v.code} — ${v.make} ${v.model}`,
+                    description: `Pool: ${v.pool}${v.current_location ? ` · ${v.current_location}` : ""}`,
+                    meta: v.pool,
+                    metaTone: "info",
+                    searchTokens: [v.code, v.make, v.model, v.pool, v.current_location ?? ""],
+                  }))}
+                  emptyState={
+                    <span>
+                      No operational vehicles available right now. Check the pool for deployed or maintenance status.
+                    </span>
+                  }
+                />
               </div>
               <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
                 Assign
@@ -1045,6 +1060,9 @@ function RequestForm({
   const [missionSubmitting, setMissionSubmitting] = useState(false);
   const [missionFormError, setMissionFormError] = useState("");
   const [vrFormError, setVrFormError] = useState("");
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const { canOverride } = useOverrideCapability(organizationId);
   const [missionMessage, setMissionMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
@@ -1197,11 +1215,13 @@ function RequestForm({
   async function handleVehicleRequest(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setVrFormError("");
-    if (!canRequestVehicle) {
+    const overrideReady =
+      canOverride && overrideEnabled && overrideReason.trim().length >= 8;
+    if (!canRequestVehicle && !overrideReady) {
       setVrFormError("Only drivers on the EHS approved drivers register may request a vehicle.");
       return;
     }
-    if (!selectedMissionId) {
+    if (!selectedMissionId && !overrideReady) {
       setVrFormError("Select an approved mission.");
       return;
     }
@@ -1218,23 +1238,27 @@ function RequestForm({
     }
     const fd = new FormData(e.currentTarget);
     setVrSubmitting(true);
+    const payload: Record<string, unknown> = {
+      organizationId,
+      missionId: selectedMissionId,
+      requestedById: userId,
+      requestedByName: userName,
+      requestedFor,
+      purpose: fd.get("purpose") || "",
+      passengers: fd.get("passengers") || "",
+      requiredVehicleClass: fd.get("requiredVehicleClass") || "",
+      loadoutDescription: fd.get("loadoutDescription") || "",
+      priority: fd.get("priority") || "normal",
+      rrStatus: fd.get("rrStatus") || "na",
+      notes: fd.get("notes") || "",
+    };
+    if (overrideReady) {
+      payload.overrideReason = overrideReason.trim();
+    }
     const res = await fetch("/api/vehicle-requests", {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({
-        organizationId,
-        missionId: selectedMissionId,
-        requestedById: userId,
-        requestedByName: userName,
-        requestedFor,
-        purpose: fd.get("purpose") || "",
-        passengers: fd.get("passengers") || "",
-        requiredVehicleClass: fd.get("requiredVehicleClass") || "",
-        loadoutDescription: fd.get("loadoutDescription") || "",
-        priority: fd.get("priority") || "normal",
-        rrStatus: fd.get("rrStatus") || "na",
-        notes: fd.get("notes") || "",
-      }),
+      body: JSON.stringify(payload),
     });
     setVrSubmitting(false);
     if (res.ok) onComplete();
@@ -1343,27 +1367,40 @@ function RequestForm({
           </p>
         </CardHeader>
         <CardContent>
-          {!canRequestVehicle ? (
+          {!canRequestVehicle && !canOverride ? (
             <p className="text-sm text-amber-900 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
               Your account is not on the EHS approved drivers register for this organization. Ask EHS or fleet to add you if you are eligible to drive company vehicles.
             </p>
           ) : (
             <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-zinc-700 block mb-1">Approved mission *</label>
-                <select
+              <div className="max-w-xl">
+                <EntityPickerField
+                  label="Approved mission"
                   required
                   value={selectedMissionId}
-                  onChange={(e) => setSelectedMissionId(e.target.value)}
-                  className="h-10 w-full max-w-xl rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">{missionsLoading ? "Loading…" : "Select an approved mission…"}</option>
-                  {approvedMissions.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {(m.title?.trim() || m.destination).slice(0, 72)} · {m.departure_date || "—"}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedMissionId}
+                  modalTitle="Pick an approved mission"
+                  modalDescription="Only management-approved missions are listed. Create one above and wait for approval if you don't see it."
+                  searchPlaceholder="Search by title, destination, dates…"
+                  placeholder={missionsLoading ? "Loading…" : "Select an approved mission…"}
+                  loading={missionsLoading}
+                  showCount
+                  options={approvedMissions.map<EntityPickerOption>((m) => ({
+                    value: m.id,
+                    label: (m.title?.trim() || m.destination).slice(0, 96),
+                    description: `${m.destination}${m.departure_date ? ` · ${m.departure_date}` : ""}${
+                      m.return_date ? ` → ${m.return_date}` : ""
+                    }`,
+                    meta: "Approved",
+                    metaTone: "success",
+                    searchTokens: [m.title, m.destination, m.departure_date, m.return_date],
+                  }))}
+                  emptyState={
+                    <span>
+                      No approved missions yet. Submit one in step 1 and wait for management approval.
+                    </span>
+                  }
+                />
                 {!missionsLoading && approvedMissions.length === 0 && (
                   <p className="text-xs text-amber-800 mt-1">
                     No approved missions yet. Create a mission above and wait for management approval.
@@ -1429,6 +1466,39 @@ function RequestForm({
                 </Select>
               </div>
               <Input name="notes" label="Notes" placeholder="Additional information" />
+              {canOverride && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={overrideEnabled}
+                      onChange={(e) => setOverrideEnabled(e.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="font-medium text-amber-900">
+                        Manager / approver override
+                      </span>
+                      <span className="block text-xs text-amber-800">
+                        Bypass the EHS-approved-driver gate or the approved-mission requirement.
+                        Use sparingly. Override and reason are logged with this request.
+                      </span>
+                    </span>
+                  </label>
+                  {overrideEnabled && (
+                    <textarea
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      rows={2}
+                      placeholder="Why are you bypassing? (e.g. urgent maintenance run, driver newly approved offline, mission still pending sign-off but field-critical, etc.)"
+                      className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    />
+                  )}
+                  {overrideEnabled && overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
+                    <p className="text-xs text-amber-700">Reason needs at least 8 characters.</p>
+                  )}
+                </div>
+              )}
               {vrFormError && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{vrFormError}</div>
               )}

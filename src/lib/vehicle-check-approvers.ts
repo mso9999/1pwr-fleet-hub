@@ -67,3 +67,18 @@ export function canFullyManageVehicleRequests(userRole: string): boolean {
 export function canAllocateFleetVehicle(userRole: string): boolean {
   return userRole === "fleet_lead" || userRole === "superadmin";
 }
+
+/**
+ * Manager / approver override for a missing trip / checklist / inspection / approved mission gate.
+ *
+ * Same set as mission approvers: admins, fleet management, and PR-credentialed approvers in the org.
+ * Used by the override panel on trip checkout, vehicle request submit, and country change requests.
+ */
+export function canOverridePrerequisite(
+  db: Database,
+  organizationId: string,
+  userEmail: string,
+  userRole: string,
+): boolean {
+  return canApproveMissionRequests(db, organizationId, userEmail, userRole);
+}

@@ -8,12 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
 import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
 import { TripOdometerLog } from "@/components/TripOdometerLog";
 import { MISSION_PROFILE } from "@/lib/trip-readiness";
+import { useOverrideCapability } from "@/lib/useOverrideCapability";
 
 interface TripRow {
   id: string;
@@ -334,13 +339,20 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
   onCancel: () => void;
 }): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [checkoutVehicleId, setCheckoutVehicleId] = useState("");
+  const [checkoutVehicleId, setCheckoutVehicleId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
+  });
   const [missionProfile, setMissionProfile] = useState<string>(MISSION_PROFILE.LOCAL);
+
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isMultiStop, setIsMultiStop] = useState(false);
   const [stops, setStops] = useState<StopInput[]>([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const { canOverride } = useOverrideCapability(organizationId);
 
   useEffect(() => {
     if (!checkoutVehicleId) {
@@ -406,6 +418,10 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
       body.stops = stops.filter((s) => s.location);
     }
 
+    if (canOverride && overrideEnabled && overrideReason.trim().length > 0) {
+      body.overrideReason = overrideReason.trim();
+    }
+
     const res = await fetch("/api/trips", {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
@@ -422,10 +438,13 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
     }
   }
 
+  const readinessFailing = readiness !== null && !readiness.ok;
+  const overrideValid =
+    canOverride && overrideEnabled && overrideReason.trim().length >= 8;
   const submitBlocked =
     !checkoutVehicleId ||
     readinessLoading ||
-    (readiness !== null && !readiness.ok);
+    (readinessFailing && !overrideValid);
 
   return (
     <Card className="border-blue-200 bg-blue-50/30">
@@ -433,18 +452,26 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Select
+            <EntityPickerField
               name="vehicleId"
-              label="Vehicle *"
+              label="Vehicle"
               required
               value={checkoutVehicleId}
-              onChange={(e) => setCheckoutVehicleId(e.target.value)}
-            >
-              <option value="">Select vehicle...</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model} ({v.current_location})</option>
-              ))}
-            </Select>
+              onChange={setCheckoutVehicleId}
+              modalTitle="Pick a vehicle"
+              modalDescription="Operational vehicles you can check out today."
+              searchPlaceholder="Search by code, make, model, location…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                description: v.current_location ?? undefined,
+                meta: v.status,
+                metaTone: v.status === "operational" ? "success" : "warning",
+                searchTokens: [v.code, v.make, v.model, v.current_location ?? "", v.status ?? ""],
+              }))}
+            />
             <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
               <label className="text-sm font-medium text-zinc-700">Trip kind *</label>
               <p className="text-xs text-zinc-500 -mt-0.5 mb-0">Local = errands around town. Field = deployments needing a recent detailed inspection.</p>
@@ -498,11 +525,60 @@ function CheckoutForm({ vehicles, sites, missionTypes, organizationId, onComplet
               {!readinessLoading && readiness && !readiness.ok && (
                 <p className="text-xs text-zinc-500 pt-1">
                   Open{" "}
-                  <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">Vehicle checks</Link>
+                  <Link
+                    href={`/vehicle-checks?vehicleId=${encodeURIComponent(checkoutVehicleId)}&returnTo=${encodeURIComponent(
+                      "/trips",
+                    )}`}
+                    className="text-blue-600 underline font-medium"
+                  >
+                    Vehicle checks
+                  </Link>
                   {" "}or{" "}
-                  <Link href="/inspections" className="text-blue-600 underline font-medium">Inspections</Link>
+                  <Link
+                    href={`/inspections?vehicleId=${encodeURIComponent(checkoutVehicleId)}&returnTo=${encodeURIComponent(
+                      "/trips",
+                    )}`}
+                    className="text-blue-600 underline font-medium"
+                  >
+                    Inspections
+                  </Link>
                   {" "}as needed, then return here.
                 </p>
+              )}
+              {!readinessLoading && readiness && !readiness.ok && canOverride && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={overrideEnabled}
+                      onChange={(e) => setOverrideEnabled(e.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="font-medium text-amber-900">
+                        Manager / approver override
+                      </span>
+                      <span className="block text-xs text-amber-800">
+                        Use sparingly. The override and your reason are logged in the audit trail
+                        for this trip and visible to fleet managers.
+                      </span>
+                    </span>
+                  </label>
+                  {overrideEnabled && (
+                    <textarea
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      rows={2}
+                      placeholder="Why are you bypassing the trip readiness gate? (e.g. emergency callout, vehicle inspection completed offline, etc.)"
+                      className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    />
+                  )}
+                  {overrideEnabled && overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
+                    <p className="text-xs text-amber-700">
+                      Reason needs at least 8 characters.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}

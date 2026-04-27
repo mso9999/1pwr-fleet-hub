@@ -3,8 +3,11 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MEDIA_CATEGORY } from "@/types";
@@ -295,7 +298,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
+  });
 
   const selectedAssetClass = useMemo(() => {
     const v = vehicles.find((x) => x.id === selectedVehicleId);
@@ -561,18 +567,24 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
           {/* Header fields */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Select
+            <EntityPickerField
               name="vehicleId"
-              label="Vehicle *"
+              label="Vehicle"
               required
               value={selectedVehicleId}
-              onChange={(e) => setSelectedVehicleId(e.target.value)}
-            >
-              <option value="">Select vehicle…</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+              onChange={setSelectedVehicleId}
+              modalTitle="Pick a vehicle"
+              modalDescription="Search the full fleet by code, make, or model."
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                description: v.asset_class ?? undefined,
+                searchTokens: [v.code, v.make, v.model, v.asset_class ?? ""],
+              }))}
+            />
             <ApprovedDriverCombobox
               value={driverName}
               onChange={setDriverName}

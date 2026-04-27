@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import type { InspectionRating } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { VehicleBodyDiagram } from "@/components/VehicleBodyDiagram";
@@ -154,21 +158,21 @@ export function InspectionEditForm({
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-sm font-medium text-zinc-700 block mb-1">Vehicle</label>
-              <select
-                value={vehicleId}
-                onChange={(e) => setVehicleId(e.target.value)}
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-                required
-              >
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.code} — {v.make} {v.model}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <EntityPickerField
+              label="Vehicle"
+              required
+              value={vehicleId}
+              onChange={setVehicleId}
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
             <Input
               label="Inspector name"
               value={inspectorName}

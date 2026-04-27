@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { evaluateTripReadiness } from "@/lib/trip-readiness";
+import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -54,15 +56,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     referenceNow: new Date(now),
   });
 
+  const overrideReasonRaw = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+  let overrideApplied = false;
+
   if (!readiness.ok) {
-    return NextResponse.json(
-      {
-        error: "Trip readiness requirements are not met. Complete the items below, then try again.",
-        gates: readiness.gates,
-        missionProfile: readiness.missionProfile,
-      },
-      { status: 400 }
-    );
+    if (overrideReasonRaw.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Trip readiness requirements are not met. Complete the items below, then try again.",
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+        },
+        { status: 400 },
+      );
+    }
+    if (!canOverridePrerequisite(db, organizationId, user.email, user.role)) {
+      return NextResponse.json(
+        {
+          error:
+            "You do not have permission to override the trip readiness gate. Ask a fleet manager or PR-credentialed approver.",
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+        },
+        { status: 403 },
+      );
+    }
+    if (overrideReasonRaw.length < 8) {
+      return NextResponse.json(
+        {
+          error: "Provide a longer override reason (at least 8 characters) so this bypass is auditable.",
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+        },
+        { status: 400 },
+      );
+    }
+    overrideApplied = true;
   }
 
   db.prepare(`
@@ -122,6 +151,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run("trip", id, null, "checked-out", body.driverName || "", now);
+
+  if (overrideApplied) {
+    recordMutation(db, {
+      entityType: "trip",
+      entityId: id,
+      organizationId,
+      action: "prerequisite_override",
+      actor: actorFrom(user),
+      after: {
+        vehicleId: body.vehicleId,
+        missionProfile: readiness.missionProfile,
+        gatesBypassed: readiness.gates
+          .filter((g) => g.status !== "satisfied")
+          .map((g) => ({ id: g.id, label: g.label, detail: g.detail })),
+      },
+      reason: overrideReasonRaw,
+    });
+  }
 
   const trip = db.prepare(`
     SELECT t.*, v.code as vehicle_code FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?

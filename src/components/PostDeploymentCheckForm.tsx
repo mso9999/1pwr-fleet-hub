@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 import type { InspectionRating } from "@/types";
 
@@ -67,6 +70,7 @@ export function PostDeploymentCheckForm({
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState(preselectedVehicleId ?? "");
 
   function setRating(idx: number, rating: InspectionRating) {
     setRatings((prev) => ({ ...prev, [idx]: rating }));
@@ -131,12 +135,22 @@ export function PostDeploymentCheckForm({
       <CardContent>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-3">
-            <Select name="vehicleId" label="Vehicle *" required defaultValue={preselectedVehicleId || ""}>
-              <option value="">Select vehicle…</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+            <EntityPickerField
+              name="vehicleId"
+              label="Vehicle"
+              required
+              value={selectedVehicleId}
+              onChange={setSelectedVehicleId}
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
             <Input name="mechanicName" label="Mechanic *" required placeholder="Your name" defaultValue={user?.name || ""} />
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>

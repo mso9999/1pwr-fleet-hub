@@ -6,6 +6,8 @@ import {
   MECHANICAL_INSPECTION_TYPES_FOR_TRANSFER,
   isVehicleCountryChangeKind,
 } from "@/lib/vehicle-country-change";
+import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 export async function GET(
   request: NextRequest,
@@ -118,6 +120,12 @@ export async function POST(
     const missionTripId = typeof body.missionTripId === "string" ? body.missionTripId.trim() : "";
     const mechanicalInspectionId =
       typeof body.mechanicalInspectionId === "string" ? body.mechanicalInspectionId.trim() : "";
+    const overrideReasonRaw =
+      typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+    const overrideUsable =
+      overrideReasonRaw.length >= 8 &&
+      canOverridePrerequisite(db, fromOrganizationId, user.email, user.role);
+    const bypassedGates: Array<{ id: string; detail: string }> = [];
 
     if (!effectiveDate) {
       return NextResponse.json({ error: "effectiveDate is required for transfers" }, { status: 400 });
@@ -132,50 +140,82 @@ export async function POST(
       );
     }
     if (!missionTripId) {
-      return NextResponse.json({ error: "missionTripId (trip / mission) is required for transfers" }, { status: 400 });
+      if (!overrideUsable) {
+        return NextResponse.json({ error: "missionTripId (trip / mission) is required for transfers" }, { status: 400 });
+      }
+      bypassedGates.push({ id: "trip_required", detail: "Submitted without a linked trip." });
     }
     if (!mechanicalInspectionId) {
-      return NextResponse.json(
-        { error: "mechanicalInspectionId is required for transfers" },
-        { status: 400 }
-      );
+      if (!overrideUsable) {
+        return NextResponse.json(
+          { error: "mechanicalInspectionId is required for transfers" },
+          { status: 400 }
+        );
+      }
+      bypassedGates.push({
+        id: "inspection_required",
+        detail: "Submitted without a passing mechanical inspection.",
+      });
     }
 
-    const trip = db.prepare("SELECT id, vehicle_id FROM trips WHERE id = ?").get(missionTripId) as
-      | { id: string; vehicle_id: string }
-      | undefined;
-    if (!trip || trip.vehicle_id !== vehicleId) {
-      return NextResponse.json(
-        { error: "Mission trip not found or does not belong to this vehicle" },
-        { status: 400 }
-      );
+    if (missionTripId) {
+      const trip = db.prepare("SELECT id, vehicle_id FROM trips WHERE id = ?").get(missionTripId) as
+        | { id: string; vehicle_id: string }
+        | undefined;
+      if (!trip || trip.vehicle_id !== vehicleId) {
+        if (!overrideUsable) {
+          return NextResponse.json(
+            { error: "Mission trip not found or does not belong to this vehicle" },
+            { status: 400 }
+          );
+        }
+        bypassedGates.push({ id: "trip_mismatch", detail: "Linked trip is not for this vehicle." });
+      }
     }
 
-    const insp = db
-      .prepare("SELECT id, vehicle_id, overall_pass, type FROM inspections WHERE id = ?")
-      .get(mechanicalInspectionId) as
-      | { id: string; vehicle_id: string; overall_pass: number; type: string }
-      | undefined;
-    if (!insp || insp.vehicle_id !== vehicleId) {
-      return NextResponse.json(
-        { error: "Mechanical inspection not found or does not belong to this vehicle" },
-        { status: 400 }
-      );
-    }
-    if (!insp.overall_pass) {
-      return NextResponse.json(
-        { error: "Mechanical inspection must be completed with an overall pass" },
-        { status: 400 }
-      );
-    }
-    if (!MECHANICAL_INSPECTION_TYPES_FOR_TRANSFER.has(insp.type)) {
-      return NextResponse.json(
-        {
-          error:
-            "Inspection must be a completed mechanical checklist (type detailed or mechanical-transfer)",
-        },
-        { status: 400 }
-      );
+    if (mechanicalInspectionId) {
+      const insp = db
+        .prepare("SELECT id, vehicle_id, overall_pass, type FROM inspections WHERE id = ?")
+        .get(mechanicalInspectionId) as
+        | { id: string; vehicle_id: string; overall_pass: number; type: string }
+        | undefined;
+      if (!insp || insp.vehicle_id !== vehicleId) {
+        if (!overrideUsable) {
+          return NextResponse.json(
+            { error: "Mechanical inspection not found or does not belong to this vehicle" },
+            { status: 400 }
+          );
+        }
+        bypassedGates.push({
+          id: "inspection_mismatch",
+          detail: "Linked inspection is not for this vehicle.",
+        });
+      } else if (!insp.overall_pass) {
+        if (!overrideUsable) {
+          return NextResponse.json(
+            { error: "Mechanical inspection must be completed with an overall pass" },
+            { status: 400 }
+          );
+        }
+        bypassedGates.push({
+          id: "inspection_not_pass",
+          detail: "Linked inspection did not have an overall pass.",
+        });
+      } else if (!MECHANICAL_INSPECTION_TYPES_FOR_TRANSFER.has(insp.type)) {
+        if (!overrideUsable) {
+          return NextResponse.json(
+            {
+              error:
+                "Inspection must be a completed mechanical checklist (type detailed or mechanical-transfer)",
+            },
+            { status: 400 }
+          );
+        }
+        bypassedGates.push({
+          id: "inspection_wrong_type",
+          detail: `Linked inspection type ${insp.type} is not a transfer mechanical checklist.`,
+        });
+      }
     }
 
     db.prepare(
@@ -201,6 +241,24 @@ export async function POST(
       now,
       now
     );
+
+    if (bypassedGates.length > 0) {
+      recordMutation(db, {
+        entityType: "vehicle_country_change_request",
+        entityId: id,
+        organizationId: fromOrganizationId,
+        action: "prerequisite_override",
+        actor: actorFrom(user),
+        after: {
+          vehicleId,
+          kind,
+          missionTripId: missionTripId || null,
+          mechanicalInspectionId: mechanicalInspectionId || null,
+          gatesBypassed: bypassedGates,
+        },
+        reason: overrideReasonRaw,
+      });
+    }
   }
 
   const created = db.prepare("SELECT * FROM vehicle_country_change_requests WHERE id = ?").get(id);

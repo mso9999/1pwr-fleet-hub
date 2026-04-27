@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import type { InspectionRating } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { DriverProficiencyChecklistForm } from "@/components/DriverProficiencyChecklistForm";
@@ -329,6 +332,10 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
   const [pendingFailPhotos, setPendingFailPhotos] = useState<Record<number, File[]>>({});
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedVehicleId, setSelectedVehicleId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
+  });
 
   function resetDraft(): void {
     setRatings({});
@@ -474,12 +481,22 @@ function InspectionForm({ vehicles, organizationId, onComplete, onCancel }: {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <Select name="vehicleId" label="Vehicle *" required>
-              <option value="">Select vehicle...</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+            <EntityPickerField
+              name="vehicleId"
+              label="Vehicle"
+              required
+              value={selectedVehicleId}
+              onChange={setSelectedVehicleId}
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
             <Input name="inspectorName" label="Inspector name *" required placeholder="Your name" />
           </div>
 

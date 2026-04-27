@@ -5,6 +5,8 @@ import { isApprovedDriverForCategory } from "@/lib/approved-drivers";
 import { DEFAULT_OPERATOR_CATEGORY } from "@/lib/ehs-operator-categories";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
+import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -58,53 +60,80 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const orgId = String(body.organizationId || "1pwr_lesotho");
+  const overrideReasonRaw = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+  const hasOverridePermission = canOverridePrerequisite(db, orgId, user.email, user.role);
+  const wantsOverride = overrideReasonRaw.length > 0;
+  const overrideUsable = wantsOverride && hasOverridePermission && overrideReasonRaw.length >= 8;
+  const bypassedGates: Array<{ id: string; detail: string }> = [];
+
   if (
     !isApprovedDriverForCategory(db, orgId, user.email, DEFAULT_OPERATOR_CATEGORY) &&
     user.role !== "superadmin"
   ) {
-    return NextResponse.json(
-      {
-        error:
-          "Only drivers on the EHS approved drivers register may request a vehicle. Ask EHS or fleet to add you if eligible.",
-      },
-      { status: 403 }
-    );
+    if (!overrideUsable) {
+      return NextResponse.json(
+        {
+          error: wantsOverride
+            ? "Override needs at least 8 characters in the reason field, and you must be an admin or PR-credentialed approver."
+            : "Only drivers on the EHS approved drivers register may request a vehicle. Ask EHS or fleet to add you if eligible.",
+        },
+        { status: 403 },
+      );
+    }
+    bypassedGates.push({
+      id: "ehs_approved_driver",
+      detail: "Submitter is not on the EHS approved drivers register for this category.",
+    });
   }
 
   const missionId = body.missionId ? String(body.missionId) : "";
+  let existingMission: Record<string, unknown> | undefined;
+
   if (!missionId) {
-    return NextResponse.json(
-      {
-        error:
-          "Link this request to an approved mission (missionId). Create a mission first and wait for management approval if needed.",
-      },
-      { status: 400 }
-    );
+    if (!overrideUsable) {
+      return NextResponse.json(
+        {
+          error:
+            "Link this request to an approved mission (missionId). Create a mission first and wait for management approval if needed.",
+        },
+        { status: 400 },
+      );
+    }
+    bypassedGates.push({
+      id: "approved_mission_required",
+      detail: "Submitted without an approved mission link.",
+    });
+  } else {
+    existingMission = db
+      .prepare("SELECT * FROM missions WHERE id = ? AND organization_id = ?")
+      .get(missionId, orgId) as Record<string, unknown> | undefined;
+    if (!existingMission) {
+      return NextResponse.json({ error: "Mission not found for this organization." }, { status: 400 });
+    }
+
+    const approvalStatus = String(existingMission.approval_status ?? "pending").toLowerCase();
+    if (approvalStatus !== "approved") {
+      if (!overrideUsable) {
+        return NextResponse.json(
+          {
+            error:
+              "This mission is not approved yet. An authorised manager must approve the mission before you can request a vehicle.",
+          },
+          { status: 400 },
+        );
+      }
+      bypassedGates.push({
+        id: "mission_not_approved",
+        detail: `Mission ${missionId} approval_status=${approvalStatus} bypassed.`,
+      });
+    }
   }
 
-  const existingMission = db
-    .prepare("SELECT * FROM missions WHERE id = ? AND organization_id = ?")
-    .get(missionId, orgId) as Record<string, unknown> | undefined;
-  if (!existingMission) {
-    return NextResponse.json({ error: "Mission not found for this organization." }, { status: 400 });
-  }
-
-  const approvalStatus = String(existingMission.approval_status ?? "pending").toLowerCase();
-  if (approvalStatus !== "approved") {
-    return NextResponse.json(
-      {
-        error:
-          "This mission is not approved yet. An authorised manager must approve the mission before you can request a vehicle.",
-      },
-      { status: 400 }
-    );
-  }
-
-  const destination = String(existingMission.destination ?? "");
-  const departureDate = String(existingMission.departure_date ?? "");
-  const returnDate = String(existingMission.return_date ?? "");
-  const passengersDefault = String(existingMission.passengers ?? "");
-  const loadoutDefault = String(existingMission.loadout_summary ?? "");
+  const destination = String(existingMission?.destination ?? body.destination ?? "");
+  const departureDate = String(existingMission?.departure_date ?? body.departureDate ?? "");
+  const returnDate = String(existingMission?.return_date ?? body.returnDate ?? "");
+  const passengersDefault = String(existingMission?.passengers ?? "");
+  const loadoutDefault = String(existingMission?.loadout_summary ?? "");
 
   const requestedById = user.id;
   const requestedByName = user.name || user.email;
@@ -123,7 +152,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   `).run(
     id,
     orgId,
-    missionId,
+    missionId || null,
     requestedById,
     requestedByName,
     body.requestedFor || "",
@@ -145,6 +174,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   await recalculateVehicleRequestFuel(db, id);
+
+  if (overrideUsable && bypassedGates.length > 0) {
+    recordMutation(db, {
+      entityType: "vehicle_request",
+      entityId: id,
+      organizationId: orgId,
+      action: "prerequisite_override",
+      actor: actorFrom(user),
+      after: {
+        missionId: missionId || null,
+        gatesBypassed: bypassedGates,
+      },
+      reason: overrideReasonRaw,
+    });
+  }
 
   const row = db.prepare(`
     SELECT ${VR_SELECT_FIELDS}

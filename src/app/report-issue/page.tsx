@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  EntityPickerField,
+  type EntityPickerOption,
+} from "@/components/ui/entity-picker";
 import { useAuth } from "@/lib/auth-context";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 import { FIELD_ISSUE_CLOSEOUT_OUTCOME, ISSUE_SEVERITY } from "@/types";
@@ -363,22 +367,25 @@ export default function ReportIssuePage(): React.ReactElement {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Select
+            <EntityPickerField
               name="vehicleId"
-              label="Vehicle *"
+              label="Vehicle"
               required
               value={vehicleId}
-              onChange={(e) => {
-                const id = e.target.value;
+              onChange={(id) => {
                 setVehicleId(id);
                 void loadIncidentLocationForVehicle(id);
               }}
-            >
-              <option value="">Select vehicle...</option>
-              {vehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.code} — {v.make} {v.model}</option>
-              ))}
-            </Select>
+              modalTitle="Pick a vehicle"
+              searchPlaceholder="Search by code, make, model…"
+              placeholder="Select vehicle…"
+              showCount
+              options={vehicles.map<EntityPickerOption>((v) => ({
+                value: v.id,
+                label: `${v.code} — ${v.make} ${v.model}`,
+                searchTokens: [v.code, v.make, v.model],
+              }))}
+            />
 
             <Input name="title" label="What's the problem? *" required placeholder="e.g. Brake warning light on, flat tire, engine noise" />
 
