@@ -76,6 +76,24 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     suggestion: "Example: code TUT-R1, Ford Ranger, category 4WD, home HQ — or use the seeded TUT- demo row only.",
   },
   {
+    id: "vehicles-open-detail",
+    path: "/vehicles",
+    target: "tutorial-vehicles-first-link",
+    title: "Open a vehicle to manage it",
+    body:
+      "Click any vehicle code in the table to open its dashboard: status, history, tracker, and quick actions live here. The next step highlights the status switcher.",
+    suggestion: "Tap a vehicle code (any row) before pressing Next so the highlight lands on the detail page.",
+  },
+  {
+    id: "vehicles-status-change",
+    path: "/vehicles",
+    target: "tutorial-vehicle-status-change",
+    title: "Set operational / under-maintenance status",
+    body:
+      "Quick Status Change is where the fleet team flips a vehicle to maintenance-hq, maintenance-3rdparty, awaiting-parts, grounded, or written-off — and back to operational when work is done. Deployed flips automatically when a trip starts and back to operational on check-in, so you don't need to set those by hand.",
+    suggestion: "Status changes are appended to the vehicle's status history (visible just below the card) for audit.",
+  },
+  {
     id: "nav-trips",
     path: "/vehicles",
     target: "nav-trips",

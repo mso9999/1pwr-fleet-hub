@@ -447,11 +447,19 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tutorial="tutorial-vehicle-status-change">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Quick Status Change</CardTitle>
           </div>
+          <p className="text-sm text-zinc-500 font-normal">
+            Set the vehicle&rsquo;s operational status. <strong>deployed</strong> flips automatically
+            when a trip is created with this vehicle and back to <strong>operational</strong> on
+            check-in. Use the buttons below to mark <strong>maintenance-hq</strong>,
+            <strong> maintenance-3rdparty</strong>, <strong>awaiting-parts</strong>,
+            <strong> grounded</strong>, or <strong>written-off</strong> when needed. Changes are
+            logged in the status history below.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
