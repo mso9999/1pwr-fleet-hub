@@ -121,3 +121,14 @@ export function canViewFleetMechanicsRegister(
 ): boolean {
   return true;
 }
+
+/**
+ * Approve a vehicle status change that requires management sign-off (today: written-off).
+ * Admins, fleet management, finance/superadmin, or executives.
+ */
+export function canSignOffVehicleStatus(role: string): boolean {
+  if (isFleetManagementRole(role)) return true;
+  if (isExecutiveRole(role)) return true;
+  if (isFinanceOrSuperAdmin(role)) return true;
+  return false;
+}

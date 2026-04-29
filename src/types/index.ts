@@ -35,6 +35,12 @@ export interface ReferenceDataItem {
 export const VEHICLE_STATUS = {
   OPERATIONAL: "operational",
   DEPLOYED: "deployed",
+  /**
+   * Pre-WO investigation state. Fleet has flagged the vehicle for inspection but
+   * hasn't decided yet whether it goes into the workshop, needs parts, or stays in service.
+   * Free to set; no open work order required.
+   */
+  DIAGNOSIS: "diagnosis",
   MAINTENANCE_HQ: "maintenance-hq",
   MAINTENANCE_3RD: "maintenance-3rdparty",
   AWAITING_PARTS: "awaiting-parts",
@@ -43,6 +49,24 @@ export const VEHICLE_STATUS = {
 } as const;
 
 export type VehicleStatus = (typeof VEHICLE_STATUS)[keyof typeof VEHICLE_STATUS];
+
+/**
+ * Vehicle statuses that require at least one open work order (status in
+ * submitted | queued | in-progress | awaiting-parts) to set or remain in.
+ */
+export const VEHICLE_STATUSES_REQUIRING_OPEN_WO: VehicleStatus[] = [
+  VEHICLE_STATUS.MAINTENANCE_HQ,
+  VEHICLE_STATUS.MAINTENANCE_3RD,
+  VEHICLE_STATUS.AWAITING_PARTS,
+  VEHICLE_STATUS.GROUNDED,
+];
+
+/**
+ * Vehicle statuses that require management sign-off (admin / manager / superadmin / executive).
+ */
+export const VEHICLE_STATUSES_REQUIRING_SIGNOFF: VehicleStatus[] = [
+  VEHICLE_STATUS.WRITTEN_OFF,
+];
 
 /** Fleet vehicle / equipment category (stored in vehicles.asset_class). */
 export const ASSET_CLASS = {

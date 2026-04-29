@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
+import {
+  VEHICLE_STATUS,
+  VEHICLE_STATUSES_REQUIRING_OPEN_WO,
+  VEHICLE_STATUSES_REQUIRING_SIGNOFF,
+  type VehicleStatus,
+} from "@/types";
+import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
+import { v4 as uuidv4 } from "uuid";
+
+/** WO statuses that count as "open" for vehicle-status enforcement. */
+const OPEN_WO_STATUSES = ["submitted", "queued", "in-progress", "awaiting-parts"] as const;
 
 export async function GET(
   _request: NextRequest,
@@ -84,6 +95,92 @@ export async function PATCH(
     fuelConsumptionSource: "fuel_consumption_source",
   };
 
+  // Enforce status preconditions before staging the column update.
+  let signoffRow: {
+    id: string;
+    approverId: string;
+    approverName: string;
+    approverRole: string;
+    approverDepartment: string;
+    reason: string;
+  } | null = null;
+  let statusReason = "";
+
+  if (body.status && body.status !== existing.status) {
+    const nextStatus = String(body.status) as VehicleStatus;
+
+    // Open-WO requirement.
+    if (VEHICLE_STATUSES_REQUIRING_OPEN_WO.includes(nextStatus)) {
+      const openWo = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM work_orders
+           WHERE vehicle_id = ?
+             AND status IN (${OPEN_WO_STATUSES.map(() => "?").join(", ")})`
+        )
+        .get(id, ...OPEN_WO_STATUSES) as { c: number } | undefined;
+      if (!openWo || openWo.c === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "This vehicle status requires at least one open work order specifying the parts and assignee. Create a work order first, or set the status to diagnosis while the issue is being investigated.",
+            reason: "needs_open_work_order",
+            attemptedStatus: nextStatus,
+            suggestedStatus: VEHICLE_STATUS.DIAGNOSIS,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Management sign-off.
+    if (VEHICLE_STATUSES_REQUIRING_SIGNOFF.includes(nextStatus)) {
+      if (!user) {
+        return NextResponse.json(
+          {
+            error: "Sign in to record this status change.",
+            reason: "auth_required",
+          },
+          { status: 401 }
+        );
+      }
+      if (!canSignOffVehicleStatus(user.role || "")) {
+        return NextResponse.json(
+          {
+            error:
+              "Marking a vehicle written-off requires management sign-off (admin / fleet management / executive / finance / superadmin).",
+            reason: "requires_management_signoff",
+            attemptedStatus: nextStatus,
+          },
+          { status: 403 }
+        );
+      }
+      const reasonInput = String(body.signoffReason ?? body.reason ?? "").trim();
+      if (reasonInput.length < 8) {
+        return NextResponse.json(
+          {
+            error:
+              "Provide a written sign-off reason (at least 8 characters) for this status change so it can be audited.",
+            reason: "signoff_reason_required",
+            attemptedStatus: nextStatus,
+          },
+          { status: 400 }
+        );
+      }
+      signoffRow = {
+        id: uuidv4(),
+        approverId: user.id,
+        approverName: user.name || user.email,
+        approverRole: user.role || "",
+        approverDepartment: user.department || "",
+        reason: reasonInput,
+      };
+      statusReason = reasonInput;
+    } else if (typeof body.reason === "string" && body.reason.trim().length > 0) {
+      // Optional free-text reason for non-signoff status changes (used by backfill / overrides).
+      statusReason = String(body.reason).trim();
+    }
+  }
+
   for (const [jsKey, dbCol] of Object.entries(allowedFields)) {
     if (body[jsKey] !== undefined) {
       fields.push(`${dbCol} = ?`);
@@ -108,8 +205,28 @@ export async function PATCH(
 
   if (body.status && body.status !== existing.status) {
     db.prepare(
-      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run("vehicle", id, existing.status, body.status, statusActor, now);
+      "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at, reason) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run("vehicle", id, existing.status, body.status, statusActor, now, statusReason);
+
+    if (signoffRow) {
+      db.prepare(
+        `INSERT INTO vehicle_status_signoffs
+           (id, vehicle_id, organization_id, old_status, new_status,
+            approver_id, approver_name, approver_role, approver_department, reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        signoffRow.id,
+        id,
+        String(existing.organization_id ?? ""),
+        String(existing.status ?? ""),
+        String(body.status),
+        signoffRow.approverId,
+        signoffRow.approverName,
+        signoffRow.approverRole,
+        signoffRow.approverDepartment,
+        signoffRow.reason
+      );
+    }
   }
 
   db.prepare(`UPDATE vehicles SET ${fields.join(", ")} WHERE id = ?`).run(...values);

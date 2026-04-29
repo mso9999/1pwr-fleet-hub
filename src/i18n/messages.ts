@@ -124,6 +124,7 @@ const en = {
     vehicle: {
       operational: "Operational",
       deployed: "Deployed",
+      diagnosis: "Diagnosis",
       "maintenance-hq": "Maint. HQ",
       "maintenance-3rdparty": "Maint. 3rd Party",
       "awaiting-parts": "Awaiting Parts",
@@ -367,6 +368,7 @@ const fr: MessageTree = {
     vehicle: {
       operational: "Opérationnel",
       deployed: "Déployé",
+      diagnosis: "Diagnostic",
       "maintenance-hq": "Maint. siège",
       "maintenance-3rdparty": "Maint. tiers",
       "awaiting-parts": "En attente de pièces",

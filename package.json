@@ -1,6 +1,6 @@
 {
   "name": "fleet-hub",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,6 +10,7 @@
     "validate-migration": "tsx scripts/validate-phase0-migration.ts",
     "ingest-maintenance": "tsx scripts/ingest-maintenance-history.ts",
     "migrate-d018": "tsx scripts/migrate-d018-from-xlsx.ts",
+    "backfill:vehicle-status": "tsx scripts/backfill-vehicle-status-vs-wo.ts",
     "test:ehs-compliance": "tsx scripts/test-ehs-operator-compliance.ts"
   },
   "dependencies": {

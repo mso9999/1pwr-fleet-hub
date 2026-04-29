@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useState, use, useCallback } from "react";
+import { useEffect, useState, use, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleStatusBadge } from "@/components/StatusBadge";
-import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, TRACKER_STATUS, assetClassLabel } from "@/types";
+import {
+  VEHICLE_STATUS,
+  VEHICLE_STATUSES_REQUIRING_OPEN_WO,
+  VEHICLE_STATUSES_REQUIRING_SIGNOFF,
+  ASSET_CLASS,
+  ASSET_CLASS_LABELS,
+  TRACKER_STATUS,
+  assetClassLabel,
+} from "@/types";
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
+import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
 import { MediaUpload } from "@/components/MediaUpload";
 import { VehicleDashboardTabs } from "@/components/VehicleDashboardTabs";
 import { CreateWorkOrderForm } from "@/components/CreateWorkOrderForm";
@@ -100,8 +109,24 @@ interface VehicleWorkOrderRow {
   assigned_to: string;
   total_cost: number;
   downtime_start: string;
+  downtime_end: string | null;
+  completed_at: string | null;
   created_at: string;
 }
+
+type WoSortKey = "completed_at" | "created_at" | "status" | "priority" | "title" | "total_cost";
+type WoSortDir = "asc" | "desc";
+
+const PRIORITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+const WO_OPEN_STATUSES = new Set(["submitted", "queued", "in-progress", "awaiting-parts"]);
+
+const PAGE_SIZE = 10;
 
 interface CountryReqRow {
   id: string;
@@ -109,6 +134,39 @@ interface CountryReqRow {
   change_kind: string;
   to_organization_id: string;
   created_at: string;
+}
+
+interface SortableHeaderProps {
+  label: string;
+  sortKey: WoSortKey;
+  current: WoSortKey;
+  dir: WoSortDir;
+  onToggle: (key: WoSortKey) => void;
+  className?: string;
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  current,
+  dir,
+  onToggle,
+  className,
+}: SortableHeaderProps): React.ReactElement {
+  const active = current === sortKey;
+  const indicator = active ? (dir === "asc" ? "▲" : "▼") : "";
+  return (
+    <th className={`px-3 py-2 ${className ?? ""}`}>
+      <button
+        type="button"
+        onClick={() => onToggle(sortKey)}
+        className={`flex items-center gap-1 ${active ? "text-zinc-900" : "text-zinc-500"} hover:text-zinc-900`}
+      >
+        <span>{label}</span>
+        <span className="text-[10px]">{indicator}</span>
+      </button>
+    </th>
+  );
 }
 
 function buildVehicleWorkOrderRemarks(v: VehicleDetail): string {
@@ -126,7 +184,8 @@ function buildVehicleWorkOrderRemarks(v: VehicleDetail): string {
 export default function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }): React.ReactElement {
   const { id } = use(params);
   const router = useRouter();
-  const { organizationId } = useAuth();
+  const { organizationId, user } = useAuth();
+  const canSignOff = canSignOffVehicleStatus(user?.role ?? "");
   const [vehicle, setVehicle] = useState<VehicleDetail | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isEditingTracker, setIsEditingTracker] = useState(false);
@@ -138,9 +197,87 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   const [workOrders, setWorkOrders] = useState<VehicleWorkOrderRow[]>([]);
   const [workOrdersLoading, setWorkOrdersLoading] = useState(false);
   const [showCreateWorkOrder, setShowCreateWorkOrder] = useState(false);
+  const [woSortKey, setWoSortKey] = useState<WoSortKey>("completed_at");
+  const [woSortDir, setWoSortDir] = useState<WoSortDir>("desc");
+  const [woPage, setWoPage] = useState(0);
   const [organizations, setOrganizations] = useState<Array<{ id: string; name: string; country: string }>>([]);
   const [countryChangeRequests, setCountryChangeRequests] = useState<CountryReqRow[]>([]);
   const [showCountryDialog, setShowCountryDialog] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [needsWoPrompt, setNeedsWoPrompt] = useState<{ targetStatus: VehicleStatus } | null>(null);
+  const [signoffDialog, setSignoffDialog] = useState<
+    { targetStatus: VehicleStatus; reason: string } | null
+  >(null);
+  const [signoffSubmitting, setSignoffSubmitting] = useState(false);
+
+  const hasOpenWorkOrder = workOrders.some((wo) =>
+    ["submitted", "queued", "in-progress", "awaiting-parts"].includes(wo.status),
+  );
+
+  const sortedWorkOrders = useMemo(() => {
+    const arr = [...workOrders];
+    const dir = woSortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      // Open WOs are pinned to the top regardless of sort direction (they have no
+      // completion date and are the most actionable).
+      const openA = WO_OPEN_STATUSES.has(a.status) ? 0 : 1;
+      const openB = WO_OPEN_STATUSES.has(b.status) ? 0 : 1;
+      if (openA !== openB) return openA - openB;
+
+      let av: number | string | null = null;
+      let bv: number | string | null = null;
+      switch (woSortKey) {
+        case "completed_at":
+          av = a.completed_at;
+          bv = b.completed_at;
+          break;
+        case "created_at":
+          av = a.created_at;
+          bv = b.created_at;
+          break;
+        case "status":
+          av = a.status;
+          bv = b.status;
+          break;
+        case "priority":
+          av = PRIORITY_ORDER[a.priority] ?? 99;
+          bv = PRIORITY_ORDER[b.priority] ?? 99;
+          break;
+        case "title":
+          av = a.title.toLowerCase();
+          bv = b.title.toLowerCase();
+          break;
+        case "total_cost":
+          av = a.total_cost;
+          bv = b.total_cost;
+          break;
+      }
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1; // nulls last
+      if (bv === null) return -1;
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [workOrders, woSortKey, woSortDir]);
+
+  const woPageCount = Math.max(1, Math.ceil(sortedWorkOrders.length / PAGE_SIZE));
+  const safePage = Math.min(woPage, woPageCount - 1);
+  const pagedWorkOrders = sortedWorkOrders.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE,
+  );
+
+  function toggleSort(key: WoSortKey): void {
+    if (woSortKey === key) {
+      setWoSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setWoSortKey(key);
+      setWoSortDir(key === "title" || key === "status" ? "asc" : "desc");
+    }
+    setWoPage(0);
+  }
 
   const loadCountryChangeRequests = useCallback(() => {
     void (async () => {
@@ -166,6 +303,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
     const params = new URLSearchParams();
     params.set("org", organizationId);
     params.set("vehicleId", id);
+    params.set("sort", "completed");
     fetch(`/api/work-orders?${params}`)
       .then((r) => r.json())
       .then((d: unknown) => {
@@ -211,16 +349,60 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
       .catch(() => setIsLoadingReports(false));
   }, [id, vehicle]);
 
-  async function handleStatusChange(newStatus: string): Promise<void> {
+  async function patchStatus(
+    newStatus: VehicleStatus,
+    extras: { signoffReason?: string } = {},
+  ): Promise<{ ok: boolean; error?: string; reason?: string; suggestedStatus?: string }> {
+    const payload: Record<string, unknown> = { status: newStatus };
+    if (extras.signoffReason) payload.signoffReason = extras.signoffReason;
     const res = await fetch(`/api/vehicles/${id}`, {
       method: "PATCH",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify(payload),
     });
     if (res.ok) {
       const updated = await res.json();
       setVehicle(updated);
+      setStatusError(null);
+      return { ok: true };
     }
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      reason?: string;
+      suggestedStatus?: string;
+    };
+    setStatusError(data.error || "Status change failed.");
+    return { ok: false, ...data };
+  }
+
+  async function handleStatusChange(newStatus: VehicleStatus): Promise<void> {
+    setStatusError(null);
+
+    if (VEHICLE_STATUSES_REQUIRING_SIGNOFF.includes(newStatus)) {
+      if (!canSignOff) {
+        setStatusError(
+          "Marking a vehicle written-off requires management sign-off. Ask an admin / fleet management / executive / finance / superadmin to apply this change."
+        );
+        return;
+      }
+      setSignoffDialog({ targetStatus: newStatus, reason: "" });
+      return;
+    }
+
+    const result = await patchStatus(newStatus);
+    if (!result.ok && result.reason === "needs_open_work_order") {
+      setNeedsWoPrompt({ targetStatus: newStatus });
+    }
+  }
+
+  async function confirmSignoff(): Promise<void> {
+    if (!signoffDialog) return;
+    const reason = signoffDialog.reason.trim();
+    if (reason.length < 8) return;
+    setSignoffSubmitting(true);
+    const result = await patchStatus(signoffDialog.targetStatus, { signoffReason: reason });
+    setSignoffSubmitting(false);
+    if (result.ok) setSignoffDialog(null);
   }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -322,6 +504,44 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
         <VehicleStatusBadge status={vehicle.status} />
       </div>
 
+      {VEHICLE_STATUSES_REQUIRING_OPEN_WO.includes(vehicle.status) && !workOrdersLoading && !hasOpenWorkOrder && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">
+            Status is <strong>{vehicle.status}</strong> but there is no open work order.
+          </p>
+          <p className="mt-1 text-amber-800">
+            This combination is no longer allowed. Either create a work order specifying the parts /
+            assignee, or set the status to <strong>diagnosis</strong> while the issue is still being
+            investigated.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setShowCreateWorkOrder(true);
+                if (typeof window !== "undefined") {
+                  setTimeout(() => {
+                    document
+                      .querySelector<HTMLElement>('[data-tutorial="tutorial-wo-create-form"]')
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 50);
+                }
+              }}
+            >
+              Create work order
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleStatusChange(VEHICLE_STATUS.DIAGNOSIS)}
+            >
+              Set status to diagnosis
+            </Button>
+          </div>
+        </div>
+      )}
+
       <VehicleDashboardTabs vehicleId={vehicle.id} vehicleCode={vehicle.code} />
 
       <Card data-tutorial="tutorial-vehicle-country-card">
@@ -418,31 +638,96 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
           ) : workOrders.length === 0 ? (
             <p className="text-sm text-zinc-500">No work orders for this vehicle yet.</p>
           ) : (
-            <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
-              {workOrders.map((wo) => (
-                <li key={wo.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-sm hover:bg-zinc-50/80">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-zinc-900 truncate">{wo.title}</div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${WO_STATUS_COLORS[wo.status] || "bg-zinc-100 text-zinc-700"}`}>
-                        {wo.status}
-                      </span>
-                      <PriorityBadge priority={wo.priority} />
-                      {wo.assigned_to ? <span className="text-xs text-zinc-500">{wo.assigned_to}</span> : null}
-                      {wo.total_cost > 0 ? (
-                        <span className="text-xs text-zinc-500">· R{wo.total_cost.toFixed(0)}</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-zinc-400">{new Date(wo.created_at).toLocaleDateString()}</span>
-                    <Button type="button" variant="outline" size="sm" onClick={() => router.push(`/work-orders?open=${wo.id}`)}>
-                      Open
+            <div className="space-y-2">
+              <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+                    <tr>
+                      <SortableHeader label="Title" sortKey="title" current={woSortKey} dir={woSortDir} onToggle={toggleSort} />
+                      <SortableHeader label="Status" sortKey="status" current={woSortKey} dir={woSortDir} onToggle={toggleSort} />
+                      <SortableHeader label="Priority" sortKey="priority" current={woSortKey} dir={woSortDir} onToggle={toggleSort} />
+                      <th className="px-3 py-2 hidden md:table-cell">Assigned</th>
+                      <SortableHeader label="Cost" sortKey="total_cost" current={woSortKey} dir={woSortDir} onToggle={toggleSort} className="hidden lg:table-cell" />
+                      <SortableHeader label="Created" sortKey="created_at" current={woSortKey} dir={woSortDir} onToggle={toggleSort} className="hidden lg:table-cell" />
+                      <SortableHeader label="Date completed" sortKey="completed_at" current={woSortKey} dir={woSortDir} onToggle={toggleSort} />
+                      <th className="px-3 py-2"><span className="sr-only">Action</span></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {pagedWorkOrders.map((wo) => {
+                      const isOpen = WO_OPEN_STATUSES.has(wo.status);
+                      return (
+                        <tr key={wo.id} className="hover:bg-zinc-50/80">
+                          <td className="px-3 py-2 align-top">
+                            <div className="font-medium text-zinc-900">{wo.title}</div>
+                            {isOpen ? (
+                              <span className="text-[10px] uppercase tracking-wide text-emerald-700">open</span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${WO_STATUS_COLORS[wo.status] || "bg-zinc-100 text-zinc-700"}`}>
+                              {wo.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 align-top">
+                            <PriorityBadge priority={wo.priority} />
+                          </td>
+                          <td className="px-3 py-2 align-top hidden md:table-cell text-zinc-700">
+                            {wo.assigned_to || "—"}
+                          </td>
+                          <td className="px-3 py-2 align-top hidden lg:table-cell text-zinc-700">
+                            {wo.total_cost > 0 ? `R ${wo.total_cost.toFixed(0)}` : "—"}
+                          </td>
+                          <td className="px-3 py-2 align-top hidden lg:table-cell text-zinc-500">
+                            {new Date(wo.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-3 py-2 align-top text-zinc-500">
+                            {wo.completed_at ? new Date(wo.completed_at).toLocaleDateString() : "—"}
+                          </td>
+                          <td className="px-3 py-2 align-top text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push(`/work-orders?open=${wo.id}`)}
+                            >
+                              Open
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {woPageCount > 1 ? (
+                <div className="flex items-center justify-between text-xs text-zinc-500">
+                  <span>
+                    Page {safePage + 1} of {woPageCount} · {sortedWorkOrders.length} work orders
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setWoPage((p) => Math.max(0, p - 1))}
+                      disabled={safePage === 0}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setWoPage((p) => Math.min(woPageCount - 1, p + 1))}
+                      disabled={safePage >= woPageCount - 1}
+                    >
+                      Next
                     </Button>
                   </div>
-                </li>
-              ))}
-            </ul>
+                </div>
+              ) : null}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -454,29 +739,157 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
           </div>
           <p className="text-sm text-zinc-500 font-normal">
             Set the vehicle&rsquo;s operational status. <strong>deployed</strong> flips automatically
-            when a trip is created with this vehicle and back to <strong>operational</strong> on
-            check-in. Use the buttons below to mark <strong>maintenance-hq</strong>,
-            <strong> maintenance-3rdparty</strong>, <strong>awaiting-parts</strong>,
-            <strong> grounded</strong>, or <strong>written-off</strong> when needed. Changes are
-            logged in the status history below.
+            when a trip starts and back to <strong>operational</strong> on check-in.
+            <strong> diagnosis</strong> is the pre-WO investigation state.
+            <strong> maintenance-hq</strong>, <strong>maintenance-3rdparty</strong>,
+            <strong> awaiting-parts</strong>, and <strong>grounded</strong> require at least one
+            open work order specifying the parts / assignee. <strong>written-off</strong> requires
+            management sign-off (admin / fleet management / executive / finance / superadmin).
           </p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {Object.values(VEHICLE_STATUS).map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant={vehicle.status === s ? "default" : "outline"}
-                onClick={() => handleStatusChange(s)}
-                disabled={vehicle.status === s}
-              >
-                {s}
-              </Button>
-            ))}
+            {Object.values(VEHICLE_STATUS).map((s) => {
+              const requiresOpenWo = VEHICLE_STATUSES_REQUIRING_OPEN_WO.includes(s);
+              const requiresSignoff = VEHICLE_STATUSES_REQUIRING_SIGNOFF.includes(s);
+              const blockedNoWo = requiresOpenWo && !hasOpenWorkOrder && vehicle.status !== s;
+              const blockedSignoff = requiresSignoff && !canSignOff;
+              const disabled = vehicle.status === s || blockedSignoff;
+              const title = blockedSignoff
+                ? "Requires management sign-off"
+                : blockedNoWo
+                  ? "Open a work order first, or set diagnosis"
+                  : undefined;
+              return (
+                <Button
+                  key={s}
+                  size="sm"
+                  variant={vehicle.status === s ? "default" : "outline"}
+                  onClick={() => void handleStatusChange(s)}
+                  disabled={disabled}
+                  title={title}
+                  className={blockedNoWo ? "opacity-70" : undefined}
+                >
+                  {s}
+                  {requiresOpenWo ? <span className="ml-1 text-[10px] text-zinc-400">(needs WO)</span> : null}
+                  {requiresSignoff ? <span className="ml-1 text-[10px] text-zinc-400">(sign-off)</span> : null}
+                </Button>
+              );
+            })}
           </div>
+          {statusError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              {statusError}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+
+      {needsWoPrompt ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setNeedsWoPrompt(null);
+          }}
+        >
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>Open work order required</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-zinc-700">
+                Setting status to <strong>{needsWoPrompt.targetStatus}</strong> requires an open
+                work order specifying the parts and assignee. Choose how to proceed:
+              </p>
+              <div className="flex flex-col gap-2">
+                <Button
+                  onClick={() => {
+                    setNeedsWoPrompt(null);
+                    setShowCreateWorkOrder(true);
+                    if (typeof window !== "undefined") {
+                      setTimeout(() => {
+                        document
+                          .querySelector<HTMLElement>('[data-tutorial="tutorial-wo-create-form"]')
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }, 50);
+                    }
+                  }}
+                >
+                  Create a work order now
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const target = needsWoPrompt.targetStatus;
+                    setNeedsWoPrompt(null);
+                    await patchStatus(VEHICLE_STATUS.DIAGNOSIS);
+                    void target;
+                  }}
+                >
+                  Set status to diagnosis instead
+                </Button>
+                <Button variant="ghost" onClick={() => setNeedsWoPrompt(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {signoffDialog ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !signoffSubmitting) setSignoffDialog(null);
+          }}
+        >
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader>
+              <CardTitle>Management sign-off</CardTitle>
+              <p className="text-sm text-zinc-500 font-normal">
+                You are about to mark <strong>{vehicle.code}</strong> as
+                {" "}
+                <strong>{signoffDialog.targetStatus}</strong>. This requires a written sign-off
+                reason that will be recorded against your account in the status history.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <textarea
+                rows={3}
+                value={signoffDialog.reason}
+                onChange={(e) =>
+                  setSignoffDialog({ ...signoffDialog, reason: e.target.value })
+                }
+                placeholder="e.g. Vehicle declared a total loss after accident on 2026-04-22, scrap value LSL 25,000."
+                className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              />
+              {signoffDialog.reason.trim().length > 0 && signoffDialog.reason.trim().length < 8 ? (
+                <p className="text-xs text-amber-700">Reason needs at least 8 characters.</p>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setSignoffDialog(null)}
+                  disabled={signoffSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void confirmSignoff()}
+                  disabled={signoffSubmitting || signoffDialog.reason.trim().length < 8}
+                >
+                  {signoffSubmitting ? "Signing off…" : "Confirm and sign off"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

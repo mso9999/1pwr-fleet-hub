@@ -263,6 +263,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateFleetMechanics(db);
   migrateRecordMutationLog(db);
   migrateOrganizationsRouteOrigin(db);
+  migrateVehicleStatusEnforcement(db);
 
   const hasScheduledMaintenance = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_maintenance' LIMIT 1")
@@ -607,6 +608,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
     ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
     ["migrateRecordMutationLog", () => migrateRecordMutationLog(db)],
+    ["migrateVehicleStatusEnforcement", () => migrateVehicleStatusEnforcement(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
@@ -856,6 +858,40 @@ function migrateFleetMechanics(db: Database.Database): void {
      VALUES (lower(hex(randomblob(16))), '1pwr_lesotho', ?, 'active', 'system-seed', 'system-seed')`
   );
   for (const n of seedNames) insertSeed.run(n);
+}
+
+/**
+ * Workshop / awaiting-parts / grounded vehicle statuses now require an open work order; the
+ * status_log keeps a `reason` column to capture overrides and write-off sign-offs. The
+ * vehicle_status_signoffs table records who approved an exceptional status change (today
+ * just `written-off`) so audits can trace management approval.
+ */
+function migrateVehicleStatusEnforcement(db: Database.Database): void {
+  const cols = db
+    .prepare(`PRAGMA table_info(status_log)`)
+    .all() as Array<{ name: string }>;
+  const hasReason = cols.some((c) => c.name === "reason");
+  if (!hasReason) {
+    db.exec(`ALTER TABLE status_log ADD COLUMN reason TEXT NOT NULL DEFAULT ''`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_status_signoffs (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL DEFAULT '',
+      old_status TEXT NOT NULL DEFAULT '',
+      new_status TEXT NOT NULL,
+      approver_id TEXT NOT NULL DEFAULT '',
+      approver_name TEXT NOT NULL DEFAULT '',
+      approver_role TEXT NOT NULL DEFAULT '',
+      approver_department TEXT NOT NULL DEFAULT '',
+      reason TEXT NOT NULL DEFAULT '',
+      signed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_vss_vehicle ON vehicle_status_signoffs(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_vss_signed_at ON vehicle_status_signoffs(signed_at DESC);
+  `);
 }
 
 /**

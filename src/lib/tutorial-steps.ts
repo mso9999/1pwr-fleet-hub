@@ -90,8 +90,8 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "tutorial-vehicle-status-change",
     title: "Set operational / under-maintenance status",
     body:
-      "Quick Status Change is where the fleet team flips a vehicle to maintenance-hq, maintenance-3rdparty, awaiting-parts, grounded, or written-off — and back to operational when work is done. Deployed flips automatically when a trip starts and back to operational on check-in, so you don't need to set those by hand.",
-    suggestion: "Status changes are appended to the vehicle's status history (visible just below the card) for audit.",
+      "Quick Status Change drives the lifecycle. operational and deployed are automatic. diagnosis is the pre-WO investigation state. maintenance-hq, maintenance-3rdparty, awaiting-parts, and grounded require at least one open work order specifying the parts and assignee — the system blocks the change otherwise and offers to open a WO or set diagnosis instead. written-off needs management sign-off (admin / fleet management / executive / finance / superadmin) plus a written reason.",
+    suggestion: "Closing a work order does NOT automatically return the vehicle to operational; fleet positively confirms the next state once the work is done.",
   },
   {
     id: "nav-trips",

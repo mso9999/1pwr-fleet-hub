@@ -10,6 +10,7 @@ const vehicleStatusVariants: Record<
 > = {
   operational: "success",
   deployed: "info",
+  diagnosis: "secondary",
   "maintenance-hq": "warning",
   "maintenance-3rdparty": "warning",
   "awaiting-parts": "destructive",
