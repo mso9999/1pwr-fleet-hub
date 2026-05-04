@@ -90,16 +90,16 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "tutorial-vehicle-status-change",
     title: "Set operational / under-maintenance status",
     body:
-      "Quick Status Change drives the lifecycle. operational and deployed are automatic. diagnosis is the pre-WO investigation state. maintenance-hq, maintenance-3rdparty, awaiting-parts, and grounded require at least one open work order specifying the parts and assignee — the system blocks the change otherwise and offers to open a WO or set diagnosis instead. written-off needs management sign-off (admin / fleet management / executive / finance / superadmin) plus a written reason.",
+      "Quick Status Change drives the lifecycle. operational and deployed are automatic. diagnosis is the pre-WO investigation state. maintenance-hq, maintenance-3rdparty, awaiting-parts, and grounded require at least one open work order (submitted through in-progress, needs-parts, PR submitted, or awaiting-parts) — the system blocks the change otherwise and offers to open a WO or set diagnosis instead. written-off needs management sign-off (admin / fleet management / executive / finance / superadmin) plus a written reason.",
     suggestion: "Closing a work order does NOT automatically return the vehicle to operational; fleet positively confirms the next state once the work is done.",
   },
   {
     id: "nav-trips",
     path: "/vehicles",
     target: "nav-trips",
-    title: "Trips & missions",
+    title: "Trips (operational check-out)",
     body:
-      "Check out records mission profiling: driver, route, loadout, and return. Check-in captures odometer and issues.",
+      "Trips record the real vehicle on the road: driver, route, loadout, and return. Check-in captures odometer and issues. Planned missions and requesting a vehicle by type (not a specific unit) live under Vehicle requests.",
   },
   {
     id: "trips-checkout",
@@ -142,7 +142,7 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "nav-work-orders",
     title: "Work orders & job cards",
     body:
-      "Work orders track repairs: status, assignee, labour, parts, and links to purchase requests where applicable.",
+      "Work orders track repairs: status, assignee, labour, parts, and PR/PO links. Statuses include needs-parts and PR submitted for the procurement pipeline.",
   },
   {
     id: "work-orders-list",
@@ -166,7 +166,7 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "nav-vehicle-requests",
     title: "Vehicle requests",
     body:
-      "Teams request vehicles; managers approve and assign from the operational pool. Site destinations get a mapped driving-distance hint; fuel estimates appear after assignment.",
+      "Create an approved mission first, then request a vehicle type (asset class). Managers approve the request line; a fleet team lead assigns a pool vehicle. Site destinations get a mapped distance hint; fuel estimates appear after assignment.",
   },
   {
     id: "nav-inspections",
@@ -367,7 +367,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "nav-vehicle-requests",
     title: "Vehicle request workflow",
     body:
-      "Request a vehicle for a dated mission. Managers approve and may assign a vehicle from the operational pool. Switch to Vehicle Pool to see availability.",
+      "Start with a mission and management approval, then submit a request that picks only the vehicle type you need. After line approval, a fleet team lead allocates a specific vehicle from the pool. Switch to Vehicle Pool to see availability.",
   },
   {
     id: "vr-button",
@@ -381,9 +381,9 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     id: "vr-form",
     path: "/vehicle-requests",
     target: "tutorial-vr-form",
-    title: "2. Fill the request",
+    title: "2. Mission + request form",
     body:
-      "Enter who it’s for, purpose, destination, dates, and priority. Submit sends it into the approval flow.",
+      "Step 1: submit a mission for approval. Step 2: choose an approved mission, required vehicle type (not a code), purpose, passengers, and priority. Submit sends the request into the approval flow; fleet assigns the actual vehicle later.",
   },
   {
     id: "vr-route",
@@ -398,9 +398,9 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     id: "vr-pool",
     path: "/vehicle-requests",
     target: "tutorial-vr-pool-toggle",
-    title: "4. Vehicle pool (managers)",
+    title: "4. Vehicle pool (fleet lead)",
     body:
-      "Managers can switch to the Vehicle Pool tab to see operational vehicles and assign after approval.",
+      "Fleet team leads (and superadmins) use the Vehicle Pool tab to see operational vehicles by class and assign after the request is approved.",
   },
 ];
 
@@ -707,7 +707,7 @@ const WORK_ORDER_STEPS: TutorialStep[] = [
     target: "tutorial-work-orders-header",
     title: "3. After creation",
     body:
-      "The new job appears in the list. Open it to post updates, labour, parts links, and status changes through to completion.",
+      "The new job appears in the list. Open it to post updates, labour, parts, PR/PO links, and status—including needs-parts and PR submitted when procurement is in flight—through to completion.",
   },
 ];
 
