@@ -1225,6 +1225,12 @@ function RequestForm({
       setVrFormError("Select an approved mission.");
       return;
     }
+    const fd = new FormData(e.currentTarget);
+    const vehicleClass = String(fd.get("requiredVehicleClass") || "").trim();
+    if (!vehicleClass && !overrideReady) {
+      setVrFormError("Select the vehicle type / class you need.");
+      return;
+    }
     let requestedFor = "";
     if (requestedForChoice === "__other__") {
       requestedFor = requestedForOther.trim();
@@ -1236,7 +1242,6 @@ function RequestForm({
       const dept = departments.find((d) => d.code === requestedForChoice);
       requestedFor = dept ? dept.label : requestedForChoice;
     }
-    const fd = new FormData(e.currentTarget);
     setVrSubmitting(true);
     const payload: Record<string, unknown> = {
       organizationId,
@@ -1361,9 +1366,10 @@ function RequestForm({
 
       <Card className="border-emerald-200">
         <CardHeader>
-          <CardTitle className="text-base">2. Request a vehicle (EHS approved drivers only)</CardTitle>
+          <CardTitle className="text-base">2. Request a vehicle type (EHS approved drivers only)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            Choose an approved mission, then describe how you need the vehicle. Allocation is done by the fleet team lead after approval steps.
+            Pick an approved mission, then choose the <strong>class of vehicle</strong> you need (for example 4WD SUV / bakkie or cargo truck).
+            Do not request a specific vehicle code — the fleet team lead assigns a pool vehicle after line approval.
           </p>
         </CardHeader>
         <CardContent>
@@ -1449,8 +1455,10 @@ function RequestForm({
                 </Select>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Select name="requiredVehicleClass" label="Vehicle class needed">
-                  <option value="">Any</option>
+                <Select name="requiredVehicleClass" label="Vehicle type needed *" required>
+                  <option value="" disabled>
+                    Select type…
+                  </option>
                   {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
                     <option key={c} value={c}>
                       {ASSET_CLASS_LABELS[c]}

@@ -11,6 +11,7 @@ import {
   VEHICLE_STATUS,
   VEHICLE_STATUSES_REQUIRING_OPEN_WO,
   VEHICLE_STATUSES_REQUIRING_SIGNOFF,
+  OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE,
   ASSET_CLASS,
   ASSET_CLASS_LABELS,
   TRACKER_STATUS,
@@ -93,6 +94,8 @@ const WO_STATUS_COLORS: Record<string, string> = {
   submitted: "bg-blue-100 text-blue-800",
   queued: "bg-indigo-100 text-indigo-800",
   "in-progress": "bg-amber-100 text-amber-800",
+  "needs-parts": "bg-orange-100 text-orange-900",
+  "pr-submitted": "bg-violet-100 text-violet-900",
   "awaiting-parts": "bg-red-100 text-red-800",
   completed: "bg-emerald-100 text-emerald-800",
   closed: "bg-zinc-200 text-zinc-700",
@@ -124,7 +127,7 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 3,
 };
 
-const WO_OPEN_STATUSES = new Set(["submitted", "queued", "in-progress", "awaiting-parts"]);
+const WO_OPEN_STATUSES = new Set(OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE);
 
 const PAGE_SIZE = 10;
 
@@ -210,9 +213,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   >(null);
   const [signoffSubmitting, setSignoffSubmitting] = useState(false);
 
-  const hasOpenWorkOrder = workOrders.some((wo) =>
-    ["submitted", "queued", "in-progress", "awaiting-parts"].includes(wo.status),
-  );
+  const hasOpenWorkOrder = workOrders.some((wo) => WO_OPEN_STATUSES.has(wo.status));
 
   const sortedWorkOrders = useMemo(() => {
     const arr = [...workOrders];
@@ -743,7 +744,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
             <strong> diagnosis</strong> is the pre-WO investigation state.
             <strong> maintenance-hq</strong>, <strong>maintenance-3rdparty</strong>,
             <strong> awaiting-parts</strong>, and <strong>grounded</strong> require at least one
-            open work order specifying the parts / assignee. <strong>written-off</strong> requires
+            open work order (submitted through in-progress, needs-parts, PR submitted, or awaiting-parts). <strong>written-off</strong> requires
             management sign-off (admin / fleet management / executive / finance / superadmin).
           </p>
         </CardHeader>

@@ -697,7 +697,7 @@ export const guideFr: GuideContent = {
           ],
         ],
         bullets: [
-          "Quick Status Change (page d\u00e9tail) : utilisez-la \u00e0 chaque transition (operational, diagnosis, atelier, awaiting-parts, grounded, written-off). Le syst\u00e8me applique la r\u00e8gle OT-ouvert et la validation direction.",
+          "Quick Status Change (page d\u00e9tail) : utilisez-la \u00e0 chaque transition (operational, diagnosis, atelier, awaiting-parts, grounded, written-off). Un OT ouvert compte s'il est soumis jusqu'en in-progress, needs-parts, DA soumise (pr-submitted) ou awaiting-parts. Le syst\u00e8me applique cette r\u00e8gle et la validation direction.",
         ],
       },
       {

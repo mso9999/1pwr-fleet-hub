@@ -52,7 +52,7 @@ export type VehicleStatus = (typeof VEHICLE_STATUS)[keyof typeof VEHICLE_STATUS]
 
 /**
  * Vehicle statuses that require at least one open work order (status in
- * submitted | queued | in-progress | awaiting-parts) to set or remain in.
+ * submitted | queued | in-progress | needs-parts | pr-submitted | awaiting-parts) to set or remain in.
  */
 export const VEHICLE_STATUSES_REQUIRING_OPEN_WO: VehicleStatus[] = [
   VEHICLE_STATUS.MAINTENANCE_HQ,
@@ -82,8 +82,8 @@ export type AssetClass = (typeof ASSET_CLASS)[keyof typeof ASSET_CLASS];
 
 /** Human-readable labels for UI and exports. */
 export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
-  "4wd": "4WD (bakkies & SUV)",
-  "cargo-truck": "Cargo trucks",
+  "4wd": "4WD SUV & double-cab bakkie",
+  "cargo-truck": "Cargo truck",
   "yellow-plant": "Yellow plant",
   tractor: "Tractors",
   trailer: "Trailers",
@@ -318,6 +318,10 @@ export const WORK_ORDER_STATUS = {
   SUBMITTED: "submitted",
   QUEUED: "queued",
   IN_PROGRESS: "in-progress",
+  /** Parts identified; procurement / PR not yet submitted. */
+  NEEDS_PARTS: "needs-parts",
+  /** PR submitted and linked; waiting on approval, PO, or delivery. */
+  PR_SUBMITTED: "pr-submitted",
   AWAITING_PARTS: "awaiting-parts",
   COMPLETED: "completed",
   CLOSED: "closed",
@@ -327,6 +331,16 @@ export const WORK_ORDER_STATUS = {
 } as const;
 
 export type WorkOrderStatus = (typeof WORK_ORDER_STATUS)[keyof typeof WORK_ORDER_STATUS];
+
+/** Open work orders that satisfy the vehicle-status "open WO" gate (excludes return-repair). */
+export const OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE: readonly string[] = [
+  WORK_ORDER_STATUS.SUBMITTED,
+  WORK_ORDER_STATUS.QUEUED,
+  WORK_ORDER_STATUS.IN_PROGRESS,
+  WORK_ORDER_STATUS.NEEDS_PARTS,
+  WORK_ORDER_STATUS.PR_SUBMITTED,
+  WORK_ORDER_STATUS.AWAITING_PARTS,
+];
 
 export const WORK_ORDER_TYPE = {
   CORRECTIVE: "corrective",

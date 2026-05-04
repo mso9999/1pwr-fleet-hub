@@ -8,6 +8,7 @@ import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
+import { ASSET_CLASS } from "@/types";
 
 export function GET(request: NextRequest): NextResponse {
   try {
@@ -129,6 +130,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  const requiredVehicleClassRaw = String(body.requiredVehicleClass ?? "").trim();
+  const assetClassValues = Object.values(ASSET_CLASS) as string[];
+  if (!requiredVehicleClassRaw || !assetClassValues.includes(requiredVehicleClassRaw)) {
+    if (!overrideUsable) {
+      return NextResponse.json(
+        {
+          error:
+            "Choose a required vehicle type (e.g. 4WD SUV / bakkie, cargo truck). Fleet assigns a specific vehicle after approval — do not pick a vehicle code here.",
+        },
+        { status: 400 }
+      );
+    }
+    bypassedGates.push({
+      id: "vehicle_type_required",
+      detail: "Submitted without a valid requiredVehicleClass asset code.",
+    });
+  }
+
   const destination = String(existingMission?.destination ?? body.destination ?? "");
   const departureDate = String(existingMission?.departure_date ?? body.departureDate ?? "");
   const returnDate = String(existingMission?.return_date ?? body.returnDate ?? "");
@@ -155,14 +174,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     missionId || null,
     requestedById,
     requestedByName,
-    body.requestedFor || "",
-    body.vehicleId || null,
+      body.requestedFor || "",
+    null,
     body.purpose || "",
     destination,
     departureDate,
     returnDate,
     body.passengers !== undefined && body.passengers !== "" ? String(body.passengers) : passengersDefault,
-    body.requiredVehicleClass || "",
+    requiredVehicleClassRaw,
     body.loadoutDescription !== undefined && body.loadoutDescription !== ""
       ? String(body.loadoutDescription)
       : loadoutDefault,

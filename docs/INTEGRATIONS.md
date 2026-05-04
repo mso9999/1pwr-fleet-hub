@@ -26,6 +26,38 @@ Trips in FM can be associated with **packing lists / load-out manifests** mainta
 
 - **[FM_LOADOUT_MANIFEST_INTEGRATION.md](./FM_LOADOUT_MANIFEST_INTEGRATION.md)**
 
+## Purchase requests (PR) ↔ Work orders (WO)
+
+Fleet Hub stores PR/PO links on work orders (`work_order_po_links`) and can read PR status from the shared Firestore `purchaseRequests` collection into local `pr_cost_cache` (read-only from Firestore — see `src/lib/firestore-sync.ts`).
+
+### Environment
+
+| Variable | Purpose |
+|----------|---------|
+| `FLEET_INTEGRATION_API_KEY` | Shared secret (≥12 characters). PR backend or scripts send it as header **`X-Fleet-Integration-Key`**. If unset, integration endpoints return 401. |
+
+### Endpoints (machine-to-machine)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/integrations/v1/work-orders/{id}` | Validate that a WO exists; returns `organizationId`, `vehicleId`, `vehicleCode`, `title`, `status`, dates. |
+| `POST` | `/api/integrations/v1/work-orders/{id}/pr-links` | Register a PR against the WO (same JSON body as fleet `po-links`: `prNumber`, `poNumber`, `vendor`, `description`, `amount`, `currency`, `status`, `prSystemUrl`). If the WO is in **`needs-parts`**, it is advanced to **`pr-submitted`** and a row is written to `work_order_status_history`. Then PR status is refreshed into `pr_cost_cache` when Firestore admin is configured. |
+
+Fleet users with a Fleet-team department (or superadmin) can also call **`POST /api/work-orders/{id}/po-links`** with a normal session cookie / bearer token — same behaviour, including optional auto-advance from `needs-parts` → `pr-submitted`.
+
+### WO procurement statuses
+
+| Status | Meaning |
+|--------|---------|
+| `needs-parts` | Parts identified; PR not yet submitted in the PR system. |
+| `pr-submitted` | PR linked / submitted; waiting on approval, PO, or delivery. |
+| `awaiting-parts` | Legacy / generic “waiting on parts” (still valid); may be used alongside the above depending on process. |
+
+### PR product contract (summary)
+
+1. Before creating a vehicle- or fleet-related PR line item, call **`GET /api/integrations/v1/work-orders/{woId}`** and confirm the WO belongs to the expected org and vehicle.
+2. After the PR is created, call **`POST .../pr-links`** with at least `prNumber` (and optional financial fields). Fleet Hub never writes to Firestore purchase requests from these routes.
+
 ## Related scripts
 
 - Phase 0 Excel paths: **`FLEET_DATA_DIR`** — see [PHASE0-MIGRATION.md](./PHASE0-MIGRATION.md).

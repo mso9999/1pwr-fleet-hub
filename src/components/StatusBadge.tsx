@@ -25,6 +25,8 @@ const workOrderStatusVariants: Record<
   submitted: "info",
   queued: "default",
   "in-progress": "warning",
+  "needs-parts": "warning",
+  "pr-submitted": "info",
   "awaiting-parts": "destructive",
   completed: "success",
   closed: "secondary",

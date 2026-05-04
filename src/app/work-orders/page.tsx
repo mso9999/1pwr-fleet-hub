@@ -22,6 +22,7 @@ import {
 import { AssigneeCombo } from "@/components/AssigneeCombo";
 import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
+import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
 
 interface WorkOrderRow {
   id: string;
@@ -86,22 +87,12 @@ interface WorkOrderDetail extends WorkOrderRow {
   parts: Array<{ id: string; description: string; quantity: number; unit_cost: number; supplier: string; pr_status: string }>;
 }
 
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  "submitted": ["queued", "rejected", "cancelled"],
-  "queued": ["in-progress", "cancelled"],
-  "in-progress": ["awaiting-parts", "completed", "cancelled"],
-  "awaiting-parts": ["in-progress", "cancelled"],
-  "completed": ["closed", "return-repair", "rejected"],
-  "closed": ["return-repair"],
-  "return-repair": ["queued", "in-progress"],
-  "cancelled": [],
-  "rejected": ["submitted"],
-};
-
 const STATUS_COLORS: Record<string, string> = {
   "submitted": "bg-blue-100 text-blue-800",
   "queued": "bg-indigo-100 text-indigo-800",
   "in-progress": "bg-amber-100 text-amber-800",
+  "needs-parts": "bg-orange-100 text-orange-900",
+  "pr-submitted": "bg-violet-100 text-violet-900",
   "awaiting-parts": "bg-red-100 text-red-800",
   "completed": "bg-emerald-100 text-emerald-800",
   "closed": "bg-zinc-200 text-zinc-700",
@@ -146,7 +137,15 @@ function WorkOrdersPageContent(): React.ReactElement {
     fetch(`/api/vehicles?org=${organizationId}`).then((r) => r.json()).then(setVehicles).catch(() => {});
   }, [loadOrders, organizationId]);
 
-  const activeStatuses = ["submitted", "queued", "in-progress", "awaiting-parts", "return-repair"];
+  const activeStatuses = [
+    "submitted",
+    "queued",
+    "in-progress",
+    "needs-parts",
+    "pr-submitted",
+    "awaiting-parts",
+    "return-repair",
+  ];
   const doneStatuses = ["completed", "closed", "cancelled", "rejected"];
   const activeOrders = orders.filter((o) => activeStatuses.includes(o.status));
   const closedOrders = orders.filter((o) => doneStatuses.includes(o.status));
@@ -163,7 +162,11 @@ function WorkOrdersPageContent(): React.ReactElement {
       <div className="flex flex-wrap gap-2">
         {Object.entries(WORK_ORDER_STATUS).map(([, s]) => {
           const count = statusCounts[s] || 0;
-          if (count === 0 && !["submitted", "queued", "in-progress", "awaiting-parts"].includes(s)) return null;
+          if (
+            count === 0 &&
+            !["submitted", "queued", "in-progress", "needs-parts", "pr-submitted", "awaiting-parts"].includes(s)
+          )
+            return null;
           return (
             <button
               key={s}
@@ -419,7 +422,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
   if (isLoading) return <Card><CardContent className="p-8 text-center text-zinc-500">Loading work order...</CardContent></Card>;
   if (!detail) return <Card><CardContent className="p-8 text-center text-red-500">Work order not found</CardContent></Card>;
 
-  const allowedTransitions = VALID_TRANSITIONS[detail.status] || [];
+  const allowedTransitions = WORK_ORDER_VALID_TRANSITIONS[detail.status] || [];
 
   return (
     <Card className="border-blue-200 bg-blue-50/20">

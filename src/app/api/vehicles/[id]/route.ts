@@ -6,13 +6,11 @@ import {
   VEHICLE_STATUS,
   VEHICLE_STATUSES_REQUIRING_OPEN_WO,
   VEHICLE_STATUSES_REQUIRING_SIGNOFF,
+  OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE,
   type VehicleStatus,
 } from "@/types";
 import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
 import { v4 as uuidv4 } from "uuid";
-
-/** WO statuses that count as "open" for vehicle-status enforcement. */
-const OPEN_WO_STATUSES = ["submitted", "queued", "in-progress", "awaiting-parts"] as const;
 
 export async function GET(
   _request: NextRequest,
@@ -115,9 +113,9 @@ export async function PATCH(
         .prepare(
           `SELECT COUNT(*) AS c FROM work_orders
            WHERE vehicle_id = ?
-             AND status IN (${OPEN_WO_STATUSES.map(() => "?").join(", ")})`
+             AND status IN (${OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE.map(() => "?").join(", ")})`
         )
-        .get(id, ...OPEN_WO_STATUSES) as { c: number } | undefined;
+        .get(id, ...OPEN_WORK_ORDER_STATUSES_FOR_VEHICLE_RULE) as { c: number } | undefined;
       if (!openWo || openWo.c === 0) {
         return NextResponse.json(
           {

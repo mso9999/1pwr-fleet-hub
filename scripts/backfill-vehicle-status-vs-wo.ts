@@ -45,7 +45,14 @@ function parseArgs(argv: string[]): CliArgs {
   return args;
 }
 
-const OPEN_WO_STATUSES = ["submitted", "queued", "in-progress", "awaiting-parts"] as const;
+const OPEN_WO_STATUSES = [
+  "submitted",
+  "queued",
+  "in-progress",
+  "needs-parts",
+  "pr-submitted",
+  "awaiting-parts",
+] as const;
 
 interface VehicleRow {
   id: string;

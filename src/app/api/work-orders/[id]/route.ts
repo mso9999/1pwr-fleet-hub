@@ -2,19 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
-
-// Valid status transitions
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  "submitted": ["queued", "rejected", "cancelled"],
-  "queued": ["in-progress", "cancelled"],
-  "in-progress": ["awaiting-parts", "completed", "cancelled"],
-  "awaiting-parts": ["in-progress", "cancelled"],
-  "completed": ["closed", "return-repair", "rejected"],
-  "closed": ["return-repair"],
-  "return-repair": ["queued", "in-progress"],
-  "cancelled": [],
-  "rejected": ["submitted"],
-};
+import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
 
 interface WORow {
   id: string;
@@ -99,7 +87,7 @@ export async function PATCH(
       );
     }
 
-    const allowed = VALID_TRANSITIONS[existing.status as string] || [];
+    const allowed = WORK_ORDER_VALID_TRANSITIONS[existing.status as string] || [];
     if (!allowed.includes(body.status)) {
       return NextResponse.json(
         { error: `Cannot transition from '${existing.status}' to '${body.status}'. Allowed: ${allowed.join(", ") || "none"}` },

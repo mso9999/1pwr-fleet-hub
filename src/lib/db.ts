@@ -861,7 +861,8 @@ function migrateFleetMechanics(db: Database.Database): void {
 }
 
 /**
- * Workshop / awaiting-parts / grounded vehicle statuses now require an open work order; the
+ * Workshop / awaiting-parts / grounded vehicle statuses now require an open work order
+ * (submitted through in-progress, needs-parts, pr-submitted, or awaiting-parts); the
  * status_log keeps a `reason` column to capture overrides and write-off sign-offs. The
  * vehicle_status_signoffs table records who approved an exceptional status change (today
  * just `written-off`) so audits can trace management approval.

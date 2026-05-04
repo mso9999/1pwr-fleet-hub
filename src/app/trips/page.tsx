@@ -176,6 +176,10 @@ function TripsPageContent(): React.ReactElement {
         data-tutorial="tutorial-trips-loadout-manifests"
       >
         <span className="font-medium text-zinc-800">Trip readiness: </span>
+        Trips are operational check-outs (vehicle + odometer). Planned journeys, management approval, and requesting a{" "}
+        <strong>vehicle type</strong> (not a specific unit) live on{" "}
+        <Link href="/vehicle-requests" className="text-blue-600 underline font-medium">Vehicle requests</Link>{" "}
+        (missions → approval → fleet allocation).
         Choose <strong>Local / in-town</strong> for short runs, or <strong>Field deployment</strong> for trips that need a recent detailed mechanical inspection.
         Both require today&apos;s <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">departing driver checklist</Link>{" "}
         before check-out. <span className="font-medium text-zinc-800">Daily ODO: </span>

@@ -727,7 +727,7 @@ export const guideEn: GuideContent = {
           ],
         ],
         bullets: [
-          "Quick Status Change (detail page): use this whenever a vehicle moves between operational, diagnosis, workshop, awaiting-parts, grounded, or written-off. The system enforces the open-WO rule and the management sign-off rule.",
+          "Quick Status Change (detail page): use this whenever a vehicle moves between operational, diagnosis, workshop, awaiting-parts, grounded, or written-off. An open work order counts as submitted through in-progress, needs-parts, PR submitted, or awaiting-parts. The system enforces that rule and the management sign-off rule.",
           "Overview tab: spec sheet (make / model / year / licence plate / VIN / engine number), asset class, home and current location, fuel type, transmission, drivetrain.",
           "TCO tab: purchase price, in-service date, total mileage, service intervals, cost-to-date, end-of-life score.",
           "History tab: trips, inspections, work orders filtered to this vehicle (with quick links).",
