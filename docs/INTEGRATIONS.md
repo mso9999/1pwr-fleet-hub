@@ -34,7 +34,7 @@ Fleet Hub stores PR/PO links on work orders (`work_order_po_links`) and can read
 
 | Variable | Purpose |
 |----------|---------|
-| `FLEET_INTEGRATION_API_KEY` | Shared secret (≥12 characters). PR backend or scripts send it as header **`X-Fleet-Integration-Key`**. If unset, integration endpoints return 401. |
+| `FLEET_INTEGRATION_API_KEY` | Shared secret (≥12 characters). PR backend or scripts send it as header **`X-Fleet-Integration-Key`**. If unset, integration endpoints return 401. **Production:** add the same value as GitHub Actions secret `FLEET_INTEGRATION_API_KEY` so [deploy.yml](../.github/workflows/deploy.yml) can append it to `/var/www/fleet-hub/.env` on each deploy (optional secret — omit until the PR service is ready). |
 
 ### Endpoints (machine-to-machine)
 

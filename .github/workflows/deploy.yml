@@ -36,11 +36,12 @@ jobs:
           # when listed in `envs:`.
           HR_API_BASE_URL: ${{ secrets.HR_API_BASE_URL }}
           HR_API_KEY: ${{ secrets.HR_API_KEY }}
+          FLEET_INTEGRATION_API_KEY: ${{ secrets.FLEET_INTEGRATION_API_KEY }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: HR_API_BASE_URL,HR_API_KEY
+          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY
           script: |
             set -e
             cd /var/www/fleet-hub
@@ -53,13 +54,19 @@ jobs:
             # Dedupe any prior HR_API_* lines before appending so re-runs
             # stay idempotent and rotations land cleanly.
             touch /var/www/fleet-hub/.env
-            sed -i.bak '/^HR_API_BASE_URL=/d; /^HR_API_KEY=/d' /var/www/fleet-hub/.env
+            sed -i.bak '/^HR_API_BASE_URL=/d; /^HR_API_KEY=/d; /^FLEET_INTEGRATION_API_KEY=/d' /var/www/fleet-hub/.env
             if [ -n "$HR_API_BASE_URL" ] && [ -n "$HR_API_KEY" ]; then
               printf 'HR_API_BASE_URL=%s\n' "$HR_API_BASE_URL" >> /var/www/fleet-hub/.env
               printf 'HR_API_KEY=%s\n'      "$HR_API_KEY"      >> /var/www/fleet-hub/.env
               echo "HR_API creds written to .env (key length: ${#HR_API_KEY})"
             else
               echo "WARNING: HR_API_BASE_URL or HR_API_KEY missing from GH secrets — skipping .env write"
+            fi
+            if [ -n "$FLEET_INTEGRATION_API_KEY" ]; then
+              printf 'FLEET_INTEGRATION_API_KEY=%s\n' "$FLEET_INTEGRATION_API_KEY" >> /var/www/fleet-hub/.env
+              echo "FLEET_INTEGRATION_API_KEY written to .env (length: ${#FLEET_INTEGRATION_API_KEY})"
+            else
+              echo "NOTE: FLEET_INTEGRATION_API_KEY not set in GH secrets — PR integration endpoints stay 401 until set"
             fi
 
             # --update-env re-reads process env; Next.js itself also picks
@@ -70,4 +77,13 @@ jobs:
       - name: Health check
         run: |
           sleep 10
-          curl -f http://${{ secrets.EC2_HOST }}:3100/api/dashboard || echo "Health check pending - server may need a moment"
+          HOST="${{ secrets.EC2_HOST }}"
+          # Production uses Apache on :80 in front of Node; :3100 may be firewalled from the internet.
+          if curl -sf "http://${HOST}/api/health" > /dev/null; then
+            echo "OK via http://${HOST}/api/health"
+          elif curl -sf "http://${HOST}:3100/api/health" > /dev/null; then
+            echo "OK via http://${HOST}:3100/api/health"
+          else
+            echo "::error::Health check failed for both :80 and :3100 /api/health"
+            exit 1
+          fi

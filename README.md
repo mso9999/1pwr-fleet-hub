@@ -31,9 +31,9 @@ Expect JSON with `vehicles`, `sites`, and per-vehicle `refTimeUnix`, `historyTra
 ## Deployment (EC2)
 
 - Workflow: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) — runs on push to `main` and manual dispatch.
-- GitHub secrets: `EC2_HOST`, `EC2_SSH_KEY` (SSH user `ec2-user`).
-- Server: app lives at `/var/www/fleet-hub`; process managed with `pm2` (`fleet-hub`); default app port **3100**.
-- Post-deploy health (from CI): `http://$EC2_HOST:3100/api/dashboard`.
+- GitHub secrets: `EC2_HOST`, `EC2_SSH_KEY` (SSH user `ec2-user`). Optional: `HR_API_BASE_URL`, `HR_API_KEY`, **`FLEET_INTEGRATION_API_KEY`** (written into `/var/www/fleet-hub/.env` on each deploy for [PR ↔ WO integration](docs/INTEGRATIONS.md)).
+- Server: app lives at `/var/www/fleet-hub`; process managed with `pm2` (`fleet-hub`). Node typically listens on **3100**; **Apache on port 80** often reverse-proxies to it (public checks use **80**, not 3100, when the security group blocks 3100).
+- Post-deploy health (from CI): tries `http://$EC2_HOST/api/health` first, then `:3100/api/health`.
 
 ### Confirm CI from the CLI
 
