@@ -20,6 +20,15 @@ export async function PATCH(
     WHERE id = ?
   `).run(body.odoEnd || null, body.arrivalLocation || "", now, body.issuesObserved || "", distance, id);
 
+  const missionId = trip.mission_id ? String(trip.mission_id) : "";
+  if (missionId) {
+    db.prepare(`UPDATE missions SET trip_id = NULL, updated_at = ? WHERE id = ? AND trip_id = ?`).run(
+      now,
+      missionId,
+      id
+    );
+  }
+
   db.prepare("UPDATE vehicles SET current_location = ?, status = 'operational', updated_at = ? WHERE id = ?")
     .run(body.arrivalLocation || "", now, trip.vehicle_id);
 

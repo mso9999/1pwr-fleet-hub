@@ -365,25 +365,25 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     id: "vr-intro",
     path: "/vehicle-requests",
     target: "nav-vehicle-requests",
-    title: "Vehicle request workflow",
+    title: "Mission and vehicle workflow",
     body:
-      "Start with a mission and management approval, then submit a request that picks only the vehicle type you need. After line approval, a fleet team lead allocates a specific vehicle from the pool. Switch to Vehicle Pool to see availability.",
+      "Create a mission (profile, required vehicle class, dates); management approves it. Approved drivers may add a logistics row; the fleet team lead reserves a specific pool vehicle on the mission. Switch to Vehicle Pool to see availability.",
   },
   {
     id: "vr-button",
     path: "/vehicle-requests",
     target: "tutorial-vr-request-btn",
-    title: "1. New request",
+    title: "1. New mission",
     body:
-      "Tap + Request vehicle to open the request form. Stay on the Requests tab to see your team’s submissions.",
+      "Tap + New mission to open the form. Stay on the Requests tab to see logistics rows; fleet sees approved missions to reserve vehicles.",
   },
   {
     id: "vr-form",
     path: "/vehicle-requests",
     target: "tutorial-vr-form",
-    title: "2. Mission + request form",
+    title: "2. Mission form + driver row",
     body:
-      "Step 1: submit a mission for approval. Step 2: choose an approved mission, required vehicle type (not a code), purpose, passengers, and priority. Submit sends the request into the approval flow; fleet assigns the actual vehicle later.",
+      "Step 1: submit a mission with profile, required vehicle class, and R&R for approval. Step 2 (drivers): link an approved mission for purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval.",
   },
   {
     id: "vr-route",
@@ -400,7 +400,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-pool-toggle",
     title: "4. Vehicle pool (fleet lead)",
     body:
-      "Fleet team leads (and superadmins) use the Vehicle Pool tab to see operational vehicles by class and assign after the request is approved.",
+      "Fleet team leads use the Vehicle Pool tab for operational snapshots; they reserve a vehicle on each approved mission from the mission list or request detail when linked to a mission.",
   },
 ];
 

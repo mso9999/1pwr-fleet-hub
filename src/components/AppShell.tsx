@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/map", labelKey: "nav.fleetMap", icon: "map" },
   { href: "/vehicles", labelKey: "nav.vehicles", icon: "truck" },
   { href: "/trips", labelKey: "nav.trips", icon: "route" },
+  { href: "/fleet-reservations", labelKey: "nav.fleetReservations", icon: "calendar" },
   { href: "/vehicle-checks", labelKey: "nav.vehicleChecks", icon: "shield" },
   { href: "/ehs-approved-drivers", labelKey: "nav.ehsApprovedDrivers", icon: "idCard" },
   { href: "/work-orders", labelKey: "nav.workOrders", icon: "wrench" },

@@ -114,6 +114,18 @@ export function GET(request: NextRequest): NextResponse {
     alerts.push({ type: "pending-requests", severity: "low", message: `${pendingRequests.cnt} vehicle request(s) awaiting approval` });
   }
 
+  const checkoutHold = db.prepare(
+    `SELECT COUNT(*) as cnt FROM missions
+     WHERE organization_id = ? AND lower(COALESCE(lifecycle_status,'')) = 'checkout_hold'`
+  ).get(org) as { cnt: number };
+  if (checkoutHold.cnt > 0) {
+    alerts.push({
+      type: "mission-checkout-hold",
+      severity: "high",
+      message: `${checkoutHold.cnt} mission(s) on checkout hold — reserved vehicle not operational or fleet deferred; management action may be required (Missions / arbitration).`,
+    });
+  }
+
   // ── Recent activity ──
   const recentActivity = db.prepare(`
     SELECT 'trip_checkout' as event_type, t.driver_name as actor, v.code as vehicle_code,

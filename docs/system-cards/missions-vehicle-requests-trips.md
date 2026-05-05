@@ -1,29 +1,33 @@
 # System card: Missions, vehicle requests, trips
 
-Concise business rules implemented in Fleet Hub for planning missions, requesting vehicles, and recording operational trips.
+Concise business rules implemented in Fleet Hub for planning missions, optional logistics rows, reservations, and operational trips.
 
 ## Actors
 
 | Capability | Who |
 |------------|-----|
-| Create a **mission** (trip plan) | Any signed-in user (`POST /api/missions`) |
+| Create a **mission** (trip plan) | Any signed-in user (`POST /api/missions`) — includes `missionProfile`, `requiredVehicleClass`, `rrStatus` |
 | Approve / reject a **mission** | PR-credentialed approvers: fleet lead, manager, admin, superadmin, **or** email on `vehicle_check_override_approvers` (HR / country-filtered list in Admin) |
-| Submit a **vehicle request** | Users on the **EHS approved drivers** register for the org (`ehs_approved_drivers`, matched by email). Superadmin may bypass for testing. Requests specify **vehicle type / asset class** only (e.g. 4WD SUV & bakkie, cargo truck); they do **not** lock a specific vehicle. |
+| Edit mission fields / reopen approval on material change | Creator while pending, or fleet management; material edits on an approved mission set `approval_status` back to `pending` (`PATCH /api/missions/[id]`) |
+| Submit a **vehicle request** (logistics row) | Users on the **EHS approved drivers** register for the org (`ehs_approved_drivers`, matched by email). Superadmin may bypass for testing. Vehicle class may come from the linked **mission** when set. |
 | Approve / reject a **vehicle request** (line item in FM) | Same PR-credentialed set as mission approval (`canApproveMissionRequests`) |
-| **Allocate** a vehicle to a request (pool assignment) | **Fleet team lead** (`fleet_lead`) or **superadmin** only |
-| Create an operational **trip** (checkout) | Any signed-in user (`POST /api/trips` requires auth); separate from missions / vehicle requests |
+| **Reserve** a vehicle on a mission | **Fleet team lead** (`fleet_lead`) or **superadmin** — `POST /api/missions/[id]/reserve-vehicle` (transaction, overlap rules, today vs future vehicle status rules; manager+ `overrideReason` for overlaps) |
+| Legacy assign via vehicle request | `POST /api/vehicle-requests/[id]/assign` — when `mission_id` is set, mirrors mission reservation rules |
+| **Arbitrate** capacity (defer / cancel / reactivate lifecycle) | **Management** cohort with `canArbitrateMissionCapacity` — explicitly **not** fleet lead acting alone |
+| Create an operational **trip** (checkout) | Authenticated user (`POST /api/trips`); optional `missionId` with readiness gates when mission-linked |
 
 ## Lifecycle
 
-1. **Mission** — Created with `approval_status = pending`. PR approvers approve or reject via `PATCH /api/missions/[id]` (`action: approve | reject`). Until approved, it cannot be used for a vehicle request.
-2. **Vehicle request** — Only after the mission is **approved**. Submitted by an **approved driver**, linked with `missionId`. Uses existing approve/reject flow on the vehicle request record (R&R, etc.).
-3. **Vehicle allocation** — Fleet team lead picks a pool vehicle (`POST /api/vehicle-requests/[id]/assign`). Moves request to `assigned`.
-4. **Trip** — Operational checkout on `/trips` (concrete vehicle, odometer, readiness). Separate from planned missions; use **Vehicle requests** for management-approved missions and type-based allocation before check-out. Optional future link via `missions.trip_id`.
+1. **Mission** — Created with `approval_status = pending`, `mission_profile`, `required_vehicle_class`, optional `rr_status`. PR approvers approve or reject via `PATCH /api/missions/[id]` (`action: approve | reject`). Until approved, it cannot be used for a new vehicle request (except documented override path).
+2. **Vehicle request** (optional queue row) — After the mission is **approved**, an **approved driver** may submit a request linked with `missionId` (purpose, priority, etc.). Required class can be inherited from the mission.
+3. **Vehicle reservation** — Fleet team lead reserves on the mission (`vehicle_reservations` + `missions.assigned_vehicle_id`). Date overlap is blocked unless a manager provides `overrideReason` (logged).
+4. **Trip** — Operational checkout on `/trips` (concrete vehicle, odometer, readiness). May reference `missionId`; mission-linked readiness is enforced when applicable.
 
 ## Data
 
-- **missions**: `approval_status` ∈ `pending` | `approved` | `rejected`; optional `trip_id` when linked to an operational trip.
-- **vehicle_requests**: `mission_id` required for new inserts; must reference a mission with `approval_status = approved`.
+- **missions**: `approval_status`, `mission_profile`, `required_vehicle_class`, `assigned_vehicle_id`, `rr_status`, `lifecycle_status` (`active` | `deferred` | `capacity_cancelled`), optional `trip_id`.
+- **vehicle_reservations**: interval per `vehicle_id` / `mission_id`; `status` (`active` | `superseded` | …); overlap enforced in app + transaction.
+- **vehicle_requests**: `mission_id` for new inserts; must reference a mission with `approval_status = approved` (unless override). List view may show assigned vehicle from mission via join.
 - **ehs_approved_drivers**: Org + email gate for `POST /api/vehicle-requests`.
 
 ## API summary
@@ -31,14 +35,17 @@ Concise business rules implemented in Fleet Hub for planning missions, requestin
 | Endpoint | Rule |
 |----------|------|
 | `POST /api/missions` | Authenticated user |
-| `PATCH /api/missions/[id]` | PR credentialed approvers |
-| `GET /api/missions` | Query `approvalStatus`, `status` (e.g. `approvalStatus=approved` for vehicle request picker) |
-| `POST /api/vehicle-requests` | Approved driver + approved mission |
+| `PATCH /api/missions/[id]` | Approvers (`approve` / `reject`); management arbitration (`defer` / `cancel_capacity` / `reactivate`); field updates per permissions |
+| `GET /api/missions` | Query `approvalStatus`, `status`; includes `assigned_vehicle_code` via join |
+| `POST /api/missions/[id]/reserve-vehicle` | Fleet lead / superadmin; overlap + status rules |
+| `GET /api/missions/[id]/reserve-candidates` | Fleet lead / superadmin |
+| `GET /api/missions/arbitration-queue` | Management arbitration cohort only |
+| `POST /api/vehicle-requests` | Approved driver + approved mission (class from body or mission) |
 | `GET /api/me/vehicle-request-eligibility` | `{ canRequestVehicle, isApprovedDriver }` |
-| `GET /api/me/mission-request-can-approve` | `{ canApprove, canFullEdit, canAllocateVehicle }` |
-| `POST /api/vehicle-requests/[id]/assign` | Fleet lead or superadmin |
-| `POST /api/trips` | Authenticated user |
+| `GET /api/me/mission-request-can-approve` | `{ canApprove, canFullEdit, canAllocateVehicle, canArbitrateCapacity }` |
+| `POST /api/vehicle-requests/[id]/assign` | Fleet lead or superadmin; mission-aware when `mission_id` set |
+| `POST /api/trips` | Authenticated user; optional `missionId` + readiness |
 
 ## UI
 
-- **Vehicle requests** page: (1) create mission, (2) request vehicle when mission is approved and user is an approved driver; pending missions list for approvers; allocation UI only for fleet lead / superadmin.
+- **Vehicle requests** page: create mission (profile, class, R&R); pending missions for approvers; optional driver logistics form; fleet block to reserve on approved missions; management arbitration card for a chosen departure date; request detail modal uses mission reserve API when the row is mission-linked.

@@ -69,6 +69,25 @@ export function canAllocateFleetVehicle(userRole: string): boolean {
 }
 
 /**
+ * Capacity / defer / cancel arbitration when too many approved missions compete for vehicles.
+ * Fleet lead is excluded; managers, admins, superadmins, and PR-credentialed approvers may act.
+ */
+export function canArbitrateMissionCapacity(
+  db: Database,
+  organizationId: string,
+  userEmail: string,
+  userRole: string
+): boolean {
+  if (userRole === "fleet_lead") return false;
+  return canApproveMissionRequests(db, organizationId, userEmail, userRole);
+}
+
+/** Break an overlapping vehicle reservation (double-book) with audit reason. */
+export function canOverrideReservationOverlap(userRole: string): boolean {
+  return userRole === "manager" || userRole === "admin" || userRole === "superadmin";
+}
+
+/**
  * Manager / approver override for a missing trip / checklist / inspection / approved mission gate.
  *
  * Same set as mission approvers: admins, fleet management, and PR-credentialed approvers in the org.

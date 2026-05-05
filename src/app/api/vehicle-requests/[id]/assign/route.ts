@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle } from "@/lib/vehicle-check-approvers";
+import { canAllocateFleetVehicle, canOverrideReservationOverlap } from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
+import {
+  findActiveReservationConflicts,
+  vehicleStatusAllowedForReservation,
+} from "@/lib/mission-reservations";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
  *
- * Fleet team lead assigns a vehicle from the operational pool
- * and moves the request to 'assigned' status.
+ * Legacy: assigns operational vehicle to a vehicle_request row.
+ * When the request is linked to a mission, also writes mission assignment + vehicle_reservations (mission-centric).
  */
 export async function POST(
   request: NextRequest,
@@ -41,7 +46,97 @@ export async function POST(
 
   const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(body.vehicleId) as Record<string, unknown> | undefined;
   if (!vehicle) return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
-  if (vehicle.status !== "operational") {
+
+  const missionId = String(existing.mission_id || "").trim();
+  const orgId = String(existing.organization_id || "");
+  const dep = String(existing.departure_date || "").slice(0, 10);
+  const retRaw = String(existing.return_date || "").trim();
+  const endDate = (retRaw ? retRaw.slice(0, 10) : dep) || dep;
+  const overrideReason = String((body as { overrideReason?: string }).overrideReason || "").trim();
+
+  if (missionId) {
+    const mFull = db
+      .prepare("SELECT approval_status, lifecycle_status FROM missions WHERE id = ?")
+      .get(missionId) as { approval_status: string; lifecycle_status: string } | undefined;
+    if (!mFull) {
+      return NextResponse.json({ error: "Linked mission not found." }, { status: 400 });
+    }
+    if (String(mFull.approval_status || "").toLowerCase() !== "approved") {
+      return NextResponse.json({ error: "Mission must be approved before assigning a vehicle." }, { status: 400 });
+    }
+    if (String(mFull.lifecycle_status || "active").toLowerCase() !== "active") {
+      return NextResponse.json({ error: "Mission is not active (deferred or cancelled)." }, { status: 400 });
+    }
+    const vStatus = String(vehicle.status || "");
+    if (!vehicleStatusAllowedForReservation(vStatus, dep)) {
+      return NextResponse.json(
+        { error: `Vehicle ${vehicle.code} cannot be reserved for this departure date (status: ${vStatus}).` },
+        { status: 400 }
+      );
+    }
+    const m = db.prepare("SELECT required_vehicle_class FROM missions WHERE id = ?").get(missionId) as
+      | { required_vehicle_class: string }
+      | undefined;
+    const reqClass = String(m?.required_vehicle_class || "").trim();
+    const assetClass = String(vehicle.asset_class || "").trim();
+    if (reqClass && assetClass && reqClass !== assetClass) {
+      return NextResponse.json(
+        { error: `Vehicle asset class (${assetClass}) does not match mission required class (${reqClass}).` },
+        { status: 400 }
+      );
+    }
+    const conflicts = findActiveReservationConflicts(db, orgId, body.vehicleId, dep, endDate, missionId);
+    if (conflicts.length > 0) {
+      const canOverride = canOverrideReservationOverlap(user.role) && overrideReason.length >= 8;
+      if (!canOverride) {
+        return NextResponse.json(
+          {
+            error:
+              "Overlapping reservation on this vehicle. Use POST /api/missions/{id}/reserve-vehicle with overrideReason, or ask a manager.",
+            conflicts,
+          },
+          { status: 409 }
+        );
+      }
+      recordMutation(db, {
+        entityType: "mission",
+        entityId: missionId,
+        organizationId: orgId,
+        action: "reservation_overlap_override",
+        actor: actorFrom(user),
+        after: { conflicts, overrideReason, via: "vehicle_request_assign" },
+      });
+    }
+    const tx = db.transaction(() => {
+      db.prepare(
+        `UPDATE vehicle_reservations SET status = 'superseded', updated_at = ? WHERE mission_id = ? AND status = 'active'`
+      ).run(now, missionId);
+      db.prepare(
+        `
+        INSERT INTO vehicle_reservations (
+          id, organization_id, vehicle_id, mission_id, start_date, end_date, status,
+          override_reason, override_by_id, override_by_name, created_at, updated_at
+        ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+      `
+      ).run(
+        orgId,
+        body.vehicleId,
+        missionId,
+        dep,
+        endDate,
+        conflicts.length > 0 ? overrideReason : "",
+        conflicts.length > 0 ? approverId : "",
+        conflicts.length > 0 ? approverName : "",
+        now,
+        now
+      );
+      db.prepare(
+        `UPDATE missions SET assigned_vehicle_id = ?, assigned_at = ?, assigned_by_id = ?, assigned_by_name = ?,
+         updated_at = ? WHERE id = ?`
+      ).run(body.vehicleId, now, approverId, approverName, now, missionId);
+    });
+    tx();
+  } else if (vehicle.status !== "operational") {
     return NextResponse.json({ error: `Vehicle ${vehicle.code} is not operational (status: ${vehicle.status})` }, { status: 400 });
   }
 

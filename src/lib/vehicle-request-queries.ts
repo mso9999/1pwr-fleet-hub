@@ -4,9 +4,10 @@
  */
 export const VR_SELECT_FIELDS = `
     vr.*,
-    av.code as assigned_vehicle_code,
-    av.make as assigned_vehicle_make,
-    av.model as assigned_vehicle_model,
+    COALESCE(av.code, mav.code) as assigned_vehicle_code,
+    COALESCE(av.make, mav.make) as assigned_vehicle_make,
+    COALESCE(av.model, mav.model) as assigned_vehicle_model,
+    COALESCE(vr.assigned_vehicle_id, m.assigned_vehicle_id) as display_assigned_vehicle_id,
     u_req.email as requested_by_email,
     m.title as mission_title,
     m.destination as mission_destination,
@@ -19,5 +20,6 @@ export const VR_SELECT_FIELDS = `
 export const VR_FROM_JOIN = `
     FROM vehicle_requests vr
     LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
-    LEFT JOIN users u_req ON u_req.id = vr.requested_by_id
-    LEFT JOIN missions m ON m.id = vr.mission_id`;
+    LEFT JOIN missions m ON m.id = vr.mission_id
+    LEFT JOIN vehicles mav ON m.assigned_vehicle_id = mav.id
+    LEFT JOIN users u_req ON u_req.id = vr.requested_by_id`;

@@ -1,30 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { evaluateTripReadiness, MISSION_PROFILE } from "@/lib/trip-readiness";
+import { evaluateReadinessForMissionLinkedTrip } from "@/lib/mission-deployment-readiness";
 
 /**
- * GET /api/trips/readiness?org=&vehicleId=&missionProfile=local|field&checkDate=YYYY-MM-DD
- *
- * Returns gate status before checkout so the Trips UI can show what’s missing.
+ * GET /api/trips/readiness?org=&vehicleId=&missionId=&checkDate=YYYY-MM-DD
+ * Mission-linked checkout only: gates are operational vehicle + driver checklist (local missions skip DVC).
  */
 export function GET(request: NextRequest): NextResponse {
   const sp = request.nextUrl.searchParams;
   const organizationId = sp.get("org") || "1pwr_lesotho";
   const vehicleId = sp.get("vehicleId");
-  const missionProfile = sp.get("missionProfile") || MISSION_PROFILE.LOCAL;
+  const missionId = sp.get("missionId");
   const checkDate = sp.get("checkDate") || undefined;
 
   if (!vehicleId) {
     return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
   }
+  if (!missionId) {
+    return NextResponse.json({ error: "missionId is required" }, { status: 400 });
+  }
 
   const db = getDb();
-  const { ok, gates, missionProfile: profile } = evaluateTripReadiness(db, {
+  const r = evaluateReadinessForMissionLinkedTrip(db, {
     organizationId,
+    missionId,
     vehicleId,
-    missionProfile,
     checkDate,
   });
 
-  return NextResponse.json({ ok, missionProfile: profile, gates });
+  return NextResponse.json({
+    ok: r.ok,
+    missionProfile: r.missionProfile,
+    gates: r.gates,
+    missionBlockedReason: r.missionBlockedReason,
+  });
 }

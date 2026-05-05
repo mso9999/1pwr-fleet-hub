@@ -32,6 +32,10 @@ export interface TripReadinessInput {
   checkDate?: string;
   /** For tests / deterministic checks. */
   referenceNow?: Date;
+  /** When true (e.g. local / HQ-vicinity mission), departing driver checklist gate is skipped as satisfied. */
+  skipDriverChecklist?: boolean;
+  /** When true, skip field-deployment mechanical inspection gate (mission already management-approved as-is). */
+  skipMechanicalInspection?: boolean;
 }
 
 function normalizeProfile(raw: string | undefined): MissionProfile {
@@ -109,16 +113,20 @@ export function evaluateTripReadiness(
     (dvc.overall_pass === 1 ||
       (dvc.has_exceptions === 1 && dvc.exception_approved === 1));
 
+  const skipDvc = input.skipDriverChecklist === true;
+  const dvcGateOk = skipDvc || dvcPass;
   gates.push({
     id: "driver_checklist",
     label: "Driver checklist (departing)",
-    status: dvcPass ? "satisfied" : "blocked",
-    detail: dvcPass
-      ? "Today’s departing driver checklist is complete (pass or approved exceptions)."
-      : `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`,
+    status: dvcGateOk ? "satisfied" : "blocked",
+    detail: skipDvc
+      ? "Not required for this mission profile (local / HQ-vicinity)."
+      : dvcPass
+        ? "Today’s departing driver checklist is complete (pass or approved exceptions)."
+        : `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`,
   });
 
-  if (missionProfile === MISSION_PROFILE.FIELD) {
+  if (missionProfile === MISSION_PROFILE.FIELD && input.skipMechanicalInspection !== true) {
     const cutoff = new Date(now.getTime() - MECHANICAL_INSPECTION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const placeholders = FIELD_DEPLOYMENT_INSPECTION_TYPES.map(() => "?").join(", ");
     const insp = db

@@ -11,14 +11,19 @@ export function GET(request: NextRequest): NextResponse {
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const status = request.nextUrl.searchParams.get("status") ?? "planned";
   const approvalStatus = request.nextUrl.searchParams.get("approvalStatus");
+  const tripCheckoutEligible = request.nextUrl.searchParams.get("tripCheckoutEligible") === "true";
 
   let sql = `
-    SELECT id, organization_id, title, destination, departure_date, return_date, mission_type,
-           passengers, loadout_summary, notes, status, trip_id,
-           approval_status, approved_by_name, approved_at, rejection_reason,
-           created_by_name, created_at, updated_at
-    FROM missions
-    WHERE organization_id = ?
+    SELECT m.id, m.organization_id, m.title, m.destination, m.departure_date, m.return_date, m.mission_type,
+           m.passengers, m.loadout_summary, m.notes, m.status, m.trip_id,
+           m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
+           m.mission_profile, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
+           m.assigned_at, m.assigned_by_name, m.lifecycle_status,
+           m.created_by_name, m.created_at, m.updated_at,
+           v.code AS assigned_vehicle_code
+    FROM missions m
+    LEFT JOIN vehicles v ON m.assigned_vehicle_id = v.id
+    WHERE m.organization_id = ?
   `;
   const params: string[] = [org];
 
@@ -32,7 +37,18 @@ export function GET(request: NextRequest): NextResponse {
     params.push(approvalStatus);
   }
 
-  sql += " ORDER BY departure_date DESC, created_at DESC LIMIT 200";
+  if (tripCheckoutEligible) {
+    sql += ` AND lower(COALESCE(m.approval_status,'')) = 'approved'
+             AND lower(COALESCE(m.lifecycle_status,'active')) = 'active'
+             AND trim(COALESCE(m.assigned_vehicle_id,'')) != ''
+             AND (
+               m.trip_id IS NULL
+               OR EXISTS (SELECT 1 FROM trips t WHERE t.id = m.trip_id AND t.checkin_at IS NOT NULL)
+             )
+    `;
+  }
+
+  sql += " ORDER BY m.departure_date DESC, m.created_at DESC LIMIT 200";
 
   const rows = db.prepare(sql).all(...params);
   return NextResponse.json(rows);
@@ -59,6 +75,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     notes: String(body.notes || ""),
     createdById: user.id,
     createdByName: user.name || user.email,
+    missionProfile: String(body.missionProfile || "local"),
+    requiredVehicleClass: String(body.requiredVehicleClass || ""),
+    rrStatus: String(body.rrStatus || "na"),
   });
 
   const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);

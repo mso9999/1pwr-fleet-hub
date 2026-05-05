@@ -130,8 +130,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const requiredVehicleClassRaw = String(body.requiredVehicleClass ?? "").trim();
+  let requiredVehicleClassRaw = String(body.requiredVehicleClass ?? "").trim();
   const assetClassValues = Object.values(ASSET_CLASS) as string[];
+  if (existingMission) {
+    const fromMission = String(existingMission.required_vehicle_class ?? "").trim();
+    if (
+      (!requiredVehicleClassRaw || !assetClassValues.includes(requiredVehicleClassRaw)) &&
+      fromMission &&
+      assetClassValues.includes(fromMission)
+    ) {
+      requiredVehicleClassRaw = fromMission;
+    }
+  }
   if (!requiredVehicleClassRaw || !assetClassValues.includes(requiredVehicleClassRaw)) {
     if (!overrideUsable) {
       return NextResponse.json(

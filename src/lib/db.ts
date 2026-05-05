@@ -192,6 +192,14 @@ function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): v
       approved_by_name TEXT DEFAULT '',
       approved_at TEXT DEFAULT NULL,
       rejection_reason TEXT DEFAULT '',
+      mission_profile TEXT NOT NULL DEFAULT 'local',
+      required_vehicle_class TEXT NOT NULL DEFAULT '',
+      assigned_vehicle_id TEXT DEFAULT NULL,
+      rr_status TEXT NOT NULL DEFAULT 'na',
+      assigned_at TEXT DEFAULT NULL,
+      assigned_by_id TEXT NOT NULL DEFAULT '',
+      assigned_by_name TEXT NOT NULL DEFAULT '',
+      lifecycle_status TEXT NOT NULL DEFAULT 'active',
       created_by_id TEXT NOT NULL DEFAULT '',
       created_by_name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -213,6 +221,144 @@ function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): v
   db.exec(`CREATE INDEX IF NOT EXISTS idx_vr_mission ON vehicle_requests(mission_id)`);
 
   migrateMissionsApprovalColumns(db);
+  migrateMissionsCentricAndReservations(db);
+}
+
+/** Mission-centric workflow: columns on missions + vehicle_reservations + trips.mission_id; backfill from vehicle_requests. */
+function migrateMissionsCentricAndReservations(db: Database.Database): void {
+  const mExists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='missions' LIMIT 1")
+    .get();
+  if (!mExists) return;
+
+  const mCols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  const mHas = (col: string) => mCols.some((c) => c.name === col);
+
+  const missionAdds: Array<[string, string]> = [
+    ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
+    ["required_vehicle_class", "TEXT NOT NULL DEFAULT ''"],
+    ["assigned_vehicle_id", "TEXT DEFAULT NULL"],
+    ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
+    ["assigned_at", "TEXT DEFAULT NULL"],
+    ["assigned_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["assigned_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"],
+  ];
+  for (const [col, def] of missionAdds) {
+    if (!mHas(col)) {
+      db.exec(`ALTER TABLE missions ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vehicle_reservations (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      vehicle_id TEXT NOT NULL,
+      mission_id TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      override_reason TEXT NOT NULL DEFAULT '',
+      override_by_id TEXT NOT NULL DEFAULT '',
+      override_by_name TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_vres_vehicle ON vehicle_reservations(vehicle_id, status);
+    CREATE INDEX IF NOT EXISTS idx_vres_mission ON vehicle_reservations(mission_id);
+    CREATE INDEX IF NOT EXISTS idx_vres_org_dates ON vehicle_reservations(organization_id, start_date, end_date);
+  `);
+
+  migrateTripsMissionId(db);
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `
+      UPDATE missions SET
+        required_vehicle_class = COALESCE((
+          SELECT vr.required_vehicle_class FROM vehicle_requests vr
+          WHERE vr.mission_id = missions.id AND trim(COALESCE(vr.required_vehicle_class,'')) != ''
+          ORDER BY vr.updated_at DESC LIMIT 1
+        ), required_vehicle_class),
+        rr_status = COALESCE((
+          SELECT CASE lower(trim(vr.rr_status))
+            WHEN 'pending' THEN 'pending' WHEN 'approved' THEN 'approved' ELSE 'na' END
+          FROM vehicle_requests vr WHERE vr.mission_id = missions.id
+          ORDER BY vr.updated_at DESC LIMIT 1
+        ), rr_status)
+      WHERE EXISTS (SELECT 1 FROM vehicle_requests vr2 WHERE vr2.mission_id = missions.id)
+    `
+    ).run();
+
+    db.prepare(
+      `
+      UPDATE missions SET assigned_vehicle_id = (
+        SELECT vr.assigned_vehicle_id FROM vehicle_requests vr
+        WHERE vr.mission_id = missions.id
+          AND vr.assigned_vehicle_id IS NOT NULL AND trim(vr.assigned_vehicle_id) != ''
+        ORDER BY vr.updated_at DESC LIMIT 1
+      ),
+      assigned_at = COALESCE((
+        SELECT vr.updated_at FROM vehicle_requests vr
+        WHERE vr.mission_id = missions.id AND vr.status = 'assigned'
+        ORDER BY vr.updated_at DESC LIMIT 1
+      ), assigned_at),
+      assigned_by_id = COALESCE((
+        SELECT vr.approved_by_id FROM vehicle_requests vr
+        WHERE vr.mission_id = missions.id AND vr.status = 'assigned'
+        ORDER BY vr.updated_at DESC LIMIT 1
+      ), assigned_by_id),
+      assigned_by_name = COALESCE((
+        SELECT vr.approved_by_name FROM vehicle_requests vr
+        WHERE vr.mission_id = missions.id AND vr.status = 'assigned'
+        ORDER BY vr.updated_at DESC LIMIT 1
+      ), assigned_by_name)
+      WHERE EXISTS (
+        SELECT 1 FROM vehicle_requests vr WHERE vr.mission_id = missions.id AND vr.status = 'assigned'
+      )
+    `
+    ).run();
+
+    const rows = db
+      .prepare(
+        `
+      SELECT m.id as mid, m.organization_id as org, m.assigned_vehicle_id as vid,
+             m.departure_date as d0, m.return_date as r0
+      FROM missions m
+      WHERE m.assigned_vehicle_id IS NOT NULL AND trim(m.assigned_vehicle_id) != ''
+        AND NOT EXISTS (SELECT 1 FROM vehicle_reservations vr WHERE vr.mission_id = m.id)
+    `
+      )
+      .all() as Array<{ mid: string; org: string; vid: string; d0: string; r0: string }>;
+
+    const ins = db.prepare(`
+      INSERT INTO vehicle_reservations (
+        id, organization_id, vehicle_id, mission_id, start_date, end_date, status,
+        override_reason, override_by_id, override_by_name, created_at, updated_at
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, 'active', '', '', '', datetime('now'), datetime('now'))
+    `);
+
+    for (const row of rows) {
+      const start = String(row.d0 || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const ret = String(row.r0 || "").trim();
+      const end = (ret ? ret.slice(0, 10) : start) || start;
+      ins.run(row.org, row.vid, row.mid, start, end);
+    }
+  });
+  try {
+    tx();
+  } catch (e) {
+    console.warn("[db] migrateMissionsCentricAndReservations backfill (non-fatal):", e);
+  }
+}
+
+function migrateTripsMissionId(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(trips)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "mission_id")) {
+    db.exec(`ALTER TABLE trips ADD COLUMN mission_id TEXT DEFAULT NULL`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trips_mission ON trips(mission_id)`);
 }
 
 /** PR mission approval workflow — older DBs created before approval columns. */

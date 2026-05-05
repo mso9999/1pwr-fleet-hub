@@ -15,14 +15,19 @@ export type MutationAction =
   | "delete"
   | "attest"
   | "authorization"
-  | "prerequisite_override";
+  | "prerequisite_override"
+  | "mission_lifecycle"
+  | "mission_reopened_approval"
+  | "mission_checkout_hold"
+  | "reservation_overlap_override";
 
 export type MutationEntityType =
   | "fleet_mechanic"
   | "ehs_approved_driver"
   | "trip"
   | "vehicle_request"
-  | "vehicle_country_change_request";
+  | "vehicle_country_change_request"
+  | "mission";
 
 export interface MutationActor {
   id: string;

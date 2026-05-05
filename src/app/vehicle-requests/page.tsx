@@ -36,6 +36,8 @@ interface RequestRow {
   approved_by_name: string;
   rejection_reason: string;
   assigned_vehicle_id: string | null;
+  /** COALESCE(vr.assigned_vehicle_id, mission.assigned_vehicle_id) from list API */
+  display_assigned_vehicle_id?: string | null;
   assigned_vehicle_code: string | null;
   assigned_vehicle_make: string | null;
   assigned_vehicle_model: string | null;
@@ -98,6 +100,11 @@ const RR_BADGE: Record<string, "secondary" | "warning" | "success"> = {
   approved: "success",
 };
 
+const MISSION_PROFILE_OPTIONS: { value: string; label: string }[] = [
+  { value: "local", label: "Local / HQ vicinity" },
+  { value: "field", label: "Field deployment" },
+];
+
 /** Filters / column labels for list view */
 const STATUS_FILTERS: { status: string; label: string }[] = [
   { status: "requested", label: "Pending approval" },
@@ -135,6 +142,132 @@ interface PlannedMissionRow {
   title: string;
   status: string;
   approval_status?: string;
+  mission_profile?: string;
+  required_vehicle_class?: string;
+  assigned_vehicle_id?: string | null;
+  assigned_vehicle_code?: string | null;
+  assigned_vehicle_status?: string;
+  lifecycle_status?: string;
+  rr_status?: string;
+}
+
+function FleetMissionReserveRow({
+  mission: m,
+  onReserved,
+}: {
+  mission: PlannedMissionRow;
+  onReserved: () => void;
+}) {
+  const [candidates, setCandidates] = useState<
+    Array<{ id: string; code: string; make: string; model: string; status?: string; pool?: string; current_location?: string }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [vehicleId, setVehicleId] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr("");
+    void (async () => {
+      const res = await fetch(`/api/missions/${m.id}/reserve-candidates`, {
+        headers: await jsonHeadersWithBearer(),
+      });
+      const j = (await res.json().catch(() => ({}))) as { candidates?: typeof candidates };
+      if (!cancelled) {
+        setCandidates(Array.isArray(j.candidates) ? j.candidates : []);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [m.id]);
+
+  const assigned = !!(m.assigned_vehicle_id || m.assigned_vehicle_code);
+  const inactive = m.lifecycle_status && m.lifecycle_status !== "active";
+
+  async function reserve(): Promise<void> {
+    if (!vehicleId) return;
+    setSaving(true);
+    setErr("");
+    const res = await fetch(`/api/missions/${m.id}/reserve-vehicle`, {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({
+        vehicleId,
+        ...(overrideReason.trim().length >= 8 ? { overrideReason: overrideReason.trim() } : {}),
+      }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setVehicleId("");
+      setOverrideReason("");
+      onReserved();
+      return;
+    }
+    const j = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+    setErr(j.error || "Could not reserve vehicle.");
+  }
+
+  if (assigned) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="text-zinc-700">
+          <span className="text-zinc-500">Reserved: </span>
+          <strong className="text-emerald-800">{m.assigned_vehicle_code || m.assigned_vehicle_id}</strong>
+        </span>
+      </div>
+    );
+  }
+
+  if (inactive) {
+    return (
+      <span className="text-xs text-amber-800">
+        Mission not active ({m.lifecycle_status}). Reactivate before reserving.
+      </span>
+    );
+  }
+
+  return (
+    <div className="space-y-2 pt-1 border-t border-zinc-100">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[200px] flex-1">
+          <label className="text-xs font-medium text-zinc-600 block mb-1">Reserve vehicle</label>
+          <select
+            value={vehicleId}
+            onChange={(e) => setVehicleId(e.target.value)}
+            disabled={loading || saving}
+            className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
+          >
+            <option value="">{loading ? "Loading candidates…" : "Select vehicle…"}</option>
+            {candidates.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.code} — {v.make} {v.model}
+                {v.status ? ` (${v.status})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button type="button" size="sm" disabled={!vehicleId || saving} onClick={() => void reserve()} className="touch-manipulation">
+          {saving ? "Saving…" : "Reserve"}
+        </Button>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-zinc-600">Overlap override (managers only, min 8 chars)</label>
+        <input
+          type="text"
+          value={overrideReason}
+          onChange={(e) => setOverrideReason(e.target.value)}
+          placeholder="Managers only: 8+ characters if overriding an overlapping reservation"
+          className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
+        />
+      </div>
+      {err && <p className="text-xs text-red-700">{err}</p>}
+    </div>
+  );
 }
 
 export default function VehicleRequestsPage() {
@@ -152,7 +285,11 @@ export default function VehicleRequestsPage() {
     canApprove: boolean;
     canFullEdit: boolean;
     canAllocateVehicle: boolean;
+    canArbitrateCapacity?: boolean;
   } | null>(null);
+  const [approvedMissionsFleet, setApprovedMissionsFleet] = useState<PlannedMissionRow[]>([]);
+  const [arbitrationDate, setArbitrationDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
   const [vrEligibility, setVrEligibility] = useState<{ canRequestVehicle: boolean; isApprovedDriver: boolean } | null>(
     null
   );
@@ -168,48 +305,20 @@ export default function VehicleRequestsPage() {
   const canApproveMission = missionPerms?.canApprove ?? roleLooksFleet;
   const canAllocateVehicle = missionPerms?.canAllocateVehicle ?? (user?.role === "fleet_lead" || user?.role === "superadmin");
 
-  async function patchMissionApproval(missionId: string, action: "approve" | "reject"): Promise<void> {
-    const reason =
-      action === "reject" ? window.prompt("Rejection reason (optional):") ?? "" : "";
+  const refetchApprovedMissionsFleet = useCallback(async () => {
+    if (!canAllocateVehicle) {
+      setApprovedMissionsFleet([]);
+      return;
+    }
     const headers = await jsonHeadersWithBearer();
-    const res = await fetch(`/api/missions/${missionId}`, {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify({ action, ...(action === "reject" ? { rejectionReason: reason } : {}) }),
-    });
-    if (!res.ok) return;
-    const r2 = await fetch(
-      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+    const res = await fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`,
       { headers }
     );
-    const j = (await r2.json()) as PlannedMissionRow[];
-    setPendingMissions(Array.isArray(j) ? j : []);
-    void loadData();
-  }
-
-  const statusCounts = STATUS_FILTERS.map((p) => ({
-    ...p,
-    count: countByStatus(requests, p.status),
-  }));
-  const otherCount = requests.filter((r) => !KNOWN_STATUS.has(r.status)).length;
-
-  const filteredListRequests =
-    listStatusFilter === null
-      ? requests
-      : listStatusFilter === "__other__"
-        ? requests.filter((r) => !KNOWN_STATUS.has(r.status))
-        : requests.filter((r) => r.status === listStatusFilter);
-  const sortedListRequests = [...filteredListRequests].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === "Escape") setDetailRequest(null);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    if (!res.ok) return;
+    const j = (await res.json()) as PlannedMissionRow[];
+    setApprovedMissionsFleet(Array.isArray(j) ? j : []);
+  }, [organizationId, canAllocateVehicle]);
 
   const loadData = useCallback(() => {
     setIsLoading(true);
@@ -254,7 +363,91 @@ export default function VehicleRequestsPage() {
       });
   }, [organizationId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  async function patchMissionArbitration(
+    missionId: string,
+    action: "defer" | "cancel_capacity" | "reactivate"
+  ): Promise<void> {
+    const reason =
+      window.prompt(
+        action === "reactivate"
+          ? "Reason for reactivation (at least 4 characters):"
+          : "Management decision — reason (at least 4 characters):",
+        action === "reactivate" ? "Reactivated for operations" : ""
+      )?.trim() ?? "";
+    if (reason.length < 4) {
+      if (reason.length > 0) window.alert("Reason must be at least 4 characters.");
+      return;
+    }
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ action, reason }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(j.error || "Update failed");
+      return;
+    }
+    void loadData();
+    const q = await fetch(
+      `/api/missions/arbitration-queue?org=${encodeURIComponent(organizationId)}&date=${encodeURIComponent(arbitrationDate)}`,
+      { headers }
+    );
+    if (q.ok) {
+      const j2 = (await q.json()) as { missions?: PlannedMissionRow[] };
+      setArbitrationRows(Array.isArray(j2.missions) ? j2.missions : []);
+    }
+    void refetchApprovedMissionsFleet();
+  }
+
+  async function patchMissionApproval(missionId: string, action: "approve" | "reject"): Promise<void> {
+    const reason =
+      action === "reject" ? window.prompt("Rejection reason (optional):") ?? "" : "";
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ action, ...(action === "reject" ? { rejectionReason: reason } : {}) }),
+    });
+    if (!res.ok) return;
+    const r2 = await fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+      { headers }
+    );
+    const j = (await r2.json()) as PlannedMissionRow[];
+    setPendingMissions(Array.isArray(j) ? j : []);
+    void loadData();
+    void refetchApprovedMissionsFleet();
+  }
+
+  const statusCounts = STATUS_FILTERS.map((p) => ({
+    ...p,
+    count: countByStatus(requests, p.status),
+  }));
+  const otherCount = requests.filter((r) => !KNOWN_STATUS.has(r.status)).length;
+
+  const filteredListRequests =
+    listStatusFilter === null
+      ? requests
+      : listStatusFilter === "__other__"
+        ? requests.filter((r) => !KNOWN_STATUS.has(r.status))
+        : requests.filter((r) => r.status === listStatusFilter);
+  const sortedListRequests = [...filteredListRequests].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") setDetailRequest(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,12 +465,14 @@ export default function VehicleRequestsPage() {
         canApprove?: boolean;
         canFullEdit?: boolean;
         canAllocateVehicle?: boolean;
+        canArbitrateCapacity?: boolean;
       };
       if (!cancelled) {
         setMissionPerms({
           canApprove: !!j.canApprove,
           canFullEdit: !!j.canFullEdit,
           canAllocateVehicle: !!j.canAllocateVehicle,
+          canArbitrateCapacity: !!j.canArbitrateCapacity,
         });
       }
     })();
@@ -333,6 +528,31 @@ export default function VehicleRequestsPage() {
   }, [organizationId, canApproveMission]);
 
   useEffect(() => {
+    void refetchApprovedMissionsFleet();
+  }, [refetchApprovedMissionsFleet]);
+
+  useEffect(() => {
+    if (!missionPerms?.canArbitrateCapacity) {
+      setArbitrationRows([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/missions/arbitration-queue?org=${encodeURIComponent(organizationId)}&date=${encodeURIComponent(arbitrationDate)}`,
+        { headers }
+      );
+      if (!res.ok) return;
+      const j = (await res.json()) as { missions?: PlannedMissionRow[] };
+      if (!cancelled) setArbitrationRows(Array.isArray(j.missions) ? j.missions : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, arbitrationDate, missionPerms?.canArbitrateCapacity]);
+
+  useEffect(() => {
     if (!active || trackId !== "vehicleRequest") return;
     if (stepIndex >= 4) {
       setShowForm(false);
@@ -385,7 +605,7 @@ export default function VehicleRequestsPage() {
           </div>
           <span data-tutorial="tutorial-vr-request-btn">
             <Button onClick={() => { setShowForm(!showForm); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
-              + Request vehicle
+              + New mission
             </Button>
           </span>
         </div>
@@ -400,6 +620,134 @@ export default function VehicleRequestsPage() {
           onComplete={() => { setShowForm(false); loadData(); }}
           onCancel={() => setShowForm(false)}
         />
+      )}
+
+      {canAllocateVehicle && approvedMissionsFleet.filter((m) => !m.lifecycle_status || m.lifecycle_status === "active").length > 0 && (
+        <Card className="border-emerald-100 bg-emerald-50/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Fleet: reserve vehicles on approved missions</CardTitle>
+            <p className="text-sm text-zinc-600 font-normal">
+              Pick a candidate that matches the mission dates and required class. Today’s departures only allow operational vehicles; future dates allow additional statuses per policy.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {approvedMissionsFleet
+              .filter((m) => !m.lifecycle_status || m.lifecycle_status === "active")
+              .map((m) => (
+                <div
+                  key={m.id}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1"
+                >
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 80)}</span>
+                      <span className="text-zinc-500 ml-2 block sm:inline">
+                        {m.destination} · {m.departure_date}
+                        {m.return_date ? ` → ${m.return_date}` : ""}
+                      </span>
+                    </div>
+                    {m.required_vehicle_class && (
+                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                        Class: {m.required_vehicle_class}
+                      </Badge>
+                    )}
+                  </div>
+                  <FleetMissionReserveRow
+                    mission={m}
+                    onReserved={() => {
+                      void loadData();
+                      void refetchApprovedMissionsFleet();
+                    }}
+                  />
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {missionPerms?.canArbitrateCapacity && (
+        <Card className="border-violet-200 bg-violet-50/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Management: capacity arbitration (departure day)</CardTitle>
+            <p className="text-sm text-zinc-600 font-normal">
+              Approved missions departing on the selected date. Defer or cancel when operational capacity is insufficient. Fleet lead alone cannot arbitrate who loses a slot.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="text-xs font-medium text-zinc-600 block mb-1">Departure date</label>
+                <input
+                  type="date"
+                  value={arbitrationDate}
+                  onChange={(e) => setArbitrationDate(e.target.value)}
+                  className="h-10 rounded-lg border border-zinc-200 px-2 text-sm bg-white"
+                />
+              </div>
+            </div>
+            {arbitrationRows.length === 0 ? (
+              <p className="text-sm text-zinc-600">No approved missions on this date.</p>
+            ) : (
+              <ul className="space-y-2">
+                {arbitrationRows.map((m) => {
+                  const arbActive = !m.lifecycle_status || m.lifecycle_status === "active";
+                  return (
+                  <li
+                    key={m.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 72)}</span>
+                      {!arbActive && (
+                        <Badge variant="warning" className="ml-2 text-[10px] align-middle">
+                          {String(m.lifecycle_status).replace(/_/g, " ")}
+                        </Badge>
+                      )}
+                      <span className="text-zinc-500 ml-2">
+                        {m.departure_date}
+                        {m.assigned_vehicle_code ? ` · ${m.assigned_vehicle_code}` : " · no vehicle"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 shrink-0">
+                      {arbActive ? (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="text-amber-900 border-amber-200"
+                            onClick={() => void patchMissionArbitration(m.id, "defer")}
+                          >
+                            Defer
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="text-red-800 border-red-200"
+                            onClick={() => void patchMissionArbitration(m.id, "cancel_capacity")}
+                          >
+                            Cancel (capacity)
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => void patchMissionArbitration(m.id, "reactivate")}
+                        >
+                          Reactivate
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {canApproveMission && pendingMissions.length > 0 && (
@@ -615,6 +963,7 @@ export default function VehicleRequestsPage() {
           {detailRequest && (
             <RequestDetailModal
               request={detailRequest}
+              organizationId={organizationId}
               canFullEdit={canFullEdit}
               canApproveMission={canApproveMission}
               canAllocateVehicle={canAllocateVehicle}
@@ -625,6 +974,7 @@ export default function VehicleRequestsPage() {
               onPatchSaved={(updated) => {
                 setDetailRequest(updated);
                 void loadData();
+                void refetchApprovedMissionsFleet();
               }}
             />
           )}
@@ -636,6 +986,7 @@ export default function VehicleRequestsPage() {
 
 function RequestDetailModal({
   request: r,
+  organizationId,
   canFullEdit,
   canApproveMission,
   canAllocateVehicle,
@@ -646,6 +997,7 @@ function RequestDetailModal({
   onPatchSaved,
 }: {
   request: RequestRow;
+  organizationId: string;
   canFullEdit: boolean;
   canApproveMission: boolean;
   canAllocateVehicle: boolean;
@@ -654,14 +1006,69 @@ function RequestDetailModal({
   approverName: string;
   onClose: () => void;
   onPatchSaved: (row: RequestRow) => void;
-}): React.ReactElement {
+}) {
   const [isActing, setIsActing] = useState(false);
   const [assignVehicleId, setAssignVehicleId] = useState("");
+  const [assignOverlapReason, setAssignOverlapReason] = useState("");
+  const [reserveOptions, setReserveOptions] = useState<EntityPickerOption[]>([]);
+  const [reserveLoading, setReserveLoading] = useState(false);
   const [localRr, setLocalRr] = useState(normalizeRr(r.rr_status));
 
   useEffect(() => {
     setLocalRr(normalizeRr(r.rr_status));
   }, [r.id, r.rr_status]);
+
+  useEffect(() => {
+    setAssignVehicleId("");
+    setAssignOverlapReason("");
+  }, [r.id]);
+
+  useEffect(() => {
+    if (!r.mission_id || !canAllocateVehicle) {
+      setReserveOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setReserveLoading(true);
+    void (async () => {
+      const res = await fetch(`/api/missions/${r.mission_id}/reserve-candidates`, {
+        headers: await jsonHeadersWithBearer(),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        candidates?: Array<{
+          id?: unknown;
+          code?: unknown;
+          make?: unknown;
+          model?: unknown;
+          pool?: unknown;
+          current_location?: unknown;
+          status?: unknown;
+        }>;
+      };
+      if (cancelled) return;
+      const rows = Array.isArray(j.candidates) ? j.candidates : [];
+      setReserveOptions(
+        rows.map((v) => ({
+          value: String(v.id ?? ""),
+          label: `${String(v.code ?? "")} — ${String(v.make ?? "")} ${String(v.model ?? "")}`,
+          description: `Pool: ${v.pool != null ? String(v.pool) : "—"}${v.current_location != null ? ` · ${String(v.current_location)}` : ""}`,
+          meta: v.status != null ? String(v.status) : "",
+          metaTone: "info" as const,
+          searchTokens: [
+            String(v.code ?? ""),
+            String(v.make ?? ""),
+            String(v.model ?? ""),
+            String(v.pool ?? ""),
+            String(v.current_location ?? ""),
+          ],
+        }))
+      );
+      setReserveLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [r.mission_id, canAllocateVehicle]);
 
   async function updateStatus(status: string, extra?: Record<string, string>): Promise<void> {
     setIsActing(true);
@@ -680,16 +1087,41 @@ function RequestDetailModal({
   async function assignVehicle(): Promise<void> {
     if (!assignVehicleId) return;
     setIsActing(true);
-    const res = await fetch(`/api/vehicle-requests/${r.id}/assign`, {
+    const missionPath = !!r.mission_id;
+    const url = missionPath
+      ? `/api/missions/${r.mission_id}/reserve-vehicle`
+      : `/api/vehicle-requests/${r.id}/assign`;
+    const body = missionPath
+      ? {
+          vehicleId: assignVehicleId,
+          ...(assignOverlapReason.trim().length >= 8 ? { overrideReason: assignOverlapReason.trim() } : {}),
+        }
+      : { vehicleId: assignVehicleId, approvedByName: approverName };
+    const res = await fetch(url, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ vehicleId: assignVehicleId, approvedByName: approverName }),
+      body: JSON.stringify(body),
     });
     setIsActing(false);
     if (res.ok) {
-      const row = (await res.json()) as RequestRow;
-      onPatchSaved(row);
+      if (missionPath) {
+        const list = await fetch(`/api/vehicle-requests?org=${encodeURIComponent(organizationId)}`, {
+          headers: await jsonHeadersWithBearer(),
+        });
+        if (list.ok) {
+          const all = (await list.json()) as RequestRow[];
+          const row = Array.isArray(all) ? all.find((x) => x.id === r.id) : undefined;
+          if (row) onPatchSaved(row);
+          else onPatchSaved(r);
+        } else onPatchSaved(r);
+      } else {
+        const row = (await res.json()) as RequestRow;
+        onPatchSaved(row);
+      }
+      return;
     }
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    window.alert(j.error || "Could not assign or reserve vehicle.");
   }
 
   async function saveRrStatus(): Promise<void> {
@@ -712,6 +1144,17 @@ function RequestDetailModal({
         .flat()
         .filter((v) => !v.status || v.status === "operational")
     : [];
+
+  const hasVehicleAssigned = Boolean(r.display_assigned_vehicle_id?.trim() || r.assigned_vehicle_id);
+  const poolVehiclePickerOptions = availableVehicles.map<EntityPickerOption>((v) => ({
+    value: v.id,
+    label: `${v.code} — ${v.make} ${v.model}`,
+    description: `Pool: ${v.pool}${v.current_location ? ` · ${v.current_location}` : ""}`,
+    meta: v.pool,
+    metaTone: "info",
+    searchTokens: [v.code, v.make, v.model, v.pool, v.current_location ?? ""],
+  }));
+  const reservePickerOptions = r.mission_id ? reserveOptions : poolVehiclePickerOptions;
 
   const isRequestor =
     !!currentUserEmail &&
@@ -925,35 +1368,51 @@ function RequestDetailModal({
             </div>
           )}
 
-          {canAllocateVehicle && (r.status === "approved" || r.status === "requested") && !r.assigned_vehicle_id && (
+          {canAllocateVehicle && (r.status === "approved" || r.status === "requested") && !hasVehicleAssigned && (
             <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="flex-1 min-w-[200px]">
+              <div className="flex-1 min-w-[200px] space-y-2">
                 <EntityPickerField
-                  label="Assign vehicle"
+                  label={r.mission_id ? "Reserve vehicle (mission)" : "Assign vehicle"}
                   value={assignVehicleId}
                   onChange={setAssignVehicleId}
-                  modalTitle="Pick an available vehicle"
-                  modalDescription="Operational vehicles in the pool, grouped by make + model."
+                  modalTitle={r.mission_id ? "Pick a reservable vehicle" : "Pick an available vehicle"}
+                  modalDescription={
+                    r.mission_id
+                      ? "Candidates match the mission departure date rules and required asset class."
+                      : "Operational vehicles in the pool, grouped by make + model."
+                  }
                   searchPlaceholder="Search by code, make, model, pool…"
-                  placeholder="Select available vehicle…"
+                  placeholder={
+                    r.mission_id && reserveLoading ? "Loading candidates…" : "Select vehicle…"
+                  }
+                  loading={!!r.mission_id && reserveLoading}
                   showCount
-                  options={availableVehicles.map<EntityPickerOption>((v) => ({
-                    value: v.id,
-                    label: `${v.code} — ${v.make} ${v.model}`,
-                    description: `Pool: ${v.pool}${v.current_location ? ` · ${v.current_location}` : ""}`,
-                    meta: v.pool,
-                    metaTone: "info",
-                    searchTokens: [v.code, v.make, v.model, v.pool, v.current_location ?? ""],
-                  }))}
+                  options={reservePickerOptions}
                   emptyState={
                     <span>
-                      No operational vehicles available right now. Check the pool for deployed or maintenance status.
+                      {r.mission_id
+                        ? "No vehicles match this mission’s dates, status rules, and required class. Adjust the mission or vehicle record, or use a manager overlap override if appropriate."
+                        : "No operational vehicles available right now. Check the pool for deployed or maintenance status."}
                     </span>
                   }
                 />
+                {r.mission_id && (
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600">
+                      Overlap override (managers / admins, 8+ characters)
+                    </label>
+                    <textarea
+                      value={assignOverlapReason}
+                      onChange={(e) => setAssignOverlapReason(e.target.value)}
+                      rows={2}
+                      placeholder="Only if reserving a vehicle that already has an overlapping active reservation"
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                )}
               </div>
               <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
-                Assign
+                {r.mission_id ? "Reserve" : "Assign"}
               </Button>
             </div>
           )}
@@ -1156,6 +1615,7 @@ function RequestForm({
   }, [destinationChoice, organizationId]);
 
   const siteRows = sites.filter((s) => s.code !== "OTHER");
+  const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
 
   async function handleCreateMission(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
@@ -1181,6 +1641,11 @@ function RequestForm({
       setMissionFormError("Departure date is required for the mission.");
       return;
     }
+    const reqClass = String(fd.get("cmRequiredVehicleClass") || "").trim();
+    if (!reqClass) {
+      setMissionFormError("Select the vehicle type / asset class required for this mission.");
+      return;
+    }
     setMissionSubmitting(true);
     const res = await fetch("/api/missions", {
       method: "POST",
@@ -1195,12 +1660,15 @@ function RequestForm({
         loadoutSummary: String(fd.get("cmLoadout") || ""),
         missionType: "other",
         notes: String(fd.get("cmNotes") || ""),
+        missionProfile: String(fd.get("cmMissionProfile") || "local"),
+        requiredVehicleClass: reqClass,
+        rrStatus: String(fd.get("cmRrStatus") || "na"),
       }),
     });
     setMissionSubmitting(false);
     if (res.ok) {
       setMissionMessage(
-        "Mission submitted for management approval. You cannot request a vehicle until an authorised manager approves this mission."
+        "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
       );
       e.currentTarget.reset();
       setDestinationChoice("");
@@ -1226,9 +1694,13 @@ function RequestForm({
       return;
     }
     const fd = new FormData(e.currentTarget);
-    const vehicleClass = String(fd.get("requiredVehicleClass") || "").trim();
+    const missionClass = selectedMission?.required_vehicle_class?.trim() ?? "";
+    const vehicleClass =
+      missionClass || String(fd.get("requiredVehicleClass") || "").trim();
     if (!vehicleClass && !overrideReady) {
-      setVrFormError("Select the vehicle type / class you need.");
+      setVrFormError(
+        "Select a mission that has a required vehicle class, or choose the vehicle type below (legacy missions without a class)."
+      );
       return;
     }
     let requestedFor = "";
@@ -1251,7 +1723,7 @@ function RequestForm({
       requestedFor,
       purpose: fd.get("purpose") || "",
       passengers: fd.get("passengers") || "",
-      requiredVehicleClass: fd.get("requiredVehicleClass") || "",
+      requiredVehicleClass: vehicleClass,
       loadoutDescription: fd.get("loadoutDescription") || "",
       priority: fd.get("priority") || "normal",
       rrStatus: fd.get("rrStatus") || "na",
@@ -1273,15 +1745,13 @@ function RequestForm({
     }
   }
 
-  const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
-
   return (
     <div className="space-y-6" data-tutorial="tutorial-vr-form">
       <Card className="border-sky-200 bg-sky-50/30">
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            Trip plans start as pending management approval. Fleet does not allocate a vehicle until the mission is approved and you submit a vehicle request as an approved driver.
+            One form captures timeframe, destination, mission profile (local vs field), required vehicle asset class, loadout, and R&amp;R. Management approves the mission; fleet then reserves a pool vehicle on the mission (not a free-text vehicle code).
           </p>
         </CardHeader>
         <CardContent>
@@ -1348,6 +1818,52 @@ function RequestForm({
               <Input name="cmPassengers" label="Passengers" placeholder="Number or names" />
               <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
             </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">Mission profile *</label>
+                <select
+                  name="cmMissionProfile"
+                  required
+                  defaultValue="local"
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  {MISSION_PROFILE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-zinc-500">Local affects pre-trip readiness rules vs field deployments.</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">Vehicle type needed *</label>
+                <select
+                  name="cmRequiredVehicleClass"
+                  required
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="" disabled>
+                    Select type…
+                  </option>
+                  {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+                    <option key={c} value={c}>
+                      {ASSET_CLASS_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">R&amp;R status</label>
+                <select
+                  name="cmRrStatus"
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  defaultValue="na"
+                >
+                  <option value="na">N/A — not applicable</option>
+                  <option value="pending">Pending — clearance required</option>
+                </select>
+              </div>
+            </div>
             <Input name="cmNotes" label="Mission notes" placeholder="Optional" />
             {missionMessage && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -1366,10 +1882,9 @@ function RequestForm({
 
       <Card className="border-emerald-200">
         <CardHeader>
-          <CardTitle className="text-base">2. Request a vehicle type (EHS approved drivers only)</CardTitle>
+          <CardTitle className="text-base">2. Driver logistics request (EHS approved drivers)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            Pick an approved mission, then choose the <strong>class of vehicle</strong> you need (for example 4WD SUV / bakkie or cargo truck).
-            Do not request a specific vehicle code — the fleet team lead assigns a pool vehicle after line approval.
+            Links an approved mission to a pool queue row (purpose, priority, notes). Required vehicle class is taken from the mission when set; fleet reserves a specific vehicle on the mission after line approval.
           </p>
         </CardHeader>
         <CardContent>
@@ -1397,9 +1912,16 @@ function RequestForm({
                     description: `${m.destination}${m.departure_date ? ` · ${m.departure_date}` : ""}${
                       m.return_date ? ` → ${m.return_date}` : ""
                     }`,
-                    meta: "Approved",
+                    meta: m.required_vehicle_class ? `Class: ${m.required_vehicle_class}` : "Approved",
                     metaTone: "success",
-                    searchTokens: [m.title, m.destination, m.departure_date, m.return_date],
+                    searchTokens: [
+                      m.title,
+                      m.destination,
+                      m.departure_date,
+                      m.return_date,
+                      m.required_vehicle_class ?? "",
+                      m.mission_profile ?? "",
+                    ],
                   }))}
                   emptyState={
                     <span>
@@ -1455,16 +1977,27 @@ function RequestForm({
                 </Select>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Select name="requiredVehicleClass" label="Vehicle type needed *" required>
-                  <option value="" disabled>
-                    Select type…
-                  </option>
-                  {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
-                    <option key={c} value={c}>
-                      {ASSET_CLASS_LABELS[c]}
+                {!selectedMission?.required_vehicle_class?.trim() ? (
+                  <Select name="requiredVehicleClass" label="Vehicle type needed *" required>
+                    <option value="" disabled>
+                      Select type…
                     </option>
-                  ))}
-                </Select>
+                    {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
+                      <option key={c} value={c}>
+                        {ASSET_CLASS_LABELS[c]}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <div className="rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 text-sm text-zinc-700">
+                    <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Vehicle class (from mission)</span>
+                    <div className="font-medium text-zinc-900 mt-0.5">
+                      {ASSET_CLASS_LABELS[selectedMission.required_vehicle_class as AssetClass] ??
+                        selectedMission.required_vehicle_class}
+                    </div>
+                    <input type="hidden" name="requiredVehicleClass" value={selectedMission.required_vehicle_class} />
+                  </div>
+                )}
                 <Input name="loadoutDescription" label="Loadout / equipment" placeholder="For this vehicle request" />
               </div>
               <div className="max-w-md">
