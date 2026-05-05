@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -326,6 +327,7 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
               userId={user.id}
               onSaved={loadOperators}
               tutorialFirst={idx === 0}
+              defaultExpanded={idx === 0}
             />
           ))}
         </div>
@@ -343,6 +345,7 @@ function OperatorCard({
   userId,
   onSaved,
   tutorialFirst,
+  defaultExpanded = false,
 }: {
   operator: OperatorRecord;
   canEdit: boolean;
@@ -350,8 +353,11 @@ function OperatorCard({
   userId: string;
   onSaved: () => Promise<void>;
   tutorialFirst?: boolean;
+  /** First row starts open so guided tutorial steps can target nested fields. */
+  defaultExpanded?: boolean;
 }): React.ReactElement {
   const { t } = useLocaleContext();
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [saving, setSaving] = useState(false);
   const [attesting, setAttesting] = useState(false);
   const [attestChecked, setAttestChecked] = useState(d.attestation.isFresh);
@@ -452,45 +458,86 @@ function OperatorCard({
   }
 
   const fleetReady = d.category_readiness["fleet_vehicle_onroad"] ?? false;
+  const panelId = `ehs-driver-detail-${d.id}`;
 
   return (
-    <Card
-      className={fleetReady ? "border-emerald-200" : "border-zinc-200"}
-      data-tutorial={tutorialFirst ? "tutorial-ehs-driver-card" : undefined}
-    >
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg">{d.display_name}</CardTitle>
-            <p className="text-sm text-zinc-500">{d.email}</p>
-            {d.hr_employee_id && (
-              <p className="text-xs text-zinc-400 mt-0.5">HR ID: {d.hr_employee_id}</p>
+    <Card className={fleetReady ? "border-emerald-200" : "border-zinc-200"}>
+      <CardHeader className="space-y-0 p-0">
+        <button
+          type="button"
+          className="flex w-full items-start gap-3 rounded-t-xl p-6 text-left outline-none transition-colors hover:bg-zinc-50/90 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          id={`ehs-driver-trigger-${d.id}`}
+          data-tutorial={tutorialFirst ? "tutorial-ehs-driver-card" : undefined}
+          onClick={() => setExpanded((x) => !x)}
+        >
+          <ChevronDown
+            className={`mt-0.5 h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-200 ${
+              expanded ? "rotate-180" : ""
+            }`}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-lg">{d.display_name}</CardTitle>
+                <p className="text-sm text-zinc-500">{d.email}</p>
+                {d.hr_employee_id && (
+                  <p className="text-xs text-zinc-400 mt-0.5">HR ID: {d.hr_employee_id}</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <Badge variant={d.status === "active" ? "success" : "secondary"}>{d.status}</Badge>
+                {fleetReady ? (
+                  <Badge variant="success">Ready (fleet vehicle)</Badge>
+                ) : (
+                  <Badge variant="warning">Draft</Badge>
+                )}
+              </div>
+            </div>
+            {!expanded && (
+              <p className="text-xs text-zinc-500">
+                License expiry: {d.license_expiry || "—"}
+                {d.license_media_count > 0 ? ` · ${d.license_media_count} licence file(s)` : ""}
+              </p>
+            )}
+            {!expanded && !d.attestation.isFresh && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+                {d.attestation.at
+                  ? t("ehsOperator.attestation.staleBanner")
+                  : t("ehsOperator.attestation.neverAttested")}
+              </div>
+            )}
+            {!expanded && d.attestation.isFresh && d.attestation.at && (
+              <p className="text-xs text-zinc-500">
+                {t("ehsOperator.attestation.lastAttestedBy")}: {d.attestation.by || "—"} ·{" "}
+                {new Date(d.attestation.at).toLocaleString()}
+              </p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={d.status === "active" ? "success" : "secondary"}>{d.status}</Badge>
-            {fleetReady ? (
-              <Badge variant="success">Ready (fleet vehicle)</Badge>
-            ) : (
-              <Badge variant="warning">Draft</Badge>
-            )}
-          </div>
-        </div>
-        {!d.attestation.isFresh && (
-          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+        </button>
+        {expanded && !d.attestation.isFresh && (
+          <div className="mx-6 mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
             {d.attestation.at
               ? t("ehsOperator.attestation.staleBanner")
               : t("ehsOperator.attestation.neverAttested")}
           </div>
         )}
-        {d.attestation.isFresh && d.attestation.at && (
-          <p className="mt-2 text-xs text-zinc-500">
+        {expanded && d.attestation.isFresh && d.attestation.at && (
+          <p className="mx-6 mb-2 text-xs text-zinc-500">
             {t("ehsOperator.attestation.lastAttestedBy")}: {d.attestation.by || "—"} ·{" "}
             {new Date(d.attestation.at).toLocaleString()}
           </p>
         )}
       </CardHeader>
-      <CardContent className="space-y-4">
+      {expanded && (
+      <CardContent
+        id={panelId}
+        role="region"
+        aria-labelledby={`ehs-driver-trigger-${d.id}`}
+        className="space-y-4"
+      >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
           <div>
             <span className="text-zinc-500">License scan</span>
@@ -646,6 +693,7 @@ function OperatorCard({
 
         <HistoryPanel operatorId={d.id} />
       </CardContent>
+      )}
     </Card>
   );
 }
