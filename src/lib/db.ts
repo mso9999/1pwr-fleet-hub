@@ -247,7 +247,7 @@ export function ensureVehiclesCodeColumn(db: Database.Database): void {
   }
 }
 
-function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): void {
+export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS missions (
       id TEXT PRIMARY KEY,

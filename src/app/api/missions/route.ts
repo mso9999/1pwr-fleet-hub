@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureMissionsRowShape, ensureVehiclesCodeColumn, getDb } from "@/lib/db";
+import {
+  ensureMissionsRowShape,
+  ensureMissionsTableAndVehicleRequestMissionId,
+  ensureVehiclesCodeColumn,
+  getDb,
+} from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
 
@@ -9,7 +14,7 @@ export const runtime = "nodejs";
  * Planned missions (trip shells) — linked from vehicle requests before an operational trip checkout exists.
  */
 export function GET(request: NextRequest): NextResponse {
-  let db;
+  let db: ReturnType<typeof getDb>;
   try {
     db = getDb();
   } catch (e) {
@@ -37,12 +42,13 @@ export function GET(request: NextRequest): NextResponse {
   const params: string[] = [org];
 
   if (status !== "all") {
-    sql += " AND status = ?";
+    /** Must qualify: `vehicles` also has `status` — unqualified `status` errors with LEFT JOIN. */
+    sql += " AND m.status = ?";
     params.push(status);
   }
 
   if (approvalStatus && approvalStatus !== "all") {
-    sql += " AND lower(approval_status) = lower(?)";
+    sql += " AND lower(m.approval_status) = lower(?)";
     params.push(approvalStatus);
   }
 
@@ -59,7 +65,20 @@ export function GET(request: NextRequest): NextResponse {
 
   sql += " ORDER BY m.departure_date DESC, m.created_at DESC LIMIT 200";
 
-  ensureMissionsRowShape(db);
+  /** Re-run DDL alignments if ensurePhase1Schema failed mid-flight on a prior request (common with SQLite). */
+  function repairListSchema(): void {
+    try {
+      ensureMissionsTableAndVehicleRequestMissionId(db);
+    } catch (err) {
+      console.error("[api/missions GET] ensureMissionsTableAndVehicleRequestMissionId", err);
+    }
+    try {
+      ensureMissionsRowShape(db);
+      ensureVehiclesCodeColumn(db);
+    } catch (err) {
+      console.error("[api/missions GET] ensureMissionsRowShape / ensureVehiclesCodeColumn", err);
+    }
+  }
 
   const execList = () => db.prepare(sql).all(...params);
 
@@ -67,35 +86,30 @@ export function GET(request: NextRequest): NextResponse {
     const rows = execList();
     return NextResponse.json(rows);
   } catch (e) {
-    let message = e instanceof Error ? e.message : String(e);
-    const missingCol = /no such column/i.test(message);
-    if (missingCol) {
-      ensureMissionsRowShape(db);
-      ensureVehiclesCodeColumn(db);
-      try {
-        const rows = execList();
-        return NextResponse.json(rows);
-      } catch (e2) {
-        console.error("[api/missions GET] retry after column repair failed", {
-          org,
-          status,
-          approvalStatus,
-          tripCheckoutEligible,
-          err: e2,
-        });
-        message = e2 instanceof Error ? e2.message : String(e2);
-      }
+    console.error("[api/missions GET] first attempt", { org, status, approvalStatus, tripCheckoutEligible, err: e });
+    /** Schema drift / partial migrations only — fixed queries like `m.status` do not need this. */
+    repairListSchema();
+    try {
+      const rows = execList();
+      return NextResponse.json(rows);
+    } catch (e2) {
+      const message = e2 instanceof Error ? e2.message : String(e2);
+      console.error("[api/missions GET] after schema repair", {
+        org,
+        status,
+        approvalStatus,
+        tripCheckoutEligible,
+        err: e2,
+      });
+      return NextResponse.json(
+        {
+          error: "Failed to load missions",
+          /** Truncated SQLite/better-sqlite3 message — needed when production hides server logs from the browser. */
+          detail: message.slice(0, 400),
+        },
+        { status: 500 }
+      );
     }
-    console.error("[api/missions GET]", { org, status, approvalStatus, tripCheckoutEligible, err: e });
-    const expose =
-      process.env.NODE_ENV !== "production" || process.env.FLEET_EXPOSE_DB_ERRORS === "1";
-    return NextResponse.json(
-      {
-        error: "Failed to load missions",
-        detail: expose ? message : undefined,
-      },
-      { status: 500 }
-    );
   }
 }
 
