@@ -235,6 +235,8 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
   const mHas = (col: string) => mCols.some((c) => c.name === col);
 
   const missionAdds: Array<[string, string]> = [
+    /** Older DBs may have been created before trip_id / mission-centric columns; SELECTs assume these exist. */
+    ["trip_id", "TEXT"],
     ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
     ["required_vehicle_class", "TEXT NOT NULL DEFAULT ''"],
     ["assigned_vehicle_id", "TEXT DEFAULT NULL"],

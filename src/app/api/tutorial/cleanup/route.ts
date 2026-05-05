@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { deleteTutorialSandboxMissionsAndTrips } from "@/lib/tutorial-sandbox";
 
 /**
- * Deletes all tutorial demo rows: vehicles whose code starts with TUT- and dependent records.
+ * Removes tutorial demo data: sandbox missions/reservations/trips, then vehicles whose code starts with TUT- and dependents.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = (await request.json().catch(() => ({}))) as { organizationId?: string };
   const organizationId = body.organizationId || "1pwr_lesotho";
   const db = getDb();
+
+  let sandbox = { deletedMissions: 0, deletedTrips: 0, deletedReservations: 0 };
 
   const vehicles = db
     .prepare(`SELECT id FROM vehicles WHERE organization_id = ? AND code LIKE 'TUT-%'`)
@@ -16,12 +19,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let deletedVehicles = 0;
 
   const run = db.transaction(() => {
+    sandbox = deleteTutorialSandboxMissionsAndTrips(db, organizationId);
+
     for (const { id: vehicleId } of vehicles) {
       const trips = db.prepare(`SELECT id FROM trips WHERE vehicle_id = ?`).all(vehicleId) as Array<{ id: string }>;
       for (const t of trips) {
+        db.prepare(`DELETE FROM media_attachments WHERE entity_type = 'trip' AND entity_id = ?`).run(t.id);
         db.prepare(`DELETE FROM trip_stops WHERE trip_id = ?`).run(t.id);
+        db.prepare(`DELETE FROM trip_odometer_readings WHERE trip_id = ?`).run(t.id);
+        db.prepare(`DELETE FROM trips WHERE id = ?`).run(t.id);
       }
-      db.prepare(`DELETE FROM trips WHERE vehicle_id = ?`).run(vehicleId);
 
       const woIds = db.prepare(`SELECT id FROM work_orders WHERE vehicle_id = ?`).all(vehicleId) as Array<{ id: string }>;
       for (const w of woIds) {
@@ -52,5 +59,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  return NextResponse.json({ ok: true, deletedVehicles });
+  return NextResponse.json({
+    ok: true,
+    deletedVehicles,
+    deletedSandboxMissions: sandbox.deletedMissions,
+    deletedSandboxTrips: sandbox.deletedTrips,
+    deletedSandboxReservations: sandbox.deletedReservations,
+  });
 }

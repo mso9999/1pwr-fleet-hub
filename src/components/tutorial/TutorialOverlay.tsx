@@ -100,6 +100,13 @@ export function TutorialOverlay(): React.ReactElement | null {
               Open the highlighted navigation item or tap Next — the page is still loading.
             </p>
           )}
+          {stepData?.role && (
+            <div className="mb-2">
+              <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-900">
+                Role: {stepData.role}
+              </span>
+            </div>
+          )}
           <div id="tutorial-title" className="text-base font-semibold text-zinc-900">
             {stepData?.title}
           </div>

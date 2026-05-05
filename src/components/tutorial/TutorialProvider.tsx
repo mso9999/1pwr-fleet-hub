@@ -28,6 +28,9 @@ const TUTORIAL_QUERY_MAP: Record<string, string> = {
   "country-transfer": "countryTransfer",
   countryTransfer: "countryTransfer",
   "country-transfers": "countryTransfer",
+  deployment: "fieldDeployment",
+  fieldDeployment: "fieldDeployment",
+  "field-deployment": "fieldDeployment",
 };
 
 function TutorialSearchParamsBootstrap({
@@ -89,15 +92,26 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
   }, [runCleanup]);
 
   const start = useCallback(
-    (tid = "overview") => {
+    async (tid = "overview") => {
       setTrackId(tid);
       setStepIndex(0);
       setActive(true);
       seededRef.current = new Set();
+      if (tid === "fieldDeployment") {
+        try {
+          await fetch("/api/tutorial/seed", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ organizationId, trackId: tid }),
+          });
+        } catch {
+          /* non-fatal — user can still follow narration */
+        }
+      }
       const first = getTutorialSteps(tid)[0];
       router.push(first.path);
     },
-    [router]
+    [router, organizationId]
   );
 
   const next = useCallback(async () => {

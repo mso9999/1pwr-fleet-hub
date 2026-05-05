@@ -14,6 +14,7 @@ import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
 import { TripOdometerLog } from "@/components/TripOdometerLog";
 import { MISSION_PROFILE } from "@/lib/trip-readiness";
 import { TripCheckoutForm } from "./checkout-form";
+import { useTutorial } from "@/components/tutorial/tutorial-context";
 
 interface TripRow {
   id: string;
@@ -42,6 +43,7 @@ interface TripRow {
 
 interface RefItem { code: string; label: string; }
 function TripsPageContent(): React.ReactElement {
+  const { active, trackId, stepIndex } = useTutorial();
   const searchParams = useSearchParams();
   const tripParam = searchParams.get("trip");
   const vehicleParam = searchParams.get("vehicle");
@@ -114,6 +116,12 @@ function TripsPageContent(): React.ReactElement {
 
   const activeTrips = trips.filter((t) => !t.checkin_at);
   const completedTrips = trips.filter((t) => t.checkin_at);
+
+  useEffect(() => {
+    if (!active || trackId !== "fieldDeployment") return;
+    if (stepIndex >= 8) setShowCheckout(true);
+    else setShowCheckout(false);
+  }, [active, trackId, stepIndex]);
 
   useEffect(() => {
     if (isLoading || trips.length === 0) return;

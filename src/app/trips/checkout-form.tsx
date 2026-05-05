@@ -364,7 +364,7 @@ export function TripCheckoutForm({
     (readinessFailing && !overrideValid);
 
   return (
-    <Card className="border-blue-200 bg-blue-50/30">
+    <Card className="border-blue-200 bg-blue-50/30" data-tutorial="tutorial-trip-checkout-card">
       <CardHeader>
         <CardTitle>Start trip (mission checkout)</CardTitle>
         <p className="text-sm text-zinc-500 font-normal">
@@ -546,8 +546,14 @@ export function TripCheckoutForm({
             </div>
           </div>
 
-          {vehicleId && (
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 space-y-2">
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 space-y-2" data-tutorial="tutorial-trip-readiness-gates">
+            {!vehicleId && (
+              <p className="text-sm text-zinc-500">
+                Select an approved mission with a reserved vehicle to see trip readiness gates (driver checklist, operational status, etc.).
+              </p>
+            )}
+            {vehicleId && (
+              <>
               <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">Trip readiness</div>
               {readinessLoading && <p className="text-sm text-zinc-500">Checking requirements…</p>}
               {!readinessLoading && readiness && (
@@ -618,8 +624,9 @@ export function TripCheckoutForm({
                   )}
                 </div>
               )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
           {checkoutError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{checkoutError}</div>

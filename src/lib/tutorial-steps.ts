@@ -9,6 +9,8 @@ export interface TutorialStep {
   target: string;
   title: string;
   body: string;
+  /** Shown as a pill when the active persona / permission set changes (e.g. Management approver). */
+  role?: string;
   suggestion?: string;
   seedOnEnter?: boolean;
 }
@@ -356,6 +358,149 @@ const VEHICLE_INSPECTION_STEPS: TutorialStep[] = [
     title: "4. Submit inspection",
     body:
       "When finished, submit. Overall pass requires no Fail lines. Export history later under Reports if needed.",
+  },
+];
+
+/**
+ * End-to-end field deployment: mission → management approval → fleet reservation →
+ * optional calendar → driver checklist (field) → mission-linked trip checkout → load-out.
+ * `role` on each step signals when a different person or permission set typically takes over.
+ */
+const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
+  {
+    id: "fd-nav",
+    path: "/vehicle-requests",
+    target: "nav-vehicle-requests",
+    role: "Everyone",
+    title: "Missions hub",
+    body:
+      "Field deployments start here under Requests (missions): define the mission with dates, destination, and required vehicle class. Logistics rows can attach after approval. This tour follows the happy path through reservation, driver check, and trip checkout — watch the role badge when responsibility shifts.",
+    suggestion:
+      "A sandbox mission and TUT- demo vehicle are created for this track (or reused if you run it again). They are deleted when you finish or exit the tutorial. Look for “Tutorial sandbox — practice checkout” in your mission list.",
+  },
+  {
+    id: "fd-new-mission",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-request-btn",
+    role: "Planner / requester",
+    title: "1. Submit a new mission",
+    body:
+      "Open + New mission and complete the form: choose Field deployment when the run needs a departing driver checklist and mission-linked trip gates. Include required vehicle class and R&R dates so management can approve the plan.",
+  },
+  {
+    id: "fd-mission-form",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-form",
+    role: "Planner / requester",
+    title: "2. Mission details",
+    body:
+      "The mission record is the source of truth for approval and fleet reservation. After submit, the mission waits for management approval before anyone can reserve a specific vehicle or start a trip.",
+    suggestion: "If the form is closed, tap + New mission again to match this highlight.",
+  },
+  {
+    id: "fd-mgmt-approve",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pending-approval",
+    role: "Management approver",
+    title: "3. Approve the mission",
+    body:
+      "Users with mission approval permission see pending missions here. Approve when the plan is valid; reject with a clear reason if not. Drivers and fleet only proceed once the mission is approved.",
+    suggestion: "This card appears only when there are pending missions and your role can approve.",
+  },
+  {
+    id: "fd-fleet-reserve",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-fleet-reserve",
+    role: "Fleet manager / lead",
+    title: "4. Reserve a vehicle on the mission",
+    body:
+      "Fleet picks a concrete pool vehicle for each approved mission. The system blocks overlapping active reservations on the same unit. If the reserved vehicle is not operational at checkout, fleet can reassign, place a checkout hold (alerts management), or defer.",
+    suggestion: "This section is visible when your role can allocate vehicles and there are approved missions to reserve.",
+  },
+  {
+    id: "fd-calendar",
+    path: "/fleet-reservations",
+    target: "tutorial-deployment-calendar",
+    role: "Fleet / visibility",
+    title: "5. Reservation calendar",
+    body:
+      "Use the calendar-style list to see which vehicles are held for which missions in a month. It complements the pool view and helps avoid double-booking across teams.",
+  },
+  {
+    id: "fd-dvc-start",
+    path: "/vehicle-checks",
+    target: "tutorial-vehicle-checks-new",
+    role: "Departing driver",
+    title: "6. Departing driver checklist (field)",
+    body:
+      "For Field deployment missions, complete today’s driver vehicle check for the reserved unit before checkout. Local / HQ-vicinity missions skip this gate in trip readiness. Submit the check, then return to Trips to create the trip.",
+    suggestion: "Open Vehicle checks from the sidebar if needed.",
+  },
+  {
+    id: "fd-dvc-form",
+    path: "/vehicle-checks",
+    target: "tutorial-dvc-form",
+    role: "Departing driver",
+    title: "7. Complete the checklist",
+    body:
+      "Fill direction, vehicle, odometer and photos, pass/fail lines, equipment, and submit. Failed items may require manager approval per your organisation’s rules.",
+  },
+  {
+    id: "fd-trips-open",
+    path: "/trips",
+    target: "tutorial-trips-checkout",
+    role: "Driver / dispatcher",
+    title: "8. Open Create trip",
+    body:
+      "Trips are always created from an approved mission that already has a reserved vehicle. Tap + Create Trip to open mission checkout — you cannot pick a random pool vehicle here.",
+    suggestion: "The tutorial opens this panel automatically on the next steps.",
+  },
+  {
+    id: "fd-checkout-form",
+    path: "/trips",
+    target: "tutorial-trip-checkout-card",
+    role: "Driver / dispatcher",
+    title: "9. Mission checkout form",
+    body:
+      "Select the mission, confirm the reserved vehicle, enter driver name and odometer, route, and load. If fleet or management edits mission parameters materially, the mission may return to pending approval before the trip can be created.",
+  },
+  {
+    id: "fd-readiness",
+    path: "/trips",
+    target: "tutorial-trip-readiness-gates",
+    role: "Driver / dispatcher",
+    title: "10. Trip readiness & create",
+    body:
+      "Readiness shows driver checklist (field), vehicle operational state, and other gates. Fix blockers or use a logged manager override when policy allows. Then submit to start the trip — your deployment is live until check-in.",
+    suggestion: "Gates appear after a mission with a reserved vehicle is selected.",
+  },
+  {
+    id: "fd-loadout",
+    path: "/trips",
+    target: "tutorial-trips-loadout-manifests",
+    role: "Driver / logistics",
+    title: "11. Load-out manifests (AM)",
+    body:
+      "Link Asset Management packing lists to the active trip from the trip row below. Manifests are authored in AM; Fleet Hub stores the link for the field team.",
+  },
+  {
+    id: "fd-arbitration",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-arbitration",
+    role: "Management (capacity)",
+    title: "12. If capacity conflicts (optional)",
+    body:
+      "When not enough operational vehicles exist, management may defer or cancel missions or reassign capacity. Fleet cannot decide which approved mission loses a slot — that arbitration sits here for eligible roles.",
+    suggestion: "Visible only if your role has capacity arbitration permission.",
+  },
+  {
+    id: "fd-dashboard-alerts",
+    path: "/",
+    target: "tutorial-dashboard-panels",
+    role: "Management / oversight",
+    title: "13. Dashboard alerts (checkout hold)",
+    body:
+      "If the reserved unit is not operational and fleet places a checkout hold, high-severity alerts surface on the dashboard so management can accept deferral, free another reservation, or cancel the mission.",
   },
 ];
 
@@ -713,6 +858,11 @@ const WORK_ORDER_STEPS: TutorialStep[] = [
 
 export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
   overview: { id: "overview", label: "Full app tour", steps: OVERVIEW_STEPS },
+  fieldDeployment: {
+    id: "fieldDeployment",
+    label: "Field deployment (end-to-end)",
+    steps: FIELD_DEPLOYMENT_STEPS,
+  },
   driverCheck: { id: "driverCheck", label: "Driver vehicle check", steps: DRIVER_CHECK_STEPS },
   vehicleInspection: {
     id: "vehicleInspection",
@@ -750,6 +900,7 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
 
 export const TUTORIAL_TRACK_ORDER: string[] = [
   "overview",
+  "fieldDeployment",
   "driverCheck",
   "ehsDriverRegister",
   "vehicleInspection",

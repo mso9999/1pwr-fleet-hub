@@ -566,6 +566,13 @@ export default function VehicleRequestsPage() {
     }
   }, [active, trackId, stepIndex]);
 
+  useEffect(() => {
+    if (!active || trackId !== "fieldDeployment") return;
+    setView("requests");
+    if (stepIndex >= 1 && stepIndex <= 2) setShowForm(true);
+    else setShowForm(false);
+  }, [active, trackId, stepIndex]);
+
   const pendingCount = (Array.isArray(requests) ? requests : []).filter((r) => r.status === "requested").length;
 
   return (
@@ -623,7 +630,7 @@ export default function VehicleRequestsPage() {
       )}
 
       {canAllocateVehicle && approvedMissionsFleet.filter((m) => !m.lifecycle_status || m.lifecycle_status === "active").length > 0 && (
-        <Card className="border-emerald-100 bg-emerald-50/20">
+        <Card className="border-emerald-100 bg-emerald-50/20" data-tutorial="tutorial-vr-fleet-reserve">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Fleet: reserve vehicles on approved missions</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
@@ -666,7 +673,7 @@ export default function VehicleRequestsPage() {
       )}
 
       {missionPerms?.canArbitrateCapacity && (
-        <Card className="border-violet-200 bg-violet-50/30">
+        <Card className="border-violet-200 bg-violet-50/30" data-tutorial="tutorial-vr-arbitration">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Management: capacity arbitration (departure day)</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
@@ -751,7 +758,7 @@ export default function VehicleRequestsPage() {
       )}
 
       {canApproveMission && pendingMissions.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50/40">
+        <Card className="border-amber-200 bg-amber-50/40" data-tutorial="tutorial-vr-pending-approval">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Missions pending management approval</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">

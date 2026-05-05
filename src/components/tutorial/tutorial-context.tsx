@@ -9,7 +9,7 @@ export interface TutorialContextValue {
   stepIndex: number;
   totalSteps: number;
   steps: TutorialStep[];
-  start: (trackId?: string) => void;
+  start: (trackId?: string) => void | Promise<void>;
   next: () => void;
   prev: () => void;
   exit: () => void;

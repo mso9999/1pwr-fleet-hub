@@ -7,7 +7,14 @@ import { insertPlannedMission } from "@/lib/missions";
  * Planned missions (trip shells) — linked from vehicle requests before an operational trip checkout exists.
  */
 export function GET(request: NextRequest): NextResponse {
-  const db = getDb();
+  let db;
+  try {
+    db = getDb();
+  } catch (e) {
+    console.error("[api/missions GET] getDb failed", e);
+    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+  }
+
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const status = request.nextUrl.searchParams.get("status") ?? "planned";
   const approvalStatus = request.nextUrl.searchParams.get("approvalStatus");
@@ -50,8 +57,20 @@ export function GET(request: NextRequest): NextResponse {
 
   sql += " ORDER BY m.departure_date DESC, m.created_at DESC LIMIT 200";
 
-  const rows = db.prepare(sql).all(...params);
-  return NextResponse.json(rows);
+  try {
+    const rows = db.prepare(sql).all(...params);
+    return NextResponse.json(rows);
+  } catch (e) {
+    console.error("[api/missions GET]", { org, status, approvalStatus, tripCheckoutEligible, err: e });
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      {
+        error: "Failed to load missions",
+        detail: process.env.NODE_ENV !== "production" ? message : undefined,
+      },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

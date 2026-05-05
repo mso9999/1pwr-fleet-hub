@@ -100,7 +100,7 @@ export default function FleetReservationsPage(): React.ReactElement {
         </p>
       </div>
 
-      <Card>
+      <Card data-tutorial="tutorial-deployment-calendar">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-lg capitalize">{label}</CardTitle>
           <div className="flex items-center gap-2">
