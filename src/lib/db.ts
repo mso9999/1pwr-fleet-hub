@@ -172,6 +172,81 @@ function ensurePvrRateSettingsTable(db: Database.Database): void {
   `);
 }
 
+/**
+ * Idempotent: add mission columns expected by list/detail APIs. Legacy DBs (or a partially failed
+ * ensurePhase1Schema) can miss columns while `CREATE TABLE IF NOT EXISTS` does nothing — that yields
+ * `no such column` on SELECT and a 500 for `/api/missions`.
+ */
+export function ensureMissionsRowShape(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='missions' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+
+  const additions: Array<[string, string]> = [
+    ["organization_id", "TEXT NOT NULL DEFAULT '1pwr_lesotho'"],
+    ["title", "TEXT NOT NULL DEFAULT ''"],
+    ["destination", "TEXT NOT NULL DEFAULT ''"],
+    ["departure_date", "TEXT NOT NULL DEFAULT ''"],
+    ["return_date", "TEXT NOT NULL DEFAULT ''"],
+    ["mission_type", "TEXT NOT NULL DEFAULT 'other'"],
+    ["passengers", "TEXT DEFAULT ''"],
+    ["loadout_summary", "TEXT DEFAULT ''"],
+    ["notes", "TEXT DEFAULT ''"],
+    ["status", "TEXT NOT NULL DEFAULT 'planned'"],
+    ["trip_id", "TEXT"],
+    ["approval_status", "TEXT NOT NULL DEFAULT 'pending'"],
+    ["approved_by_id", "TEXT DEFAULT ''"],
+    ["approved_by_name", "TEXT DEFAULT ''"],
+    ["approved_at", "TEXT DEFAULT NULL"],
+    ["rejection_reason", "TEXT DEFAULT ''"],
+    ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
+    ["required_vehicle_class", "TEXT NOT NULL DEFAULT ''"],
+    ["assigned_vehicle_id", "TEXT DEFAULT NULL"],
+    ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
+    ["assigned_at", "TEXT DEFAULT NULL"],
+    ["assigned_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["assigned_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"],
+    ["created_by_id", "TEXT NOT NULL DEFAULT ''"],
+    ["created_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["created_at", "TEXT NOT NULL DEFAULT (datetime('now'))"],
+    ["updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))"],
+  ];
+
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE missions ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  const names = new Set(
+    (db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  if (names.has("org_id") && names.has("organization_id")) {
+    db.prepare(
+      `UPDATE missions SET organization_id = org_id
+       WHERE trim(COALESCE(organization_id,'')) = '' AND trim(COALESCE(org_id,'')) != ''`
+    ).run();
+  }
+}
+
+/** Mission list JOINs `vehicles.code`; very old DBs may lack `code`. */
+export function ensureVehiclesCodeColumn(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vehicles' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(vehicles)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "code")) {
+    db.exec(`ALTER TABLE vehicles ADD COLUMN code TEXT NOT NULL DEFAULT ''`);
+  }
+}
+
 function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS missions (
@@ -209,6 +284,8 @@ function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Database): v
     CREATE INDEX IF NOT EXISTS idx_missions_org_status ON missions(organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
   `);
+
+  ensureMissionsRowShape(db);
 
   // Ensure vehicle_requests.mission_id exists BEFORE migrateMissionsApprovalColumns, because its
   // back-fill UPDATE references vr.mission_id. On legacy DBs the old order threw here, the rest

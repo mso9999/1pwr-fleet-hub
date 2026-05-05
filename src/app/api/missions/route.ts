@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { ensureMissionsRowShape, ensureVehiclesCodeColumn, getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
+
+export const runtime = "nodejs";
 
 /**
  * Planned missions (trip shells) — linked from vehicle requests before an operational trip checkout exists.
@@ -57,16 +59,40 @@ export function GET(request: NextRequest): NextResponse {
 
   sql += " ORDER BY m.departure_date DESC, m.created_at DESC LIMIT 200";
 
+  ensureMissionsRowShape(db);
+
+  const execList = () => db.prepare(sql).all(...params);
+
   try {
-    const rows = db.prepare(sql).all(...params);
+    const rows = execList();
     return NextResponse.json(rows);
   } catch (e) {
+    let message = e instanceof Error ? e.message : String(e);
+    const missingCol = /no such column/i.test(message);
+    if (missingCol) {
+      ensureMissionsRowShape(db);
+      ensureVehiclesCodeColumn(db);
+      try {
+        const rows = execList();
+        return NextResponse.json(rows);
+      } catch (e2) {
+        console.error("[api/missions GET] retry after column repair failed", {
+          org,
+          status,
+          approvalStatus,
+          tripCheckoutEligible,
+          err: e2,
+        });
+        message = e2 instanceof Error ? e2.message : String(e2);
+      }
+    }
     console.error("[api/missions GET]", { org, status, approvalStatus, tripCheckoutEligible, err: e });
-    const message = e instanceof Error ? e.message : String(e);
+    const expose =
+      process.env.NODE_ENV !== "production" || process.env.FLEET_EXPOSE_DB_ERRORS === "1";
     return NextResponse.json(
       {
         error: "Failed to load missions",
-        detail: process.env.NODE_ENV !== "production" ? message : undefined,
+        detail: expose ? message : undefined,
       },
       { status: 500 }
     );
