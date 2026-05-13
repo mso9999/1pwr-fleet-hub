@@ -18,6 +18,10 @@ import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 import { lPer100kmToUsMpg } from "@/lib/vehicle-fuel-lookup";
 import { useOverrideCapability } from "@/lib/useOverrideCapability";
 import { cn } from "@/lib/utils";
+import {
+  EhsCompliantDriverPickerField,
+  type DesignatedOperatorSelection,
+} from "@/components/EhsCompliantDriverPickerField";
 
 interface RequestRow {
   id: string;
@@ -46,6 +50,9 @@ interface RequestRow {
   estimated_route_km?: number | null;
   estimated_fuel_liters?: number | null;
   fuel_efficiency_l_per_100km?: number | null;
+  /** EHS register — joined for logistics requests */
+  designated_operator_label?: string | null;
+  designated_operator_email?: string | null;
   /** Rest & recuperation / travel policy — na | pending | approved */
   rr_status?: string;
   /** Joined from users.email for requestor permission checks */
@@ -290,9 +297,6 @@ export default function VehicleRequestsPage() {
   const [approvedMissionsFleet, setApprovedMissionsFleet] = useState<PlannedMissionRow[]>([]);
   const [arbitrationDate, setArbitrationDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
-  const [vrEligibility, setVrEligibility] = useState<{ canRequestVehicle: boolean; isApprovedDriver: boolean } | null>(
-    null
-  );
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
 
   const roleLooksFleet =
@@ -482,31 +486,6 @@ export default function VehicleRequestsPage() {
   }, [organizationId]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const headers = await jsonHeadersWithBearer();
-      const res = await fetch(
-        `/api/me/vehicle-request-eligibility?org=${encodeURIComponent(organizationId)}`,
-        { headers }
-      );
-      if (!res.ok) {
-        if (!cancelled) setVrEligibility(null);
-        return;
-      }
-      const j = (await res.json()) as { canRequestVehicle?: boolean; isApprovedDriver?: boolean };
-      if (!cancelled) {
-        setVrEligibility({
-          canRequestVehicle: !!j.canRequestVehicle,
-          isApprovedDriver: !!j.isApprovedDriver,
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId]);
-
-  useEffect(() => {
     if (!canApproveMission) {
       setPendingMissions([]);
       return;
@@ -623,7 +602,6 @@ export default function VehicleRequestsPage() {
           organizationId={organizationId}
           userId={user?.id || ""}
           userName={user?.name || ""}
-          canRequestVehicle={vrEligibility?.canRequestVehicle ?? false}
           onComplete={() => { setShowForm(false); loadData(); }}
           onCancel={() => setShowForm(false)}
         />
@@ -1247,6 +1225,17 @@ function RequestDetailModal({
               <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Requester</dt>
               <dd className="text-zinc-900 mt-0.5">{r.requested_by_name}</dd>
             </div>
+            {(r.designated_operator_label || r.designated_operator_email) && (
+              <div>
+                <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Designated driver (EHS)</dt>
+                <dd className="text-zinc-900 mt-0.5">
+                  {r.designated_operator_label || r.designated_operator_email}
+                  {r.designated_operator_email && r.designated_operator_label ? (
+                    <span className="text-zinc-500 text-xs block">{r.designated_operator_email}</span>
+                  ) : null}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Requested for</dt>
               <dd className="text-zinc-900 mt-0.5">{r.requested_for || "—"}</dd>
@@ -1511,14 +1500,12 @@ function RequestForm({
   organizationId,
   userId,
   userName,
-  canRequestVehicle,
   onComplete,
   onCancel,
 }: {
   organizationId: string;
   userId: string;
   userName: string;
-  canRequestVehicle: boolean;
   onComplete: () => void;
   onCancel: () => void;
 }) {
@@ -1529,6 +1516,8 @@ function RequestForm({
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
+  const managerOverrideReady =
+    canOverride && overrideEnabled && overrideReason.trim().length >= 8;
   const [missionMessage, setMissionMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
@@ -1539,6 +1528,7 @@ function RequestForm({
   const [destinationOther, setDestinationOther] = useState("");
   const [requestedForChoice, setRequestedForChoice] = useState("");
   const [requestedForOther, setRequestedForOther] = useState("");
+  const [designatedOperator, setDesignatedOperator] = useState<DesignatedOperatorSelection | null>(null);
   const [routeEstimateLoading, setRouteEstimateLoading] = useState(false);
   const [routeEstimate, setRouteEstimate] = useState<{
     ok: boolean;
@@ -1579,6 +1569,10 @@ function RequestForm({
   useEffect(() => {
     loadApprovedMissions();
   }, [loadApprovedMissions]);
+
+  useEffect(() => {
+    setDesignatedOperator(null);
+  }, [organizationId]);
 
   useEffect(() => {
     if (!destinationChoice || destinationChoice === "__write__") {
@@ -1690,10 +1684,11 @@ function RequestForm({
   async function handleVehicleRequest(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setVrFormError("");
-    const overrideReady =
-      canOverride && overrideEnabled && overrideReason.trim().length >= 8;
-    if (!canRequestVehicle && !overrideReady) {
-      setVrFormError("Only drivers on the EHS approved drivers register may request a vehicle.");
+    const overrideReady = managerOverrideReady;
+    if (!designatedOperator?.id && !overrideReady) {
+      setVrFormError(
+        "Select the approved driver for this request from the list (EHS register for the organisation shown in the dialog). If you are eligible but not listed, ask EHS to complete your file."
+      );
       return;
     }
     if (!selectedMissionId && !overrideReady) {
@@ -1738,6 +1733,9 @@ function RequestForm({
     };
     if (overrideReady) {
       payload.overrideReason = overrideReason.trim();
+    }
+    if (designatedOperator?.id) {
+      payload.designatedOperatorId = designatedOperator.id;
     }
     const res = await fetch("/api/vehicle-requests", {
       method: "POST",
@@ -1895,13 +1893,21 @@ function RequestForm({
           </p>
         </CardHeader>
         <CardContent>
-          {!canRequestVehicle && !canOverride ? (
-            <p className="text-sm text-amber-900 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-              Your account is not on the EHS approved drivers register for this organization. Ask EHS or fleet to add you if you are eligible to drive company vehicles.
-            </p>
-          ) : (
-            <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
-              <div className="max-w-xl">
+          <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
+            <EhsCompliantDriverPickerField
+              organizationId={organizationId}
+              value={designatedOperator}
+              onChange={setDesignatedOperator}
+              required
+              disabled={managerOverrideReady}
+              helperText="The list is scoped to your current organisation (country). Only fully compliant on-road operators appear. Pick the person who will drive; this links the request to the canonical EHS row."
+            />
+            {managerOverrideReady && (
+              <p className="text-xs text-amber-800 rounded-md border border-amber-100 bg-amber-50/80 px-2 py-1.5">
+                Manager override is active — driver selection is optional if you are bypassing the EHS gate. The request will still be logged.
+              </p>
+            )}
+            <div className="max-w-xl">
                 <EntityPickerField
                   label="Approved mission"
                   required
@@ -2059,7 +2065,6 @@ function RequestForm({
                 </Button>
               </div>
             </form>
-          )}
         </CardContent>
       </Card>
     </div>

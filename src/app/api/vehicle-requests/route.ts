@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { isApprovedDriverForCategory } from "@/lib/approved-drivers";
+import { isApprovedOperatorIdForCategory } from "@/lib/approved-drivers";
 import { DEFAULT_OPERATOR_CATEGORY } from "@/lib/ehs-operator-categories";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
@@ -67,23 +67,54 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const overrideUsable = wantsOverride && hasOverridePermission && overrideReasonRaw.length >= 8;
   const bypassedGates: Array<{ id: string; detail: string }> = [];
 
-  if (
-    !isApprovedDriverForCategory(db, orgId, user.email, DEFAULT_OPERATOR_CATEGORY) &&
-    user.role !== "superadmin"
-  ) {
-    if (!overrideUsable) {
+  if (wantsOverride && !overrideUsable) {
+    return NextResponse.json(
+      {
+        error: !hasOverridePermission
+          ? "You are not allowed to use prerequisite overrides for this organisation."
+          : "Override needs at least 8 characters in the reason field, and you must be an admin or PR-credentialed approver.",
+      },
+      { status: 403 },
+    );
+  }
+
+  const designatedOperatorIdRaw =
+    typeof body.designatedOperatorId === "string" ? body.designatedOperatorId.trim() : "";
+  const designatedOperatorId = designatedOperatorIdRaw || "";
+
+  if (!overrideUsable) {
+    if (!designatedOperatorId) {
       return NextResponse.json(
         {
-          error: wantsOverride
-            ? "Override needs at least 8 characters in the reason field, and you must be an admin or PR-credentialed approver."
-            : "Only drivers on the EHS approved drivers register may request a vehicle. Ask EHS or fleet to add you if eligible.",
+          error:
+            "Select the approved driver for this request from the driver list (EHS register for this organisation).",
+        },
+        { status: 400 },
+      );
+    }
+    if (!isApprovedOperatorIdForCategory(db, orgId, designatedOperatorId, DEFAULT_OPERATOR_CATEGORY)) {
+      return NextResponse.json(
+        {
+          error:
+            "That driver is not on the compliant EHS register for on-road fleet in this organisation, or their D018 file is incomplete. Pick another row from the list or ask EHS to update the register.",
         },
         { status: 403 },
       );
     }
+  } else if (designatedOperatorId && !isApprovedOperatorIdForCategory(db, orgId, designatedOperatorId, DEFAULT_OPERATOR_CATEGORY)) {
+    return NextResponse.json(
+      {
+        error:
+          "designatedOperatorId is set but that operator is not compliant for on-road fleet in this organisation.",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (overrideUsable && !designatedOperatorId) {
     bypassedGates.push({
       id: "ehs_approved_driver",
-      detail: "Submitter is not on the EHS approved drivers register for this category.",
+      detail: "No designated EHS operator id — submitter used prerequisite override.",
     });
   }
 
@@ -174,10 +205,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   db.prepare(`
     INSERT INTO vehicle_requests (
       id, organization_id, mission_id, requested_by_id, requested_by_name, requested_for,
+      designated_operator_id,
       vehicle_id, purpose, destination, departure_date, return_date,
       passengers, required_vehicle_class, loadout_description,
       priority, status, notes, rr_status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
   `).run(
     id,
     orgId,
@@ -185,6 +217,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     requestedById,
     requestedByName,
       body.requestedFor || "",
+    designatedOperatorId || null,
     null,
     body.purpose || "",
     destination,
@@ -203,6 +236,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   await recalculateVehicleRequestFuel(db, id);
+
+  recordMutation(db, {
+    entityType: "vehicle_request",
+    entityId: id,
+    organizationId: orgId,
+    action: "create",
+    actor: actorFrom(user),
+    after: {
+      missionId: missionId || null,
+      destination,
+      departureDate,
+      purpose: body.purpose || "",
+      priority: body.priority || "normal",
+      prerequisiteOverride: overrideUsable && bypassedGates.length > 0,
+      designatedOperatorId: designatedOperatorId || null,
+    },
+  });
 
   if (overrideUsable && bypassedGates.length > 0) {
     recordMutation(db, {

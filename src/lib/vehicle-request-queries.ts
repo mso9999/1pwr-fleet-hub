@@ -4,6 +4,8 @@
  */
 export const VR_SELECT_FIELDS = `
     vr.*,
+    COALESCE(ehs_drv.display_name, ehs_drv.email, '') as designated_operator_label,
+    ehs_drv.email as designated_operator_email,
     COALESCE(av.code, mav.code) as assigned_vehicle_code,
     COALESCE(av.make, mav.make) as assigned_vehicle_make,
     COALESCE(av.model, mav.model) as assigned_vehicle_model,
@@ -19,6 +21,7 @@ export const VR_SELECT_FIELDS = `
 
 export const VR_FROM_JOIN = `
     FROM vehicle_requests vr
+    LEFT JOIN ehs_approved_drivers ehs_drv ON ehs_drv.id = vr.designated_operator_id
     LEFT JOIN vehicles av ON vr.assigned_vehicle_id = av.id
     LEFT JOIN missions m ON m.id = vr.mission_id
     LEFT JOIN vehicles mav ON m.assigned_vehicle_id = mav.id

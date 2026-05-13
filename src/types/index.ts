@@ -749,6 +749,8 @@ export interface VehicleRequest {
   requestedById: string;
   requestedByName: string;
   requestedFor: string;
+  /** EHS approved_drivers.id when set via logistics picker */
+  designatedOperatorId?: string | null;
   vehicleId: string | null;
   assignedVehicleId: string | null;
   assignedVehicleCode?: string;

@@ -15,6 +15,73 @@ import {
   type OperatorCategoryCode,
 } from "@/lib/ehs-operator-categories";
 
+function operatorIsReadyForCategory(
+  db: Database,
+  row: EhsDriverRow,
+  category: OperatorCategoryCode,
+  referenceNow: Date
+): boolean {
+  const authorizations = db
+    .prepare(
+      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ?`
+    )
+    .all(row.id) as EhsOperatorAuthorization[];
+
+  const licenceCnt = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM media_attachments WHERE entity_type = ? AND entity_id = ?`
+    )
+    .get(EHS_DRIVER_MEDIA_ENTITY, row.id) as { c: number };
+  const licenceMediaCount = Number(licenceCnt?.c ?? 0);
+
+  const trainingMediaCountByAuthId: Record<string, number> = {};
+  if (authorizations.length > 0) {
+    const ids = authorizations.map((a) => a.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    const mediaRows = db
+      .prepare(
+        `SELECT entity_id as id, COUNT(*) as c
+         FROM media_attachments
+         WHERE entity_type = ? AND entity_id IN (${placeholders})
+         GROUP BY entity_id`
+      )
+      .all(EHS_OPERATOR_AUTH_MEDIA_ENTITY, ...ids) as Array<{ id: string; c: number }>;
+    for (const r of mediaRows) trainingMediaCountByAuthId[r.id] = Number(r.c);
+  }
+
+  return evaluateOperatorCompliance({
+    row,
+    authorizations,
+    licenceMediaCount,
+    trainingMediaCountByAuthId,
+    category,
+    referenceNow,
+  }).ready;
+}
+
+/**
+ * True when the given EHS operator row id exists in the organisation and is fully
+ * compliant for the category (same rules as {@link isApprovedDriverForCategory}).
+ */
+export function isApprovedOperatorIdForCategory(
+  db: Database,
+  organizationId: string,
+  operatorId: string,
+  category: string = DEFAULT_OPERATOR_CATEGORY,
+  referenceNow: Date = new Date()
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT * FROM ehs_approved_drivers WHERE organization_id = ? AND id = ?`
+    )
+    .get(organizationId, operatorId) as EhsDriverRow | undefined;
+  if (!row) return false;
+  const categoryCode: OperatorCategoryCode = isKnownOperatorCategory(category)
+    ? category
+    : DEFAULT_OPERATOR_CATEGORY;
+  return operatorIsReadyForCategory(db, row, categoryCode, referenceNow);
+}
+
 /**
  * Legacy helper: cheap "is the user in the register at all?" check. Kept only for
  * places where we merely want to block unknown users. Prefer
@@ -60,40 +127,5 @@ export function isApprovedDriverForCategory(
     ? category
     : DEFAULT_OPERATOR_CATEGORY;
 
-  const authorizations = db
-    .prepare(
-      `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ?`
-    )
-    .all(row.id) as EhsOperatorAuthorization[];
-
-  const licenceCnt = db
-    .prepare(
-      `SELECT COUNT(*) AS c FROM media_attachments WHERE entity_type = ? AND entity_id = ?`
-    )
-    .get(EHS_DRIVER_MEDIA_ENTITY, row.id) as { c: number };
-  const licenceMediaCount = Number(licenceCnt?.c ?? 0);
-
-  const trainingMediaCountByAuthId: Record<string, number> = {};
-  if (authorizations.length > 0) {
-    const ids = authorizations.map((a) => a.id);
-    const placeholders = ids.map(() => "?").join(", ");
-    const rows = db
-      .prepare(
-        `SELECT entity_id as id, COUNT(*) as c
-         FROM media_attachments
-         WHERE entity_type = ? AND entity_id IN (${placeholders})
-         GROUP BY entity_id`
-      )
-      .all(EHS_OPERATOR_AUTH_MEDIA_ENTITY, ...ids) as Array<{ id: string; c: number }>;
-    for (const r of rows) trainingMediaCountByAuthId[r.id] = Number(r.c);
-  }
-
-  return evaluateOperatorCompliance({
-    row,
-    authorizations,
-    licenceMediaCount,
-    trainingMediaCountByAuthId,
-    category: categoryCode,
-    referenceNow,
-  }).ready;
+  return operatorIsReadyForCategory(db, row, categoryCode, referenceNow);
 }

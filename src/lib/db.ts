@@ -88,6 +88,8 @@ function migrateVehicleRequestsSchema(db: Database.Database): void {
     ["fuel_efficiency_l_per_100km", "REAL"],
     /** Rest & recuperation / travel policy sign-off (aligned with PR travel workflow). */
     ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
+    /** EHS register operator who will drive (canonical row id for this org). */
+    ["designated_operator_id", "TEXT DEFAULT NULL"],
   ];
 
   for (const [col, def] of additions) {
@@ -126,6 +128,7 @@ function ensurePersonalVehicleReimbursementTable(db: Database.Database): void {
       rejection_reason TEXT DEFAULT '',
       finance_reference TEXT DEFAULT '',
       notes TEXT DEFAULT '',
+      mission_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -149,6 +152,7 @@ function migratePersonalVehicleReimbursementSchema(db: Database.Database): void 
     ["finance_reference", "TEXT DEFAULT ''"],
     ["notes", "TEXT DEFAULT ''"],
     ["approved_at", "TEXT DEFAULT ''"],
+    ["mission_id", "TEXT"],
   ];
 
   for (const [col, def] of additions) {
