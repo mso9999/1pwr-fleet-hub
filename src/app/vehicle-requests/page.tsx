@@ -156,6 +156,13 @@ interface PlannedMissionRow {
   assigned_vehicle_status?: string;
   lifecycle_status?: string;
   rr_status?: string;
+  notes?: string;
+  mission_type?: string;
+  created_by_name?: string;
+  created_at?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  rejection_reason?: string;
 }
 
 function FleetMissionReserveRow({
@@ -263,12 +270,14 @@ function FleetMissionReserveRow({
         </Button>
       </div>
       <div>
-        <label className="text-xs font-medium text-zinc-600">Overlap override (managers only, min 8 chars)</label>
+        <label className="text-xs font-medium text-zinc-600">
+          Override reason (managers / PR approvers, 8+ characters)
+        </label>
         <input
           type="text"
           value={overrideReason}
           onChange={(e) => setOverrideReason(e.target.value)}
-          placeholder="Managers only: 8+ characters if overriding an overlapping reservation"
+          placeholder="Required when: overlapping reservation, or mission extends past the vehicle’s registration disc expiry"
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
       </div>
@@ -298,6 +307,7 @@ export default function VehicleRequestsPage() {
   const [arbitrationDate, setArbitrationDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
+  const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
 
   const roleLooksFleet =
     !!user &&
@@ -425,6 +435,9 @@ export default function VehicleRequestsPage() {
     );
     const j = (await r2.json()) as PlannedMissionRow[];
     setPendingMissions(Array.isArray(j) ? j : []);
+    if (action === "approve" && expandedPendingMissionId === missionId) {
+      setExpandedPendingMissionId(null);
+    }
     void loadData();
     void refetchApprovedMissionsFleet();
   }
@@ -488,6 +501,7 @@ export default function VehicleRequestsPage() {
   useEffect(() => {
     if (!canApproveMission) {
       setPendingMissions([]);
+      setExpandedPendingMissionId(null);
       return;
     }
     let cancelled = false;
@@ -499,12 +513,18 @@ export default function VehicleRequestsPage() {
       );
       if (!res.ok) return;
       const j = (await res.json()) as PlannedMissionRow[];
-      if (!cancelled) setPendingMissions(Array.isArray(j) ? j : []);
+      if (!cancelled) {
+        const rows = Array.isArray(j) ? j : [];
+        setPendingMissions(rows);
+        if (expandedPendingMissionId && !rows.some((m) => m.id === expandedPendingMissionId)) {
+          setExpandedPendingMissionId(null);
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [organizationId, canApproveMission]);
+  }, [organizationId, canApproveMission, expandedPendingMissionId]);
 
   useEffect(() => {
     void refetchApprovedMissionsFleet();
@@ -740,40 +760,112 @@ export default function VehicleRequestsPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Missions pending management approval</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
-              Approve or reject trip plans. Drivers can only request a vehicle after the mission is approved.
+              Open a mission to review trip-plan details before approving or rejecting. Drivers can only request a vehicle after mission approval.
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
             {pendingMissions.map((m) => (
               <div
                 key={m.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
+                className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
               >
-                <div className="min-w-0">
-                  <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 80)}</span>
-                  <span className="text-zinc-500 ml-2">
-                    {m.destination} · {m.departure_date}
-                  </span>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => void patchMissionApproval(m.id, "approve")}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="text-red-700 border-red-200"
-                    onClick={() => void patchMissionApproval(m.id, "reject")}
-                  >
-                    Reject
-                  </Button>
-                </div>
+                <button
+                  type="button"
+                  className="w-full text-left"
+                  onClick={() =>
+                    setExpandedPendingMissionId((prev) => (prev === m.id ? null : m.id))
+                  }
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-zinc-900">
+                          {(m.title || m.destination).slice(0, 120)}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          {expandedPendingMissionId === m.id ? "▲ Hide details" : "▼ View details"}
+                        </span>
+                      </div>
+                      <div className="text-zinc-500 mt-0.5">
+                        {m.destination} · {m.departure_date}
+                        {m.return_date ? ` → ${m.return_date}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1 shrink-0">
+                      {m.mission_profile && (
+                        <Badge variant="secondary" className="capitalize">
+                          {m.mission_profile}
+                        </Badge>
+                      )}
+                      {m.required_vehicle_class && (
+                        <Badge variant="secondary">
+                          {ASSET_CLASS_LABELS[m.required_vehicle_class as AssetClass] ??
+                            m.required_vehicle_class}
+                        </Badge>
+                      )}
+                      {m.passengers && (
+                        <Badge variant="secondary">
+                          {m.passengers} pax
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                {expandedPendingMissionId === m.id && (
+                  <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
+                    <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Created by</dt>
+                        <dd className="text-zinc-900 mt-0.5">{m.created_by_name || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Created</dt>
+                        <dd className="text-zinc-900 mt-0.5">
+                          {m.created_at ? new Date(m.created_at).toLocaleString() : "—"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Mission type</dt>
+                        <dd className="text-zinc-900 mt-0.5">{m.mission_type || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">R&amp;R</dt>
+                        <dd className="text-zinc-900 mt-0.5">
+                          {RR_LABELS[normalizeRr(m.rr_status)] ?? "N/A"}
+                        </dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500 uppercase tracking-wide">Loadout / equipment</dt>
+                        <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">
+                          {m.loadout_summary || "—"}
+                        </dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500 uppercase tracking-wide">Notes</dt>
+                        <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{m.notes || "—"}</dd>
+                      </div>
+                    </dl>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => void patchMissionApproval(m.id, "approve")}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-red-700 border-red-200"
+                        onClick={() => void patchMissionApproval(m.id, "reject")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </CardContent>
@@ -1081,7 +1173,11 @@ function RequestDetailModal({
           vehicleId: assignVehicleId,
           ...(assignOverlapReason.trim().length >= 8 ? { overrideReason: assignOverlapReason.trim() } : {}),
         }
-      : { vehicleId: assignVehicleId, approvedByName: approverName };
+      : {
+          vehicleId: assignVehicleId,
+          approvedByName: approverName,
+          ...(assignOverlapReason.trim().length >= 8 ? { overrideReason: assignOverlapReason.trim() } : {}),
+        };
     const res = await fetch(url, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
@@ -1393,19 +1489,26 @@ function RequestDetailModal({
                   }
                 />
                 {r.mission_id && (
-                  <div>
-                    <label className="text-xs font-medium text-zinc-600">
-                      Overlap override (managers / admins, 8+ characters)
-                    </label>
-                    <textarea
-                      value={assignOverlapReason}
-                      onChange={(e) => setAssignOverlapReason(e.target.value)}
-                      rows={2}
-                      placeholder="Only if reserving a vehicle that already has an overlapping active reservation"
-                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                    />
-                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    Candidates respect mission dates, status rules, and required class. Use the override box below if the vehicle has an overlapping reservation or its registration disc expires before the mission end date.
+                  </p>
                 )}
+                <div>
+                  <label className="text-xs font-medium text-zinc-600">
+                    Override reason (managers / PR approvers, 8+ characters)
+                  </label>
+                  <textarea
+                    value={assignOverlapReason}
+                    onChange={(e) => setAssignOverlapReason(e.target.value)}
+                    rows={2}
+                    placeholder={
+                      r.mission_id
+                        ? "Overlapping reservation, or mission runs past registration disc expiry on the chosen vehicle"
+                        : "Only if the request window extends past the vehicle’s registration disc expiry"
+                    }
+                    className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  />
+                </div>
               </div>
               <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
                 {r.mission_id ? "Reserve" : "Assign"}
