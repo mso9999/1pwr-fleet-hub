@@ -78,12 +78,30 @@ jobs:
         run: |
           sleep 10
           HOST="${{ secrets.EC2_HOST }}"
-          # Production uses Apache on :80 in front of Node; :3100 may be firewalled from the internet.
-          if curl -sf "http://${HOST}/api/health" > /dev/null; then
-            echo "OK via http://${HOST}/api/health"
-          elif curl -sf "http://${HOST}:3100/api/health" > /dev/null; then
-            echo "OK via http://${HOST}:3100/api/health"
+          check_url() {
+            local url="$1"
+            local body
+            body="$(curl -sS --connect-timeout 8 --max-time 15 "$url" || true)"
+            if [ -z "$body" ]; then
+              return 1
+            fi
+            # Deployment gate: DB must be healthy. Firebase Admin may be intentionally unset
+            # in some environments and should not block shipping.
+            if echo "$body" | grep -q '"db":{"ok":true'; then
+              echo "OK via $url"
+              return 0
+            fi
+            echo "Health response from $url did not report db ok"
+            echo "$body"
+            return 1
+          }
+
+          # Production uses Apache/:80 in front of Node; :3100 may be firewalled.
+          if check_url "http://${HOST}/api/health"; then
+            exit 0
+          elif check_url "http://${HOST}:3100/api/health"; then
+            exit 0
           else
-            echo "::error::Health check failed for both :80 and :3100 /api/health"
+            echo "::error::Health check failed for both :80 and :3100 /api/health (db not ok or endpoint unreachable)"
             exit 1
           fi
