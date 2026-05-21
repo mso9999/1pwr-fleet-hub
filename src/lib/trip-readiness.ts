@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { registrationDiscMissionBlocked } from "@/lib/registration-disc";
 
 /** Short local runs vs multi-day field deployments — drives checklist + inspection rules. */
 export const MISSION_PROFILE = {
@@ -36,6 +37,8 @@ export interface TripReadinessInput {
   skipDriverChecklist?: boolean;
   /** When true, skip field-deployment mechanical inspection gate (mission already management-approved as-is). */
   skipMechanicalInspection?: boolean;
+  /** When set (YYYY-MM-DD), registration disc must cover this day or the gate blocks (unless trip override). */
+  missionCalendarEndDay?: string;
 }
 
 function normalizeProfile(raw: string | undefined): MissionProfile {
@@ -56,10 +59,16 @@ export function evaluateTripReadiness(
 
   const vehicle = db
     .prepare(
-      "SELECT id, code, status, organization_id FROM vehicles WHERE id = ?"
+      "SELECT id, code, status, organization_id, registration_disc_expiry_date FROM vehicles WHERE id = ?"
     )
     .get(input.vehicleId) as
-    | { id: string; code: string; status: string; organization_id: string }
+    | {
+        id: string;
+        code: string;
+        status: string;
+        organization_id: string;
+        registration_disc_expiry_date: string | null;
+      }
     | undefined;
 
   if (!vehicle) {
@@ -91,6 +100,21 @@ export function evaluateTripReadiness(
       ? `${vehicle.code} is operational.`
       : `${vehicle.code} is not operational (status: ${vehicle.status}). Only operational vehicles can start a new trip.`,
   });
+
+  const discEnd = String(input.missionCalendarEndDay || "").trim().slice(0, 10);
+  if (discEnd) {
+    const discBlocked = registrationDiscMissionBlocked(discEnd, vehicle.registration_disc_expiry_date);
+    gates.push({
+      id: "registration_disc",
+      label: "Registration disc",
+      status: discBlocked ? "blocked" : "satisfied",
+      detail: discBlocked
+        ? `${vehicle.code}: trip/mission extends to ${discEnd} but the registration disc expires ${String(vehicle.registration_disc_expiry_date || "").slice(0, 10)}. Ask a manager or PR approver to override, or renew the disc.`
+        : vehicle.registration_disc_expiry_date
+          ? `${vehicle.code}: disc valid through ${String(vehicle.registration_disc_expiry_date).slice(0, 10)} for this window.`
+          : `${vehicle.code}: no registration disc expiry on file for this window.`,
+    });
+  }
 
   const dvc = db
     .prepare(

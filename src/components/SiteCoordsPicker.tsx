@@ -3,7 +3,10 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { fixLeafletDefaultIcons } from "@/lib/leaflet-default-icons";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
+
+fixLeafletDefaultIcons(L);
 
 interface SiteCoordsPickerProps {
   organizationId: string;

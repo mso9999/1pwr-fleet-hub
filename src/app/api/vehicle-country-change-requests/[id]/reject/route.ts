@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser, isExecutiveRole, isFleetManagementRole } from "@/lib/server-auth";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 export async function POST(
   request: NextRequest,
@@ -48,6 +49,22 @@ export async function POST(
       reviewed_at = ?
     WHERE id = ?`
   ).run(rejectionReason, now, user.id, user.name, now, requestId);
+
+  const orgId = String(row.from_organization_id ?? row.to_organization_id ?? "");
+
+  recordMutation(db, {
+    entityType: "vehicle_country_change_request",
+    entityId: requestId,
+    organizationId: orgId,
+    action: "reject",
+    actor: actorFrom(user),
+    before: {
+      status: row.status,
+      change_kind: row.change_kind,
+      vehicle_id: row.vehicle_id,
+    },
+    after: { status: "rejected", rejectionReason },
+  });
 
   const updated = db.prepare("SELECT * FROM vehicle_country_change_requests WHERE id = ?").get(requestId);
   return NextResponse.json(updated);

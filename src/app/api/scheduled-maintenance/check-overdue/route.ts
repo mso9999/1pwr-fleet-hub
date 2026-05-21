@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -45,8 +47,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ).run("scheduled_maintenance", row.id, "upcoming", "overdue", "system (auto-check)", now);
 
         overdueCount++;
+        const smId = String(row.id);
 
         const existingWo = row.work_order_id;
+        let linkedWorkOrderId = existingWo ? String(existingWo) : "";
+
         if (!existingWo) {
           const woId = uuidv4();
           const reason = kmOverdue
@@ -69,7 +74,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             "UPDATE scheduled_maintenance SET work_order_id = ?, updated_at = ? WHERE id = ?"
           ).run(woId, now, row.id);
           woCreated++;
+          linkedWorkOrderId = woId;
+
+          recordMutation(db, {
+            entityType: "work_order",
+            entityId: woId,
+            organizationId: org,
+            action: "create",
+            actor: auditActorFrom(null, { id: "system", name: "scheduled-maintenance/check-overdue" }),
+            after: {
+              vehicleId: row.vehicle_id,
+              maintenanceId: smId,
+              title: `Scheduled ${row.maintenance_type} — ${row.vehicle_code} overdue`,
+            },
+            reason: "auto_overdue",
+          });
         }
+
+        recordMutation(db, {
+          entityType: "scheduled_maintenance",
+          entityId: smId,
+          organizationId: org,
+          action: "update",
+          actor: auditActorFrom(null, { id: "system", name: "scheduled-maintenance/check-overdue" }),
+          before: { status: "upcoming", work_order_id: existingWo ? String(existingWo) : null },
+          after: { status: "overdue", work_order_id: linkedWorkOrderId || null },
+          reason: "auto_overdue",
+        });
       }
     }
   });

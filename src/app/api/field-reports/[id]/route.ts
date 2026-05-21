@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { FIELD_ISSUE_CLOSEOUT_OUTCOME, FIELD_ISSUE_STATUS } from "@/types";
 
 const OUTCOMES = new Set(Object.values(FIELD_ISSUE_CLOSEOUT_OUTCOME));
@@ -34,6 +37,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const db = getDb();
   const { id } = await params;
 
@@ -134,6 +138,21 @@ export async function PATCH(
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run("field_report", id, prevStatus, status, closedByName, now);
+
+  recordMutation(db, {
+    entityType: "field_report",
+    entityId: id,
+    organizationId: String(existing.organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, { id: closedById, name: closedByName }),
+    before: { status: prevStatus, work_order_id: existing.work_order_id },
+    after: {
+      status,
+      closeoutOutcome,
+      workOrderId: workOrderId,
+      attendedByName,
+    },
+  });
 
   const report = db
     .prepare(

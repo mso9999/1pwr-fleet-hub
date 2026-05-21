@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 /** Sort modes for the WO list. priority is the legacy default for the global page. */
@@ -81,17 +84,19 @@ export function GET(request: NextRequest): NextResponse {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const body = await request.json();
+  const user = await getVerifiedFleetUser(request);
   const id = uuidv4();
   const now = new Date().toISOString();
 
   const initialStatus = body.status || "submitted";
+  const orgId = body.organizationId || "1pwr_lesotho";
 
   db.prepare(`
     INSERT INTO work_orders (id, organization_id, vehicle_id, title, description, type, priority, status, assigned_to, repair_location, third_party_shop, reported_by, remarks, downtime_start, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    orgId,
     body.vehicleId,
     body.title,
     body.description || "",
@@ -116,6 +121,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const order = db.prepare(`
     SELECT wo.*, v.code as vehicle_code FROM work_orders wo JOIN vehicles v ON wo.vehicle_id = v.id WHERE wo.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "work_order",
+    entityId: id,
+    organizationId: orgId,
+    action: "create",
+    actor: auditActorFrom(user, {
+      id: String(body.reportedById || ""),
+      name: String(body.reportedBy || ""),
+    }),
+    after: {
+      vehicleId: body.vehicleId,
+      title: body.title,
+      status: initialStatus,
+      priority: body.priority || "medium",
+    },
+  });
+
   return NextResponse.json(order, { status: 201 });
 }

@@ -84,17 +84,25 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_for_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
         proxy_read_timeout 60s;
         proxy_connect_timeout 60s;
     }
 
+    # Proxy uploads to Next.js so /uploads/... hits the app route (DB + disk), not a
+    # static alias that 404s when files live only under PM2 cwd or after redeploys.
     location /uploads/ {
-        alias /var/www/fleet-hub/public/uploads/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        proxy_connect_timeout 60s;
+        client_max_body_size 20M;
     }
 }
 EOF

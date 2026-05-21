@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -29,10 +32,12 @@ export function GET(request: NextRequest): NextResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const db = getDb();
   const body = await request.json();
   const id = uuidv4();
   const now = new Date().toISOString();
+  const orgId = body.organizationId || "1pwr_lesotho";
 
   const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(body.vehicleId) as Record<string, unknown> | undefined;
   if (!vehicle) return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
@@ -62,7 +67,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    orgId,
     body.vehicleId,
     body.maintenanceType || "full-service",
     body.description || "",
@@ -82,7 +87,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     FROM scheduled_maintenance sm
     JOIN vehicles v ON sm.vehicle_id = v.id
     WHERE sm.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "scheduled_maintenance",
+    entityId: id,
+    organizationId: orgId,
+    action: "create",
+    actor: auditActorFrom(user, {}),
+    after: {
+      vehicleId: body.vehicleId,
+      maintenanceType: body.maintenanceType || "full-service",
+      status: row.status,
+    },
+  });
 
   return NextResponse.json(row, { status: 201 });
 }

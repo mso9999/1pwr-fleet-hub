@@ -7,6 +7,7 @@ import {
 } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 export const runtime = "nodejs";
 
@@ -139,6 +140,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     rrStatus: String(body.rrStatus || "na"),
   });
 
-  const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
+  const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+  recordMutation(db, {
+    entityType: "mission",
+    entityId: id,
+    organizationId,
+    action: "create",
+    actor: actorFrom(user),
+    after: {
+      title: row.title,
+      destination: row.destination,
+      departure_date: row.departure_date,
+      mission_profile: row.mission_profile,
+      required_vehicle_class: row.required_vehicle_class,
+    },
+  });
   return NextResponse.json(row, { status: 201 });
 }

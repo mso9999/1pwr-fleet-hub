@@ -19,6 +19,20 @@ const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string
   ["loadout_summary", "loadoutSummary"],
 ];
 
+function missionAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    title: r.title,
+    destination: r.destination,
+    departure_date: r.departure_date,
+    return_date: r.return_date,
+    approval_status: r.approval_status,
+    lifecycle_status: r.lifecycle_status,
+    mission_profile: r.mission_profile,
+    status: r.status,
+    required_vehicle_class: r.required_vehicle_class,
+  };
+}
+
 function materialMissionFieldsChanged(
   before: Record<string, unknown>,
   body: Record<string, unknown>
@@ -77,6 +91,7 @@ export async function PATCH(
         { status: 403 }
       );
     }
+    const beforeSnap = missionAuditSubset(row);
     if (action === "approve") {
       db.prepare(
         `UPDATE missions SET approval_status = 'approved', approved_by_id = ?, approved_by_name = ?,
@@ -89,7 +104,17 @@ export async function PATCH(
          approved_at = ?, rejection_reason = ?, updated_at = ? WHERE id = ?`
       ).run(user.id, user.name || user.email, now, reason, now, id);
     }
-    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
+    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: id,
+      organizationId: orgId,
+      action: action === "approve" ? "approve" : "reject",
+      actor: actorFrom(user),
+      before: beforeSnap,
+      after: missionAuditSubset(updated),
+      reason: action === "reject" ? String(body.rejectionReason || "").trim() : "",
+    });
     return NextResponse.json(updated);
   }
 
@@ -204,6 +229,16 @@ export async function PATCH(
     });
   }
 
-  const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
+  const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+  recordMutation(db, {
+    entityType: "mission",
+    entityId: id,
+    organizationId: orgId,
+    action: "update",
+    actor: actorFrom(user),
+    before: missionAuditSubset(row),
+    after: missionAuditSubset(updated),
+  });
+
   return NextResponse.json(updated);
 }

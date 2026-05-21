@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { allocateIssueTicketUid } from "@/lib/issue-tickets";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -45,6 +48,7 @@ export function GET(request: NextRequest): NextResponse {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const user = await getVerifiedFleetUser(request);
     const db = getDb();
     const formData = await request.formData();
 
@@ -118,7 +122,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const report = db.prepare(
       "SELECT r.*, v.code as vehicle_code FROM field_issue_reports r JOIN vehicles v ON r.vehicle_id = v.id WHERE r.id = ?"
-    ).get(reportId);
+    ).get(reportId) as Record<string, unknown>;
+
+    recordMutation(db, {
+      entityType: "field_report",
+      entityId: reportId,
+      organizationId: String(vehicle.organization_id),
+      action: "create",
+      actor: auditActorFrom(user, { id: reportedById, name: reportedByName }),
+      after: {
+        vehicleId,
+        title,
+        severity,
+        ticketUid,
+        photoCount,
+      },
+    });
 
     return NextResponse.json(report, { status: 201 });
   } catch (err) {

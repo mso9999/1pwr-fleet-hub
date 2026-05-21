@@ -12,15 +12,19 @@ export function GET(request: NextRequest): NextResponse {
     const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
     const db = getDb();
     const operationalCount = countOperationalVehiclesInPool(db, org);
-    const eligible = operationalCount === 0;
+    const eligible = true;
     const rates = getPvrRateSnapshotForOrg(db, org);
     return NextResponse.json({
       eligible,
+      requiresApprovedMission: true,
       operationalVehicleCount: operationalCount,
+      /** When &gt; 0, submit (and any later approval) requires override documentation in Notes. */
+      requiresVehicleAvailabilityOverrideNotes: operationalCount > 0,
       rates,
-      message: eligible
-        ? "No fleet vehicles are currently available for assignment — you may submit a personal vehicle reimbursement claim."
-        : `There ${operationalCount === 1 ? "is" : "are"} ${operationalCount} operational fleet vehicle(s) in the pool. Use a 1PWR vehicle or request one via Vehicle requests before claiming personal use.`,
+      message:
+        operationalCount === 0
+          ? "No fleet vehicles are currently available for assignment — you may submit a personal vehicle reimbursement claim. You must link the claim to an approved, active Fleet Hub mission, and the trip date must fall within that mission’s dates."
+          : `There ${operationalCount === 1 ? "is" : "are"} ${operationalCount} operational fleet vehicle(s) in the pool. You may still submit a personal-vehicle claim only if Notes document a formal override (why a 1PWR vehicle was not used). Managers cannot approve without that override text when vehicles were available at submit time.`,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

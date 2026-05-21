@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
+
+function smAudit(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    status: r.status,
+    vehicle_id: r.vehicle_id,
+    maintenance_type: r.maintenance_type,
+    next_due_date: r.next_due_date,
+    next_due_km: r.next_due_km,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -26,9 +39,11 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db.prepare("SELECT * FROM scheduled_maintenance WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const beforeSnap = smAudit(existing as Record<string, unknown>);
 
   const allowedFields: Record<string, string> = {
     maintenanceType: "maintenance_type",
@@ -74,17 +89,40 @@ export async function PATCH(
     FROM scheduled_maintenance sm
     JOIN vehicles v ON sm.vehicle_id = v.id
     WHERE sm.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "scheduled_maintenance",
+    entityId: id,
+    organizationId: String((existing as Record<string, unknown>).organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, { name: String(body.changedBy || "") }),
+    before: beforeSnap,
+    after: smAudit(updated),
+  });
 
   return NextResponse.json(updated);
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
+  const user = await getVerifiedFleetUser(request);
+  const row = db.prepare("SELECT * FROM scheduled_maintenance WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  recordMutation(db, {
+    entityType: "scheduled_maintenance",
+    entityId: id,
+    organizationId: String(row.organization_id ?? ""),
+    action: "delete",
+    actor: auditActorFrom(user, {}),
+    before: smAudit(row),
+  });
+
   const result = db.prepare("DELETE FROM scheduled_maintenance WHERE id = ?").run(id);
   if (result.changes === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });

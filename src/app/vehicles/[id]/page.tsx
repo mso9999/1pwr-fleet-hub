@@ -51,6 +51,7 @@ interface VehicleDetail {
   tracker_model: string;
   tracker_install_date: string;
   tracker_status: TrackerStatus;
+  registration_disc_expiry_date?: string | null;
   created_at: string;
   updated_at: string;
   created_by_id?: string;
@@ -420,6 +421,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
       assetClass: fd.get("assetClass"),
       homeLocation: fd.get("homeLocation"),
       notes: fd.get("notes"),
+      registrationDiscExpiryDate: fd.get("registrationDiscExpiryDate") || "",
     };
 
     const res = await fetch(`/api/vehicles/${id}`, {
@@ -917,6 +919,15 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
                 ))}
               </Select>
               <Input name="homeLocation" label="Home Location" defaultValue={vehicle.home_location} />
+              <Input
+                name="registrationDiscExpiryDate"
+                label="Registration disc expiry"
+                type="date"
+                defaultValue={(vehicle.registration_disc_expiry_date || "").slice(0, 10)}
+              />
+              <p className="text-xs text-zinc-500 sm:col-span-2 -mt-2">
+                Road registration (window disc). Leave empty if not tracked. Missions cannot reserve past this date without a management override.
+              </p>
               <div className="sm:col-span-2">
                 <label className="text-sm font-medium text-zinc-700">Notes</label>
                 <textarea
@@ -940,6 +951,14 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
               <InfoRow label="Engine Number" value={vehicle.engine_number || "—"} />
               <InfoRow label="Category" value={assetClassLabel(vehicle.asset_class)} />
               <InfoRow label="Home Location" value={vehicle.home_location} />
+              <InfoRow
+                label="Registration disc expiry"
+                value={
+                  vehicle.registration_disc_expiry_date
+                    ? String(vehicle.registration_disc_expiry_date).slice(0, 10)
+                    : "— (not tracked)"
+                }
+              />
               <InfoRow label="Current Location" value={vehicle.current_location} />
               <InfoRow label="Date in Service" value={vehicle.date_in_service || "—"} />
               {vehicle.notes && (

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 
 /** PATCH fleet route origin (map / GPS) — managers+ */
 export async function PATCH(
@@ -25,11 +27,32 @@ export async function PATCH(
   }
 
   const db = getDb();
+  const before = db.prepare("SELECT id, route_origin_lat, route_origin_lng FROM organizations WHERE id = ?").get(id) as
+    | Record<string, unknown>
+    | undefined;
+  if (!before) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const r = db
     .prepare("UPDATE organizations SET route_origin_lat = ?, route_origin_lng = ? WHERE id = ?")
     .run(lat, lng, id);
   if (r.changes === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  recordMutation(db, {
+    entityType: "organization",
+    entityId: id,
+    organizationId: id,
+    action: "update",
+    actor: auditActorFrom(user, {}),
+    before: {
+      route_origin_lat: before.route_origin_lat,
+      route_origin_lng: before.route_origin_lng,
+    },
+    after: { route_origin_lat: lat, route_origin_lng: lng },
+  });
+
   return NextResponse.json({ success: true });
 }

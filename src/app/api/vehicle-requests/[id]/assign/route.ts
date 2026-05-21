@@ -9,6 +9,10 @@ import {
   vehicleStatusAllowedForReservation,
 } from "@/lib/mission-reservations";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import {
+  registrationDiscMissionBlocked,
+  registrationDiscOverrideAllowed,
+} from "@/lib/registration-disc";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
@@ -85,6 +89,38 @@ export async function POST(
         { status: 400 }
       );
     }
+    const discBlockedMission = registrationDiscMissionBlocked(endDate, vehicle.registration_disc_expiry_date);
+    let discOverrideUsedMission = false;
+    if (discBlockedMission) {
+      if (!registrationDiscOverrideAllowed(db, orgId, user.email, user.role, overrideReason)) {
+        const discExpiry = String(vehicle.registration_disc_expiry_date || "").slice(0, 10);
+        return NextResponse.json(
+          {
+            error: `Request runs until ${endDate} but ${vehicle.code}'s registration disc expires ${discExpiry}. A PR-credentialed approver or manager must supply overrideReason (8+ characters).`,
+            reason: "registration_disc_exceeded",
+            missionEnd: endDate,
+            discExpiry,
+          },
+          { status: 400 }
+        );
+      }
+      discOverrideUsedMission = true;
+      recordMutation(db, {
+        entityType: "mission",
+        entityId: missionId,
+        organizationId: orgId,
+        action: "registration_disc_reservation_override",
+        actor: actorFrom(user),
+        after: {
+          vehicleId: body.vehicleId,
+          vehicleCode: vehicle.code,
+          missionEnd: endDate,
+          discExpiry: String(vehicle.registration_disc_expiry_date || "").slice(0, 10),
+          via: "vehicle_request_assign",
+        },
+        reason: overrideReason,
+      });
+    }
     const conflicts = findActiveReservationConflicts(db, orgId, body.vehicleId, dep, endDate, missionId);
     if (conflicts.length > 0) {
       const canOverride = canOverrideReservationOverlap(user.role) && overrideReason.length >= 8;
@@ -124,9 +160,9 @@ export async function POST(
         missionId,
         dep,
         endDate,
-        conflicts.length > 0 ? overrideReason : "",
-        conflicts.length > 0 ? approverId : "",
-        conflicts.length > 0 ? approverName : "",
+        conflicts.length > 0 || discOverrideUsedMission ? overrideReason : "",
+        conflicts.length > 0 || discOverrideUsedMission ? approverId : "",
+        conflicts.length > 0 || discOverrideUsedMission ? approverName : "",
         now,
         now
       );
@@ -138,6 +174,36 @@ export async function POST(
     tx();
   } else if (vehicle.status !== "operational") {
     return NextResponse.json({ error: `Vehicle ${vehicle.code} is not operational (status: ${vehicle.status})` }, { status: 400 });
+  } else {
+    const discBlockedLegacy = registrationDiscMissionBlocked(endDate, vehicle.registration_disc_expiry_date);
+    if (discBlockedLegacy) {
+      if (!registrationDiscOverrideAllowed(db, orgId, user.email, user.role, overrideReason)) {
+        const discExpiry = String(vehicle.registration_disc_expiry_date || "").slice(0, 10);
+        return NextResponse.json(
+          {
+            error: `Request runs until ${endDate} but ${vehicle.code}'s registration disc expires ${discExpiry}. A PR-credentialed approver or manager must supply overrideReason (8+ characters).`,
+            reason: "registration_disc_exceeded",
+            missionEnd: endDate,
+            discExpiry,
+          },
+          { status: 400 }
+        );
+      }
+      recordMutation(db, {
+        entityType: "vehicle_request",
+        entityId: id,
+        organizationId: orgId,
+        action: "registration_disc_assign_override",
+        actor: actorFrom(user),
+        after: {
+          vehicleId: body.vehicleId,
+          vehicleCode: vehicle.code,
+          windowEnd: endDate,
+          discExpiry: String(vehicle.registration_disc_expiry_date || "").slice(0, 10),
+        },
+        reason: overrideReason,
+      });
+    }
   }
 
   const oldStatus = existing.status as string;
@@ -159,6 +225,24 @@ export async function POST(
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run("vehicle_request", id, oldStatus, "assigned", approverName, now);
+
+  recordMutation(db, {
+    entityType: "vehicle_request",
+    entityId: id,
+    organizationId: orgId,
+    action: "update",
+    actor: actorFrom(user),
+    before: {
+      status: oldStatus,
+      assigned_vehicle_id: existing.assigned_vehicle_id,
+      mission_id: missionId || null,
+    },
+    after: {
+      status: "assigned",
+      assigned_vehicle_id: body.vehicleId,
+      mission_id: missionId || null,
+    },
+  });
 
   await recalculateVehicleRequestFuel(db, id);
 

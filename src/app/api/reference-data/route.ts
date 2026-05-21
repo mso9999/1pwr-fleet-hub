@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser, isFleetManagementRole } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const db = getDb();
@@ -20,6 +23,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(req);
+  if (!user || (!isFleetManagementRole(user.role) && user.role !== "superadmin")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: user ? 403 : 401 });
+  }
+
   const db = getDb();
   const body = await req.json();
   const { organization_id, type, code, label, sort_order, meta } = body;
@@ -28,14 +36,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "type, code, and label are required" }, { status: 400 });
   }
 
+  const orgId = organization_id || "1pwr_lesotho";
   const stmt = db.prepare(`
     INSERT INTO reference_data (id, organization_id, type, code, label, sort_order, meta)
     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)
   `);
 
   try {
-    stmt.run(organization_id || "1pwr_lesotho", type, code, label, sort_order || 0, meta || "{}");
-    return NextResponse.json({ success: true }, { status: 201 });
+    stmt.run(orgId, type, code, label, sort_order || 0, meta || "{}");
+    const row = db
+      .prepare("SELECT * FROM reference_data WHERE organization_id = ? AND type = ? AND code = ?")
+      .get(orgId, type, code) as Record<string, unknown> | undefined;
+    if (row) {
+      recordMutation(db, {
+        entityType: "reference_data",
+        entityId: String(row.id),
+        organizationId: orgId,
+        action: "create",
+        actor: auditActorFrom(user, {}),
+        after: { type, code, label, sort_order: sort_order || 0 },
+      });
+    }
+    return NextResponse.json({ success: true, id: row?.id }, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Insert failed";
     if (msg.includes("UNIQUE")) {

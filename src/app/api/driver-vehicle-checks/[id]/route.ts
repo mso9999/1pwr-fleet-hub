@@ -1,5 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
+
+function dvcAudit(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    vehicle_id: r.vehicle_id,
+    overall_pass: r.overall_pass,
+    direction: r.direction,
+    check_date: r.check_date,
+    route_from: r.route_from,
+    route_to: r.route_to,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -26,9 +40,11 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db.prepare("SELECT * FROM driver_vehicle_checks WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const beforeSnap = dvcAudit(existing as Record<string, unknown>);
 
   const allowedFields: Record<string, string> = {
     tripId: "trip_id",
@@ -116,7 +132,17 @@ export async function PATCH(
     FROM driver_vehicle_checks dvc
     JOIN vehicles v ON dvc.vehicle_id = v.id
     WHERE dvc.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "driver_vehicle_check",
+    entityId: id,
+    organizationId: String((existing as Record<string, unknown>).organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, { name: String(body.changedBy || "") }),
+    before: beforeSnap,
+    after: dvcAudit(updated),
+  });
 
   return NextResponse.json(updated);
 }
@@ -128,6 +154,21 @@ export async function DELETE(
   const { id } = await params;
   const db = getDb();
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
+  const user = await getVerifiedFleetUser(request);
+
+  const row = db
+    .prepare("SELECT * FROM driver_vehicle_checks WHERE id = ? AND organization_id = ?")
+    .get(id, org) as Record<string, unknown> | undefined;
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  recordMutation(db, {
+    entityType: "driver_vehicle_check",
+    entityId: id,
+    organizationId: org,
+    action: "delete",
+    actor: auditActorFrom(user, {}),
+    before: dvcAudit(row),
+  });
 
   const result = db.prepare(
     "DELETE FROM driver_vehicle_checks WHERE id = ? AND organization_id = ?"

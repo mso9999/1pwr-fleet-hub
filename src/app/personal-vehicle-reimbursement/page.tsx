@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { MediaUpload } from "@/components/MediaUpload";
 import { useAuth } from "@/lib/auth-context";
 import { MEDIA_CATEGORY } from "@/types";
+import { PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS } from "@/lib/pvr-approval-rules";
 
 interface PvrRates {
   fullPerKmLsl: number;
@@ -19,13 +20,26 @@ interface PvrRates {
 
 interface EligibilityPayload {
   eligible: boolean;
+  requiresApprovedMission?: boolean;
+  requiresVehicleAvailabilityOverrideNotes?: boolean;
   operationalVehicleCount: number;
   message: string;
   rates?: PvrRates;
 }
 
+interface MissionOption {
+  id: string;
+  title: string;
+  destination: string;
+  departure_date: string;
+  return_date: string;
+  lifecycle_status: string;
+  approval_status: string;
+}
+
 interface ClaimRow {
   id: string;
+  mission_id?: string | null;
   trip_date: string;
   requested_by_name: string;
   destination: string;
@@ -40,6 +54,8 @@ interface ClaimRow {
   approved_by_name: string;
   rejection_reason: string;
   finance_reference: string;
+  pool_operational_count_snapshot?: number | null;
+  notes?: string;
   created_at: string;
 }
 
@@ -63,6 +79,8 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
+  const [missionOptions, setMissionOptions] = useState<MissionOption[]>([]);
+  const [selectedMissionId, setSelectedMissionId] = useState("");
   const [tripDate, setTripDate] = useState("");
   const [destination, setDestination] = useState("");
   const [tripReason, setTripReason] = useState("");
@@ -72,8 +90,13 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
   const [totalKm, setTotalKm] = useState("");
   const [notes, setNotes] = useState("");
 
-  const isManager =
-    user && (user.role === "fleet_lead" || user.role === "manager" || user.role === "admin");
+  const canApproveClaims =
+    user &&
+    (user.role === "fleet_lead" ||
+      user.role === "manager" ||
+      user.role === "admin" ||
+      user.role === "finance" ||
+      user.role === "superadmin");
 
   const loadData = useCallback(() => {
     setLoadError(null);
@@ -100,6 +123,32 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!organizationId || !showForm || !eligibility) {
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=all&approvalStatus=approved`
+    )
+      .then((r) => r.json())
+      .then((rows) => {
+        if (cancelled) return;
+        const list = Array.isArray(rows) ? (rows as MissionOption[]) : [];
+        setMissionOptions(
+          list.filter(
+            (m) => String(m.lifecycle_status || "active").toLowerCase() === "active"
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setMissionOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, showForm, eligibility]);
+
   const rates = eligibility?.rates;
 
   const estimatedLsl = useMemo(() => {
@@ -116,12 +165,20 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setFormError("");
-    if (!eligibility?.eligible) {
-      setFormError("You are not eligible to submit while operational fleet vehicles are available.");
-      return;
+    if (eligibility?.requiresVehicleAvailabilityOverrideNotes) {
+      if (notes.trim().length < PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS) {
+        setFormError(
+          `Operational fleet vehicles are available — Notes must document the override (at least ${PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS} characters).`
+        );
+        return;
+      }
     }
     if (!tripDate.trim() || !destination.trim() || !tripReason.trim()) {
       setFormError("Trip date, destination, and reason are required.");
+      return;
+    }
+    if (!selectedMissionId.trim()) {
+      setFormError("Select the pre-approved mission this trip belongs to.");
       return;
     }
     if (!justification.trim()) {
@@ -152,6 +209,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
         requestedById: user?.id || "",
         requestedByName: user?.name || "",
         notes: notes.trim(),
+        missionId: selectedMissionId.trim(),
       }),
     });
     setIsSubmitting(false);
@@ -163,6 +221,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
       setJustification("");
       setNotes("");
       setTotalKm("");
+      setSelectedMissionId("");
       setDraftClaimId(crypto.randomUUID());
       loadData();
     } else {
@@ -174,13 +233,19 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
   async function patchClaim(
     id: string,
     body: Record<string, string | undefined>
-  ): Promise<void> {
-    await fetch(`/api/personal-vehicle-reimbursements/${id}`, {
+  ): Promise<boolean> {
+    const res = await fetch(`/api/personal-vehicle-reimbursements/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      window.alert(typeof err.error === "string" ? err.error : "Update failed.");
+      return false;
+    }
     loadData();
+    return true;
   }
 
   return (
@@ -188,8 +253,10 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
       <div>
         <h2 className="text-2xl font-bold text-zinc-900">Personal vehicle reimbursement</h2>
         <p className="text-sm text-zinc-500 mt-1">
-          F006-style claim when no 1PWR vehicle is available for assignment, with insurance proof and
-          manager approval. Finance can export approved claims from Reports.
+          F006-style claim tied to an approved Fleet Hub mission. If operational 1PWR vehicles exist at
+          submit time, Notes must record a formal override or the claim cannot be approved. Insurance
+          proof, mileage evidence, and manager or finance sign-off apply. Approved rows export from
+          Reports.
         </p>
       </div>
 
@@ -201,7 +268,9 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
 
       {eligibility && (
         <Card
-          className={eligibility.eligible ? "border-emerald-200" : "border-amber-200"}
+          className={
+            eligibility.operationalVehicleCount === 0 ? "border-emerald-200" : "border-amber-200"
+          }
           data-tutorial="tutorial-pvr-eligibility"
         >
           <CardHeader className="pb-2">
@@ -226,14 +295,14 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
           type="button"
           size="lg"
           className="touch-manipulation min-h-[48px]"
-          disabled={!eligibility?.eligible}
+          disabled={!eligibility}
           onClick={() => setShowForm(!showForm)}
         >
           {showForm ? "Close form" : "+ New claim"}
         </Button>
       </div>
 
-      {showForm && eligibility?.eligible && (
+      {showForm && eligibility && (
         <form onSubmit={handleSubmit} className="space-y-6" data-tutorial="tutorial-pvr-form">
           <Card className="border-blue-200" data-tutorial="tutorial-pvr-attachments">
             <CardHeader className="pb-2">
@@ -276,8 +345,37 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
+                <label className="text-xs text-zinc-500 block mb-1">Pre-approved mission (required)</label>
+                <select
+                  className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                  value={selectedMissionId}
+                  onChange={(e) => setSelectedMissionId(e.target.value)}
+                  required
+                >
+                  <option value="">Select mission…</option>
+                  {missionOptions.map((m) => {
+                    const dep = String(m.departure_date || "").slice(0, 10);
+                    const ret = String(m.return_date || m.departure_date || "").slice(0, 10);
+                    return (
+                      <option key={m.id} value={m.id}>
+                        {(m.title || m.destination || "Mission").trim()} · {dep} → {ret}
+                      </option>
+                    );
+                  })}
+                </select>
+                {missionOptions.length === 0 && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    No approved active missions found for this organisation. Create and get a mission
+                    approved in Fleet reservations before submitting a personal-vehicle claim.
+                  </p>
+                )}
+              </div>
+              <div>
                 <label className="text-xs text-zinc-500 block mb-1">Trip date</label>
                 <Input type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} required />
+                <p className="text-xs text-zinc-500 mt-1">
+                  Must fall within the mission departure and return dates you selected above.
+                </p>
               </div>
               <div>
                 <label className="text-xs text-zinc-500 block mb-1">Destination(s)</label>
@@ -345,8 +443,23 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
               )}
 
               <div>
-                <label className="text-xs text-zinc-500 block mb-1">Notes (optional)</label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+                <label className="text-xs text-zinc-500 block mb-1">
+                  Notes
+                  {eligibility.requiresVehicleAvailabilityOverrideNotes
+                    ? ` (required — fleet override, min ${PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS} characters)`
+                    : " (optional — e.g. tolls; include override detail here if policy requires)"}
+                </label>
+                <textarea
+                  className="w-full min-h-[100px] rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  required={!!eligibility.requiresVehicleAvailabilityOverrideNotes}
+                  minLength={
+                    eligibility.requiresVehicleAvailabilityOverrideNotes
+                      ? PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS
+                      : undefined
+                  }
+                />
               </div>
 
               {formError && <p className="text-sm text-red-600">{formError}</p>}
@@ -384,11 +497,28 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
                   {c.total_km != null ? ` · ${c.total_km} km` : ""} · {c.reimbursement_lsl.toFixed(2)}{" "}
                   {c.currency}
                 </p>
-                <p className="text-xs text-zinc-500">Claim id: {c.id}</p>
+                <p className="text-xs text-zinc-500">
+                  Claim id: {c.id}
+                  {c.mission_id ? ` · Mission: ${c.mission_id}` : ""}
+                </p>
+                {typeof c.pool_operational_count_snapshot === "number" &&
+                  c.pool_operational_count_snapshot > 0 && (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                      Submitted while {c.pool_operational_count_snapshot} operational fleet vehicle(s) were
+                      in the pool — approval requires override documentation in Notes (
+                      {PVR_VEHICLE_AVAILABILITY_OVERRIDE_MIN_CHARS}+ characters).
+                    </p>
+                  )}
+                {c.notes && (
+                  <p className="text-xs text-zinc-600 whitespace-pre-wrap">
+                    <span className="font-medium text-zinc-700">Notes: </span>
+                    {c.notes}
+                  </p>
+                )}
                 {c.finance_reference && (
                   <p className="text-xs text-zinc-700">Finance ref: {c.finance_reference}</p>
                 )}
-                {isManager && c.status === "submitted" && (
+                {canApproveClaims && c.status === "submitted" && (
                   <div className="flex flex-wrap gap-2 pt-2">
                     <Button
                       size="sm"
@@ -419,7 +549,7 @@ export default function PersonalVehicleReimbursementPage(): React.ReactElement {
                     </Button>
                   </div>
                 )}
-                {isManager && c.status === "approved" && (
+                {canApproveClaims && c.status === "approved" && (
                   <div className="flex flex-wrap gap-2 items-center pt-2">
                     <Input
                       className="max-w-xs h-9 text-xs"

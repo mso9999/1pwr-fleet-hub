@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser, isFinanceOrSuperAdmin } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import {
   buildPvrRateSnapshot,
   getFallbackPvrRateSnapshot,
@@ -92,6 +94,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 
   const now = new Date().toISOString();
   const db = getDb();
+  const prevRow = db
+    .prepare(
+      `SELECT full_per_km_lsl, half_per_km_lsl, hq_basis_km FROM pvr_rate_settings WHERE organization_id = ?`
+    )
+    .get(organizationId) as
+    | { full_per_km_lsl: number; half_per_km_lsl: number; hq_basis_km: number }
+    | undefined;
+
   db.prepare(
     `
     INSERT INTO pvr_rate_settings (
@@ -114,6 +124,23 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     user.id,
     user.name
   );
+
+  recordMutation(db, {
+    entityType: "organization",
+    entityId: organizationId,
+    organizationId,
+    action: "admin_config",
+    actor: auditActorFrom(user, {}),
+    before: prevRow
+      ? {
+          fullPerKmLsl: prevRow.full_per_km_lsl,
+          halfPerKmLsl: prevRow.half_per_km_lsl,
+          hqBasisKm: prevRow.hq_basis_km,
+        }
+      : { source: "defaults" },
+    after: { fullPerKmLsl, halfPerKmLsl, hqBasisKm },
+    reason: "pvr_rate_settings",
+  });
 
   const snapshot = buildPvrRateSnapshot(fullPerKmLsl, halfPerKmLsl, hqBasisKm);
   return NextResponse.json({

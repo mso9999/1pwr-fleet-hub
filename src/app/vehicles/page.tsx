@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleStatusBadge } from "@/components/StatusBadge";
@@ -11,6 +12,7 @@ import type { VehicleStatus, AssetClass } from "@/types";
 import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, assetClassLabel } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
+import { registrationDiscDashboardTier } from "@/lib/registration-disc";
 
 interface VehicleRow {
   id: string;
@@ -23,6 +25,7 @@ interface VehicleRow {
   home_location: string;
   current_location: string;
   status: VehicleStatus;
+  registration_disc_expiry_date?: string | null;
 }
 
 interface VehicleFilterOptions {
@@ -34,6 +37,7 @@ interface VehicleFilterOptions {
 
 export default function VehiclesPage(): React.ReactElement {
   const { organizationId } = useAuth();
+  const todayYmd = new Date().toISOString().slice(0, 10);
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("");
@@ -187,13 +191,33 @@ export default function VehiclesPage(): React.ReactElement {
               {vehicles.map((v, idx) => (
                 <tr key={v.id} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
                   <td className="py-3 pr-4">
-                    <Link
-                      href={`/vehicles/${v.id}`}
-                      className="font-bold text-blue-600 hover:underline text-base"
-                      data-tutorial={idx === 0 ? "tutorial-vehicles-first-link" : undefined}
-                    >
-                      {v.code}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link
+                        href={`/vehicles/${v.id}`}
+                        className="font-bold text-blue-600 hover:underline text-base"
+                        data-tutorial={idx === 0 ? "tutorial-vehicles-first-link" : undefined}
+                      >
+                        {v.code}
+                      </Link>
+                      {(() => {
+                        const exp = (v.registration_disc_expiry_date || "").trim().slice(0, 10);
+                        if (!exp) return null;
+                        const tier = registrationDiscDashboardTier(todayYmd, exp);
+                        if (!tier) return null;
+                        if (tier === "expired" || tier === "within_30") {
+                          return (
+                            <Badge variant="destructive" className="text-[10px] font-semibold">
+                              Disc {tier === "expired" ? "expired" : "≤30d"}
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <Badge variant="secondary" className="text-[10px] font-semibold bg-amber-100 text-amber-900">
+                            Disc ≤60d
+                          </Badge>
+                        );
+                      })()}
+                    </div>
                   </td>
                   <td className="py-3 pr-4">
                     <div className="font-medium">{v.make} {v.model}</div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -119,6 +120,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     now
   );
 
-  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id);
+  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id) as Record<string, unknown>;
+  if (user) {
+    recordMutation(db, {
+      entityType: "vehicle",
+      entityId: id,
+      organizationId: String(vehicle.organization_id ?? body.organizationId ?? "1pwr_lesotho"),
+      action: "create",
+      actor: actorFrom(user),
+      after: {
+        code: vehicle.code,
+        status: vehicle.status,
+        asset_class: vehicle.asset_class,
+        home_location: vehicle.home_location,
+      },
+    });
+  }
   return NextResponse.json(vehicle, { status: 201 });
 }

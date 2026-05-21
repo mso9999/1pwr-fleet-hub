@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canApproveVehicleCheckExceptions } from "@/lib/vehicle-check-approvers";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 
 export async function POST(
   request: NextRequest,
@@ -72,7 +74,17 @@ export async function POST(
     FROM driver_vehicle_checks dvc
     JOIN vehicles v ON dvc.vehicle_id = v.id
     WHERE dvc.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "driver_vehicle_check",
+    entityId: id,
+    organizationId: orgId,
+    action: "approve",
+    actor: auditActorFrom(user, { name: approverName }),
+    before: { exception_approved: existing.exception_approved, overall_pass: existing.overall_pass },
+    after: { exception_approved: updated.exception_approved, overall_pass: updated.overall_pass },
+  });
 
   return NextResponse.json(updated);
 }

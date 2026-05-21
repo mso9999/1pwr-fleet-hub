@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { writeFile, mkdir } from "fs/promises";
@@ -8,6 +11,11 @@ const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const db = getDb();
   const { searchParams } = new URL(request.url);
   const entityType = searchParams.get("entityType");
@@ -26,6 +34,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const user = await getVerifiedFleetUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const entityType = formData.get("entityType") as string | null;
@@ -34,6 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const category = (formData.get("category") as string) || "general";
     const uploadedById = (formData.get("uploadedById") as string) || "";
     const uploadedByName = (formData.get("uploadedByName") as string) || "";
+    const organizationId = (formData.get("organizationId") as string) || "";
 
     if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
     if (!entityType || !entityId) {
@@ -60,7 +74,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, entityType, entityId, safeFileName, file.name, file.type, file.size, caption, category, uploadedById, uploadedByName);
 
-    const attachment = db.prepare("SELECT * FROM media_attachments WHERE id = ?").get(id);
+    const attachment = db.prepare("SELECT * FROM media_attachments WHERE id = ?").get(id) as Record<string, unknown>;
+
+    recordMutation(db, {
+      entityType: "media_attachment",
+      entityId: id,
+      organizationId,
+      action: "create",
+      actor: auditActorFrom(user, { id: uploadedById, name: uploadedByName }),
+      after: {
+        entityType,
+        entityId,
+        category,
+        fileName: safeFileName,
+        sizeBytes: file.size,
+      },
+    });
+
     return NextResponse.json(attachment, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
@@ -69,18 +99,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   const db = getDb();
-  const attachment = db.prepare("SELECT * FROM media_attachments WHERE id = ?").get(id) as {
-    entity_type: string;
-    entity_id: string;
-    file_name: string;
-  } | undefined;
+  const attachment = db.prepare("SELECT * FROM media_attachments WHERE id = ?").get(id) as
+    | (Record<string, unknown> & {
+        entity_type: string;
+        entity_id: string;
+        file_name: string;
+      })
+    | undefined;
 
   if (!attachment) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  recordMutation(db, {
+    entityType: "media_attachment",
+    entityId: id,
+    organizationId: "",
+    action: "delete",
+    actor: auditActorFrom(user, {
+      id: String(attachment.uploaded_by_id || ""),
+      name: String(attachment.uploaded_by_name || ""),
+    }),
+    before: {
+      entity_type: attachment.entity_type,
+      entity_id: attachment.entity_id,
+      category: attachment.category,
+      file_name: attachment.file_name,
+    },
+  });
 
   const filePath = path.join(UPLOAD_DIR, attachment.entity_type, attachment.entity_id, attachment.file_name);
   try {

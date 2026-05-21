@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 const STATUS_CHECK_FIELDS = [
@@ -79,6 +82,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
     }
 
+    const user = await getVerifiedFleetUser(request);
     const db = getDb();
 
     // Defensive: legacy production DBs may predate trip_id. getDb()'s ensurePhase1Schema should handle this,
@@ -189,6 +193,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     JOIN vehicles v ON dvc.vehicle_id = v.id
     WHERE dvc.id = ?
   `).get(id);
+
+    recordMutation(db, {
+      entityType: "driver_vehicle_check",
+      entityId: id,
+      organizationId: String(body.organizationId || "1pwr_lesotho"),
+      action: "create",
+      actor: auditActorFrom(user, {
+        id: String(body.driverId || ""),
+        name: String(body.driverName || ""),
+      }),
+      after: {
+        vehicleId: body.vehicleId,
+        tripId: body.tripId || null,
+        overallPass,
+        direction: body.direction || "departing",
+        checkDate: body.checkDate || today,
+      },
+    });
 
     return NextResponse.json(row, { status: 201 });
   } catch (err) {

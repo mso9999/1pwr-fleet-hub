@@ -206,6 +206,8 @@ export interface Vehicle {
   // Pool
   pool: string;
   assignedTeam: string;
+  /** Registration disc expiry (YYYY-MM-DD); empty if not tracked. */
+  registrationDiscExpiryDate?: string;
   // Timestamps
   createdAt: string;
   updatedAt: string;

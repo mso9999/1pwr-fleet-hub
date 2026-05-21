@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { fixLeafletDefaultIcons } from "@/lib/leaflet-default-icons";
 import { useAuth } from "@/lib/auth-context";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
+
+fixLeafletDefaultIcons(L);
 
 interface HistoryTrailPoint {
   hoursAgo: number;

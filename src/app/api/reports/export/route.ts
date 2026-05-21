@@ -255,23 +255,25 @@ export function GET(request: NextRequest): NextResponse {
     filename = `vehicle-requests-${org}.csv`;
   } else if (type === "personal-vehicle-reimbursements") {
     let q = `
-      SELECT id, trip_date, requested_by_name, destination, trip_reason, personal_vehicle_justification,
-             rate_band, fee_type, total_km, reimbursement_lsl, currency, status,
-             approved_by_name, approved_at, rejection_reason, finance_reference,
-             pool_operational_count_snapshot, created_at, updated_at
-      FROM personal_vehicle_reimbursement_requests
-      WHERE organization_id = ?
+      SELECT p.id, p.trip_date, p.requested_by_name, p.destination, p.trip_reason, p.personal_vehicle_justification,
+             p.rate_band, p.fee_type, p.total_km, p.reimbursement_lsl, p.currency, p.status,
+             p.approved_by_name, p.approved_at, p.rejection_reason, p.finance_reference,
+             p.pool_operational_count_snapshot, p.notes, p.mission_id, m.title as mission_title,
+             p.created_at, p.updated_at
+      FROM personal_vehicle_reimbursement_requests p
+      LEFT JOIN missions m ON m.id = p.mission_id
+      WHERE p.organization_id = ?
     `;
     const params: string[] = [org];
     if (from) {
-      q += ` AND date(created_at) >= date(?)`;
+      q += ` AND date(p.created_at) >= date(?)`;
       params.push(from);
     }
     if (to) {
-      q += ` AND date(created_at) <= date(?)`;
+      q += ` AND date(p.created_at) <= date(?)`;
       params.push(to);
     }
-    q += ` ORDER BY created_at DESC`;
+    q += ` ORDER BY p.created_at DESC`;
     const rows = db.prepare(q).all(...params) as Record<string, unknown>[];
     csv = rowsToCsv(
       [
@@ -292,6 +294,9 @@ export function GET(request: NextRequest): NextResponse {
         "rejection_reason",
         "finance_reference",
         "pool_operational_count_snapshot",
+        "notes",
+        "mission_id",
+        "mission_title",
         "created_at",
         "updated_at",
       ],

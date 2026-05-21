@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { evaluateTripReadiness, MISSION_PROFILE, type ReadinessGate } from "@/lib/trip-readiness";
+import { missionWindowEndDate } from "@/lib/registration-disc";
 
 export interface MissionTripReadinessResult {
   ok: boolean;
@@ -23,7 +24,8 @@ export function evaluateReadinessForMissionLinkedTrip(
 ): MissionTripReadinessResult {
   const m = db
     .prepare(
-      `SELECT id, approval_status, assigned_vehicle_id, mission_profile, lifecycle_status
+      `SELECT id, approval_status, assigned_vehicle_id, mission_profile, lifecycle_status,
+              departure_date, return_date
        FROM missions WHERE id = ? AND organization_id = ?`
     )
     .get(input.missionId, input.organizationId) as
@@ -33,6 +35,8 @@ export function evaluateReadinessForMissionLinkedTrip(
         assigned_vehicle_id: string | null;
         mission_profile: string;
         lifecycle_status: string;
+        departure_date: string;
+        return_date: string;
       }
     | undefined;
 
@@ -97,6 +101,8 @@ export function evaluateReadinessForMissionLinkedTrip(
   const profile = String(m.mission_profile || MISSION_PROFILE.LOCAL).toLowerCase();
   const skipDvc = profile === MISSION_PROFILE.LOCAL;
 
+  const missionCalendarEndDay = missionWindowEndDate(String(m.departure_date || ""), m.return_date) || undefined;
+
   const r = evaluateTripReadiness(db, {
     organizationId: input.organizationId,
     vehicleId: input.vehicleId,
@@ -106,6 +112,7 @@ export function evaluateReadinessForMissionLinkedTrip(
     skipDriverChecklist: skipDvc,
     /** Approved mission unchanged: operational + driver checklist only (no extra mechanical gate here). */
     skipMechanicalInspection: true,
+    missionCalendarEndDay,
   });
 
   return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile };

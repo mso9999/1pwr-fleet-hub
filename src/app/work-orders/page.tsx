@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth-context";
 import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MediaUpload } from "@/components/MediaUpload";
+import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
 import {
   CreateWorkOrderForm,
   WORK_ORDER_THIRD_PARTY_SHOPS,
@@ -745,7 +746,11 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                       {u.photos.filter((p) => p.mime_type.startsWith("image/")).map((p) => (
                         <img
                           key={p.id}
-                          src={`/uploads/${p.entity_type}/${p.entity_id}/${p.file_name}`}
+                          src={mediaAttachmentFileUrl({
+                            entity_type: p.entity_type,
+                            entity_id: p.entity_id,
+                            file_name: p.file_name,
+                          })}
                           alt=""
                           className="w-20 h-20 rounded-lg object-cover border border-zinc-200"
                         />

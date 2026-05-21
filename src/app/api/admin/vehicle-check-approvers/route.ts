@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser, isFleetManagementRole } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { normalizeEmail } from "@/lib/vehicle-check-approvers";
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -40,6 +42,14 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "approvers array required" }, { status: 400 });
   }
   const db = getDb();
+  const prevCount = (
+    db
+      .prepare(
+        `SELECT COUNT(*) as c FROM vehicle_check_override_approvers WHERE organization_id = ?`
+      )
+      .get(organizationId) as { c: number }
+  ).c;
+
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM vehicle_check_override_approvers WHERE organization_id = ?").run(organizationId);
     const ins = db.prepare(
@@ -60,6 +70,18 @@ export async function PUT(request: Request): Promise<NextResponse> {
     }
   });
   tx();
+
+  recordMutation(db, {
+    entityType: "organization",
+    entityId: organizationId,
+    organizationId,
+    action: "admin_config",
+    actor: auditActorFrom(user, {}),
+    before: { vehicleCheckApproverCount: prevCount },
+    after: { vehicleCheckApproverCount: approvers.filter((a) => normalizeEmail(a.email || "")).length },
+    reason: "vehicle_check_override_approvers",
+  });
+
   const rows = db
     .prepare(
       `SELECT id, organization_id, hr_user_id, hr_employee_id, email, display_name, created_at

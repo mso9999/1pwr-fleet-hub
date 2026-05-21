@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 import { FIELD_ISSUE_CLOSEOUT_OUTCOME, ISSUE_SEVERITY } from "@/types";
+import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
 
 const SiteCoordsPicker = dynamic(
   () => import("@/components/SiteCoordsPicker").then((m) => m.SiteCoordsPicker),
@@ -569,7 +570,11 @@ export default function ReportIssuePage(): React.ReactElement {
                       {r.photos.filter((p) => p.mime_type.startsWith("image/")).map((p) => (
                         <img
                           key={p.id}
-                          src={`/uploads/${p.entity_type}/${p.entity_id}/${p.file_name}`}
+                          src={mediaAttachmentFileUrl({
+                            entity_type: p.entity_type,
+                            entity_id: p.entity_id,
+                            file_name: p.file_name,
+                          })}
                           alt=""
                           className="w-16 h-16 rounded object-cover border border-zinc-200"
                         />

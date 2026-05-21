@@ -39,7 +39,7 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "tutorial-dashboard-status",
     title: "Vehicle status counts",
     body:
-      "These tiles summarise how many vehicles are operational, deployed, in maintenance, awaiting parts, or grounded.",
+      "These tiles summarise how many vehicles are operational, deployed, in maintenance, awaiting parts, or grounded. The alerts panel below also flags registration disc renewals (60 / 30 days and expired) when dates are on file.",
   },
   {
     id: "dashboard-panels",
@@ -47,7 +47,7 @@ const OVERVIEW_STEPS: TutorialStep[] = [
     target: "tutorial-dashboard-panels",
     title: "Trips & work orders at a glance",
     body:
-      "Active trips and recent open work orders surface here. Open the full pages from the sidebar for detail and actions.",
+      "Active trips and recent open work orders surface here, plus high-severity alerts (e.g. overdue trips, checkout holds, registration disc windows). Open the full pages from the sidebar for detail and actions.",
   },
   {
     id: "nav-vehicles",
@@ -414,7 +414,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Fleet manager / lead",
     title: "4. Reserve a vehicle on the mission",
     body:
-      "Fleet picks a concrete pool vehicle for each approved mission. The system blocks overlapping active reservations on the same unit. If the reserved vehicle is not operational at checkout, fleet can reassign, place a checkout hold (alerts management), or defer.",
+      "Fleet picks a concrete pool vehicle for each approved mission. The system blocks overlapping active reservations on the same unit, and blocks holding a vehicle past its registration disc expiry through the mission’s last day unless an authorised user enters the override reason (same field as overlap; 8+ characters, audit-logged). If the reserved vehicle is not operational at checkout, fleet can reassign, place a checkout hold (alerts management), or defer.",
     suggestion: "This section is visible when your role can allocate vehicles and there are approved missions to reserve.",
   },
   {
@@ -471,7 +471,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Driver / dispatcher",
     title: "10. Trip readiness & create",
     body:
-      "Readiness shows driver checklist (field), vehicle operational state, and other gates. Fix blockers or use a logged manager override when policy allows. Then submit to start the trip — your deployment is live until check-in.",
+      "Readiness shows driver checklist (field), vehicle operational state, registration disc versus mission dates, and other gates. Fix blockers or use a logged override when policy allows (mission approvers: same cohort as overlap). Then submit to start the trip — your deployment is live until check-in.",
     suggestion: "Gates appear after a mission with a reserved vehicle is selected.",
   },
   {
@@ -500,7 +500,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Management / oversight",
     title: "13. Dashboard alerts (checkout hold)",
     body:
-      "If the reserved unit is not operational and fleet places a checkout hold, high-severity alerts surface on the dashboard so management can accept deferral, free another reservation, or cancel the mission.",
+      "If the reserved unit is not operational and fleet places a checkout hold, or if registration discs are nearing expiry, high-severity alerts surface on the dashboard so management can act (deferral, another vehicle, renewal, or a logged override where policy allows).",
   },
 ];
 
@@ -512,7 +512,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "nav-vehicle-requests",
     title: "Mission and vehicle workflow",
     body:
-      "Create a mission (profile, required vehicle class, dates); management approves it. Approved drivers may add a logistics row; the fleet team lead reserves a specific pool vehicle on the mission. Switch to Vehicle Pool to see availability.",
+      "Create a mission (profile, required vehicle class, dates); management approves it. Approved drivers add a logistics row and pick the designated driver from the EHS-approved list for the organisation. The fleet team lead reserves a specific pool vehicle on the mission (watch for overlap and registration disc gates). Switch to Vehicle Pool to see availability.",
   },
   {
     id: "vr-button",
@@ -528,7 +528,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-form",
     title: "2. Mission form + driver row",
     body:
-      "Step 1: submit a mission with profile, required vehicle class, and R&R for approval. Step 2 (drivers): link an approved mission for purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval.",
+      "Step 1: submit a mission with profile, required vehicle class, and R&R for approval. Step 2 (drivers): link an approved mission, choose designated driver from the register search, purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval (override reason if overlap or registration disc blocks).",
   },
   {
     id: "vr-route",
@@ -545,7 +545,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-pool-toggle",
     title: "4. Vehicle pool (fleet lead)",
     body:
-      "Fleet team leads use the Vehicle Pool tab for operational snapshots; they reserve a vehicle on each approved mission from the mission list or request detail when linked to a mission.",
+      "Fleet team leads use the Vehicle Pool tab for operational snapshots; they reserve a vehicle on each approved mission from the mission list or request detail when linked to a mission. The same override box covers overlapping bookings and registration disc exceeded — only for users who can approve mission requests, with an 8+ character reason.",
   },
 ];
 
@@ -730,7 +730,7 @@ const PVR_STEPS: TutorialStep[] = [
     target: "tutorial-pvr-page",
     title: "1. Open the page",
     body:
-      "The page shows an Eligibility banner, a New claim button, and your existing claims list below. Submission is blocked whenever a fleet vehicle is available for the trip window.",
+      "The page shows an Eligibility banner, a New claim button, and your existing claims list below. Each claim needs an approved mission and correct trip dates. When fleet vehicles are in the pool, Notes must document an override or approvers cannot sign off.",
   },
   {
     id: "pvr-eligibility",
@@ -738,7 +738,7 @@ const PVR_STEPS: TutorialStep[] = [
     target: "tutorial-pvr-eligibility",
     title: "2. Eligibility banner",
     body:
-      "Green 'Eligible' → go ahead. Amber 'Blocked' → pause and book a fleet vehicle through Requests instead. Managers can still approve claims that were submitted before eligibility changed.",
+      "Green means no operational fleet vehicles in the pool — submit with a linked mission. Amber means vehicles exist; you can still submit if Notes document a formal override (min length). Approvers cannot approve claims submitted while vehicles were available unless those Notes qualify.",
   },
   {
     id: "pvr-attachments",
@@ -755,7 +755,7 @@ const PVR_STEPS: TutorialStep[] = [
     target: "tutorial-pvr-trip-details",
     title: "4. Trip details",
     body:
-      "Date, route from / route to, purpose, kilometres, optional notes. The estimated LSL previews below the form using your organisation's per-km rate (Admin → PVR rates).",
+      "Choose the pre-approved mission first, then set the trip date within that mission’s dates, plus destination, purpose, kilometres (per-km mode), and optional notes. The estimated LSL previews using your organisation's per-km rate (Admin → PVR rates).",
   },
   {
     id: "pvr-claims",

@@ -305,7 +305,13 @@ export const guideFr: GuideContent = {
             B("lead flotte"),
             " ",
             B("réserve"),
-            " un véhicule du pool sur la mission (règles de statut selon la date, sans double réservation ; les managers peuvent lever un chevauchement). L’approbation de ligne sur la demande reste distincte de la mission lorsque ce flux est utilisé.",
+            " un véhicule du pool sur la mission (règles de statut selon la date, sans double réservation ; les managers peuvent lever un chevauchement de réservation). Si le dernier jour de la mission dépasse la ",
+            B("date d’expiration du disque d’immatriculation"),
+            " (vignette) du véhicule, la réservation est bloquée sauf si un utilisateur pouvant ",
+            B("approuver les demandes mission"),
+            " (lead flotte, manager, admin, superadmin ou approbateur pays listé PR) saisit le même champ ",
+            B("motif de dérogation"),
+            " (8 caractères minimum) — tracé en audit. L’approbation de ligne sur la demande reste distincte de la mission lorsque ce flux est utilisé.",
           ],
           [
             L("/trips", "Trajets"),
@@ -314,9 +320,9 @@ export const guideFr: GuideContent = {
             " (véhicule réel, odomètre, retour). Utilisez Demandes pour la planification et la réservation mission ; Trajets lorsque le véhicule part réellement.",
           ],
           [
-            "Seuls les conducteurs inscrits au ",
-            L("/guide/ehs-approved-drivers", "registre des conducteurs agréés (EHS)"),
-            " peuvent soumettre une demande (superadmin excepté). Si votre demande est bloquée pour ce motif, demandez à EHS de vous ajouter.",
+            "Logistique (étape 2) : choisissez le ",
+            B("conducteur désigné"),
+            " dans la liste EHS filtrée par organisation (pays) ; la demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
           ],
           [
             "Lorsque vous choisissez une ",
@@ -650,7 +656,7 @@ export const guideFr: GuideContent = {
         title: "Ce que le registre contrôle",
         bullets: [
           "Formulaire de contrôle → champ Conducteur : seuls les conducteurs pleinement conformes de cette organisation apparaissent. Les saisies libres sont acceptées mais signalées en orange.",
-          "Demandes de véhicules → l’utilisateur connecté doit figurer au registre (superadmin excepté). L’API renvoie un message clair sinon.",
+          "Demandes de véhicules → l’étape 2 impose de choisir le conducteur désigné dans la liste EHS conforme pour l’organisation (pays) ; la ligne du registre est enregistrée sur la demande. Les managers avec dérogation prérequis peuvent contourner avec un motif tracé (8 caractères minimum). Le superadmin peut tester sans la barrière complète.",
           "Administration → Approbateurs de contrôles est une liste séparée (qui peut valider les exceptions d’un contrôle). Être approbateur ne rend pas automatiquement conducteur agréé.",
         ],
       },
@@ -680,7 +686,11 @@ export const guideFr: GuideContent = {
           [
             "Le ",
             L("/", "Tableau de bord"),
-            " affiche les indicateurs (disponibilité, MTTR, MTBF, OT ouverts, trajets actifs), la répartition par statut, les alertes, les trajets et OT en cours, l’activité récente et une grille des véhicules.",
+            " affiche les indicateurs (disponibilité, MTTR, MTBF, OT ouverts, trajets actifs), la répartition par statut, les ",
+            B("alertes"),
+            " (trajets en retard, blocages check-out, ",
+            B("disque d’immatriculation"),
+            " à renouveler à 60 / 30 jours ou expiré), les trajets et OT en cours, l’activité récente et une grille des véhicules.",
           ],
         ],
       },
@@ -700,7 +710,11 @@ export const guideFr: GuideContent = {
         paragraphs: [
           [
             L("/vehicles", "Véhicules"),
-            " liste le parc pour l’organisation sélectionnée. Ouvrez une fiche pour statut, trajets, inspections, OT et suivi.",
+            " liste le parc pour l’organisation sélectionnée. Ouvrez une fiche pour statut, trajets, inspections, OT et suivi. Un badge ",
+            B("Disque"),
+            " peut apparaître lorsque l’expiration du disque est sous 60 jours (ambre) ou 30 jours / expiré (rouge) — mettez à jour la date sous ",
+            B("Modifier"),
+            " sur la fiche véhicule.",
           ],
           [
             B("Changer le statut op\u00e9rationnel / en entretien : "),
@@ -739,6 +753,7 @@ export const guideFr: GuideContent = {
         ],
         bullets: [
           "Quick Status Change (page d\u00e9tail) : utilisez-la \u00e0 chaque transition (operational, diagnosis, atelier, awaiting-parts, grounded, written-off). Un OT ouvert compte s'il est soumis jusqu'en in-progress, needs-parts, DA soumise (pr-submitted) ou awaiting-parts. Le syst\u00e8me applique cette r\u00e8gle et la validation direction.",
+          "Onglet Aper\u00e7u : fiche technique et date d\u2019expiration du disque d\u2019immatriculation (facultatif ; laisser vide si non suivi, ex. certains engins).",
         ],
       },
       {
@@ -749,6 +764,13 @@ export const guideFr: GuideContent = {
             "Utilisez ",
             L("/trips", "Trajets"),
             " pour journaliser les missions. Un contrôle véhicule est souvent requis avant le premier départ — voir le guide des contrôles.",
+          ],
+          [
+            "À la création d’un trajet depuis une mission, la ",
+            B("préparation au départ"),
+            " peut bloquer le check-out si la fenêtre mission dépasse la ",
+            B("date d’expiration du disque"),
+            " du véhicule réservé — mêmes règles de dérogation que pour la réservation (motif tracé, droits approbateur).",
           ],
           [
             "Liez les listes de chargement depuis Asset Management dans la section ",
@@ -1088,7 +1110,7 @@ export const guideFr: GuideContent = {
   personalVehicleReimbursement: {
     title: "Indemnité véhicule personnel (F006)",
     subtitle:
-      "Soumettre, approuver et exporter les indemnités kilométriques 1PWR lorsqu’aucun véhicule de la flotte n’est disponible.",
+      "Soumettre, approuver et exporter les indemnités kilométriques 1PWR lorsqu’aucun véhicule de la flotte n’est disponible — chaque dossier doit être lié à une mission Fleet Hub préalablement approuvée.",
     sections: [
       {
         id: "purpose",
@@ -1096,7 +1118,7 @@ export const guideFr: GuideContent = {
         paragraphs: [
           [
             L("/personal-vehicle-reimbursement", "Indemnité véhicule perso"),
-            " remplace le tableur F006 lorsque la flotte 1PWR ne peut pas assigner de véhicule et que l’employé a conduit le sien. L’éligibilité est vérifiée côté serveur, le manager valide dans l’application, et la finance exporte les dossiers approuvés en CSV.",
+            " remplace le tableur F006 lorsque la flotte 1PWR ne peut pas assigner de véhicule et que l’employé a conduit le sien. Il faut sélectionner une mission approuvée et active, avec une date de trajet comprise dans la fenêtre de la mission. L’éligibilité est vérifiée côté serveur, le manager valide dans l’application, et la finance exporte les dossiers approuvés en CSV.",
           ],
         ],
       },
@@ -1107,13 +1129,17 @@ export const guideFr: GuideContent = {
           [
             "Le bloc ",
             B("Éligibilité"),
-            " en haut de page indique si vous pouvez soumettre. Une demande est bloquée tant que la flotte a un véhicule opérationnel disponible pour la plage du trajet — c’est voulu : le véhicule personnel est un recours, pas un choix.",
+            " indique l’état du parc. Sans véhicule opérationnel disponible (vert), envoi normal avec mission approuvée. Avec véhicules disponibles (orange), l’envoi reste possible seulement si les ",
+            B("Notes"),
+            " documentent une dérogation formelle (longueur minimale) ; sans cela l’approbation est refusée. Une mission approuvée dans ",
+            L("/fleet-reservations", "Réservations flotte"),
+            " reste obligatoire.",
           ],
         ],
         bullets: [
-          "« Éligible » en vert → vous pouvez soumettre.",
-          "« Bloqué » en orange → un véhicule de la flotte est disponible ; utilisez Demandes.",
-          "Dérogation manager / admin : les managers peuvent approuver des demandes soumises avant un changement d’éligibilité.",
+          "Vert → aucun véhicule opérationnel au moment du contrôle ; usage personnel comme recours habituel.",
+          "Orange → véhicules disponibles ; les Notes doivent expliquer l’exception (qui a validé, pourquoi pas de véhicule 1PWR).",
+          "L’instantané au moment de la soumission gouverne l’approbation ; compléter les Notes ensuite peut corriger un oubli.",
         ],
       },
       {
@@ -1134,10 +1160,10 @@ export const guideFr: GuideContent = {
         id: "trip-details",
         title: "2. Détails du trajet",
         bullets: [
-          "Date du trajet (obligatoire).",
-          "Départ / Arrivée — choisir dans la liste des sites ou saisir en texte libre.",
-          "Motif — aligné avec les motifs des demandes de véhicules.",
-          "Kilométrage — total aller-retour ; le formulaire calcule l’indemnité estimée en LSL au tarif en vigueur.",
+          "Mission pré-approuvée (obligatoire) — choisir parmi les missions approuvées et actives de votre organisation.",
+          "Date du trajet (obligatoire) — doit se situer entre la date de départ et de retour de la mission.",
+          "Destination et motif — décrire le trajet ; à aligner avec la mission liée lorsque c’est pertinent.",
+          "Kilométrage — total aller-retour en mode au km ; le formulaire calcule l’indemnité estimée en LSL.",
           "Notes — tout ce qui sort de l’ordinaire (détour, attente, escorte).",
         ],
         callout: {

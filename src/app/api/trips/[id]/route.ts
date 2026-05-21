@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+
+function tripAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    driver_name: r.driver_name,
+    odo_start: r.odo_start,
+    odo_end: r.odo_end,
+    destination: r.destination,
+    departure_location: r.departure_location,
+    checkin_at: r.checkin_at,
+    mission_id: r.mission_id,
+    vehicle_id: r.vehicle_id,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -31,9 +46,14 @@ export async function PATCH(
   const { id } = await params;
   const db = getDb();
   const body = await request.json();
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const existing = db.prepare("SELECT * FROM trips WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Trip not found" }, { status: 404 });
+  const beforeSnap = tripAuditSubset(existing as Record<string, unknown>);
 
   const allowedFields: Record<string, string> = {
     driverName: "driver_name",
@@ -86,18 +106,41 @@ export async function PATCH(
     FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?
   `).get(id);
 
+  recordMutation(db, {
+    entityType: "trip",
+    entityId: id,
+    organizationId: String((existing as Record<string, unknown>).organization_id ?? ""),
+    action: "update",
+    actor: actorFrom(user),
+    before: beforeSnap,
+    after: tripAuditSubset(updated as Record<string, unknown>),
+  });
+
   return NextResponse.json(updated);
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const trip = db.prepare("SELECT id FROM trips WHERE id = ?").get(id);
+  const trip = db.prepare("SELECT * FROM trips WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!trip) return NextResponse.json({ error: "Trip not found" }, { status: 404 });
+
+  recordMutation(db, {
+    entityType: "trip",
+    entityId: id,
+    organizationId: String(trip.organization_id ?? ""),
+    action: "delete",
+    actor: actorFrom(user),
+    before: tripAuditSubset(trip),
+  });
 
   db.prepare("DELETE FROM trip_stops WHERE trip_id = ?").run(id);
   db.prepare("DELETE FROM trips WHERE id = ?").run(id);

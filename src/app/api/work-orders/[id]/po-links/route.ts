@@ -4,6 +4,8 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
 import { verifyFleetIntegrationKey } from "@/lib/integration-auth";
 import { addWorkOrderPoLink } from "@/lib/work-order-po-links";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 
 export async function GET(
   _request: NextRequest,
@@ -48,6 +50,28 @@ export async function POST(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
+
+  const woOrg = db.prepare("SELECT organization_id FROM work_orders WHERE id = ?").get(id) as
+    | { organization_id: string }
+    | undefined;
+
+  recordMutation(db, {
+    entityType: "work_order",
+    entityId: id,
+    organizationId: String(woOrg?.organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, {
+      id: historyActor.id,
+      name: historyActor.name,
+    }),
+    after: {
+      poLinkId: result.linkId,
+      prNumber: body.prNumber || "",
+      poNumber: body.poNumber || "",
+      workOrderStatusAfter: result.workOrderStatusAfter,
+    },
+    reason: integration ? "integration" : "",
+  });
 
   const entry = db.prepare("SELECT * FROM work_order_po_links WHERE id = ?").get(result.linkId) as
     | Record<string, unknown>

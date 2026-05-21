@@ -7,3 +7,13 @@ export async function jsonHeadersWithBearer(): Promise<HeadersInit> {
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
+
+/**
+ * Only `Authorization: Bearer …` — use for `FormData` POST (browser sets multipart
+ * Content-Type) or for GET/DELETE that must not send `Content-Type: application/json`.
+ */
+export async function bearerAuthHeaders(): Promise<Record<string, string>> {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}

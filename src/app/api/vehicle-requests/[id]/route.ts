@@ -7,6 +7,20 @@ import {
 } from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+
+function vehicleRequestAudit(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    status: r.status,
+    mission_id: r.mission_id,
+    destination: r.destination,
+    departure_date: r.departure_date,
+    assigned_vehicle_id: r.assigned_vehicle_id,
+    priority: r.priority,
+    rr_status: r.rr_status,
+    purpose: r.purpose,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -38,6 +52,7 @@ export async function PATCH(
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const beforeSnap = vehicleRequestAudit(existing as Record<string, unknown>);
 
   if (body.rrStatus !== undefined) {
     const rr = String(body.rrStatus).toLowerCase();
@@ -172,17 +187,46 @@ export async function PATCH(
     SELECT ${VR_SELECT_FIELDS}
     ${VR_FROM_JOIN}
     WHERE vr.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "vehicle_request",
+    entityId: id,
+    organizationId: orgId,
+    action: "update",
+    actor: actorFrom(user),
+    before: beforeSnap,
+    after: vehicleRequestAudit(updated),
+  });
 
   return NextResponse.json(updated);
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const row = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canFullyManageVehicleRequests(user.role) && user.role !== "superadmin") {
+    return NextResponse.json({ error: "Only fleet management may delete vehicle requests." }, { status: 403 });
+  }
+
+  recordMutation(db, {
+    entityType: "vehicle_request",
+    entityId: id,
+    organizationId: String(row.organization_id || ""),
+    action: "delete",
+    actor: actorFrom(user),
+    before: vehicleRequestAudit(row),
+  });
+
   const result = db.prepare("DELETE FROM vehicle_requests WHERE id = ?").run(id);
   if (result.changes === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });

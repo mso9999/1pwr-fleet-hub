@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { auth } from "@/lib/firebase";
+import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
 
 interface OdoRow {
   id: string;
@@ -212,14 +213,22 @@ export function TripOdometerLog({
               </div>
               {r.media_id && r.media_file_name && (
                 <a
-                  href={`/uploads/trip_odo_reading/${r.id}/${r.media_file_name}`}
+                  href={mediaAttachmentFileUrl({
+                    entity_type: "trip_odo_reading",
+                    entity_id: r.id,
+                    file_name: r.media_file_name,
+                  })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={`/uploads/trip_odo_reading/${r.id}/${r.media_file_name}`}
+                    src={mediaAttachmentFileUrl({
+                      entity_type: "trip_odo_reading",
+                      entity_id: r.id,
+                      file_name: r.media_file_name,
+                    })}
                     alt=""
                     className="w-14 h-14 rounded object-cover border border-zinc-200"
                   />

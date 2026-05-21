@@ -212,6 +212,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   }
 
+  recordMutation(db, {
+    entityType: "trip",
+    entityId: id,
+    organizationId,
+    action: "create",
+    actor: actorFrom(user),
+    after: {
+      missionId: missionIdRaw,
+      vehicleId: rawVehicleId,
+      driverName: body.driverName || "",
+      destination: body.destination || "",
+      departureLocation: body.departureLocation || "",
+      prerequisiteOverride: overrideApplied,
+    },
+  });
+
   const trip = db.prepare(`
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM trips t LEFT JOIN vehicles v ON t.vehicle_id = v.id

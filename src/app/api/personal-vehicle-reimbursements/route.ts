@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { countOperationalVehiclesInPool } from "@/lib/pvr-eligibility";
 import {
   computeReimbursementLsl,
@@ -9,6 +12,8 @@ import {
   type PvrFeeType,
   type PvrRateBand,
 } from "@/lib/pvr-rates";
+import { getMissionForPvr, validateMissionForPvrClaim } from "@/lib/pvr-mission";
+import { pvrOverrideNotesMeetPolicy, pvrVehicleAvailabilityOverrideError } from "@/lib/pvr-approval-rules";
 
 const ENTITY_TYPE = "pvr_claim";
 
@@ -50,6 +55,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const user = await getVerifiedFleetUser(request);
     const body = await request.json();
     const org = body.organizationId || "1pwr_lesotho";
     const id = (body.id as string) || uuidv4();
@@ -64,6 +70,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const requestedById = String(body.requestedById || "");
     const requestedByName = String(body.requestedByName || "");
     const notes = String(body.notes || "").trim();
+    const missionId = String(body.missionId || "").trim();
+
+    if (!missionId) {
+      return NextResponse.json(
+        { error: "missionId is required — link this claim to a pre-approved Fleet Hub mission." },
+        { status: 400 }
+      );
+    }
 
     if (!tripDate || !destination || !tripReason) {
       return NextResponse.json(
@@ -107,15 +121,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Claim id already exists — refresh and try again." }, { status: 409 });
     }
 
+    const mission = getMissionForPvr(db, missionId);
+    if (!mission) {
+      return NextResponse.json({ error: "Mission not found." }, { status: 400 });
+    }
+    const missionCheck = validateMissionForPvrClaim(mission, org, tripDate);
+    if (!missionCheck.ok) {
+      return NextResponse.json({ error: missionCheck.error }, { status: 400 });
+    }
+
     const operationalCount = countOperationalVehiclesInPool(db, org);
     if (operationalCount > 0) {
-      return NextResponse.json(
-        {
-          error: `Cannot submit: ${operationalCount} fleet vehicle(s) are operational and available. Use a 1PWR vehicle or request allocation first.`,
-          operationalVehicleCount: operationalCount,
-        },
-        { status: 403 }
-      );
+      if (!pvrOverrideNotesMeetPolicy(notes)) {
+        return NextResponse.json(
+          {
+            error: pvrVehicleAvailabilityOverrideError(),
+            operationalVehicleCount: operationalCount,
+            requiresVehicleAvailabilityOverrideNotes: true,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     if (countAttachments(db, id, "insurance") < 1) {
@@ -144,8 +170,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         id, organization_id, trip_date, requested_by_id, requested_by_name,
         destination, trip_reason, personal_vehicle_justification,
         rate_band, fee_type, total_km, reimbursement_lsl, currency, rate_snapshot_json,
-        pool_operational_count_snapshot, status, notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?)
+        pool_operational_count_snapshot, status, notes, mission_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?)
     `
     ).run(
       id,
@@ -164,13 +190,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       JSON.stringify(rates),
       operationalCount,
       notes,
+      missionId,
       now,
       now
     );
 
     const row = db
       .prepare("SELECT * FROM personal_vehicle_reimbursement_requests WHERE id = ?")
-      .get(id);
+      .get(id) as Record<string, unknown>;
+
+    recordMutation(db, {
+      entityType: "personal_vehicle_reimbursement_request",
+      entityId: id,
+      organizationId: org,
+      action: "create",
+      actor: auditActorFrom(user, {
+        id: requestedById,
+        name: requestedByName,
+      }),
+      after: {
+        missionId,
+        tripDate,
+        destination,
+        rateBand,
+        feeType,
+        reimbursementLsl,
+        status: row.status,
+      },
+    });
+
     return NextResponse.json(row, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

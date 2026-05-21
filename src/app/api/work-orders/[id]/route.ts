@@ -3,6 +3,20 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
 import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
+
+function workOrderAudit(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    status: r.status,
+    title: r.title,
+    priority: r.priority,
+    vehicle_id: r.vehicle_id,
+    assigned_to: r.assigned_to,
+    repair_location: r.repair_location,
+    downtime_end: r.downtime_end,
+  };
+}
 
 interface WORow {
   id: string;
@@ -67,13 +81,14 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db.prepare("SELECT * FROM work_orders WHERE id = ?").get(id) as WORow | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const beforeSnap = workOrderAudit(existing as Record<string, unknown>);
 
   // Status transition validation (+ auth: Fleet team department or superadmin)
   if (body.status && body.status !== existing.status) {
-    const user = await getVerifiedFleetUser(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -176,7 +191,22 @@ export async function PATCH(
   const updated = db.prepare(`
     SELECT wo.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM work_orders wo JOIN vehicles v ON wo.vehicle_id = v.id WHERE wo.id = ?
-  `).get(id);
+  `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "work_order",
+    entityId: id,
+    organizationId: String(existing.organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, {
+      id: String(body.changedById || ""),
+      name: String(body.changedByName || ""),
+    }),
+    before: beforeSnap,
+    after: workOrderAudit(updated),
+    reason: typeof body.reason === "string" ? body.reason : "",
+  });
+
   return NextResponse.json(updated);
 }
 

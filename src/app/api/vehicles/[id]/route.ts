@@ -10,7 +10,20 @@ import {
   type VehicleStatus,
 } from "@/types";
 import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
+
+function vehicleAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    code: r.code,
+    status: r.status,
+    current_location: r.current_location,
+    home_location: r.home_location,
+    pool: r.pool,
+    asset_class: r.asset_class,
+    organization_id: r.organization_id,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -35,6 +48,7 @@ export async function PATCH(
 
   const existing = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const beforeVehicle = vehicleAuditSubset(existing);
 
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -91,6 +105,7 @@ export async function PATCH(
     assignedTeam: "assigned_team",
     fuelConsumptionLPer100km: "fuel_consumption_l_per_100km",
     fuelConsumptionSource: "fuel_consumption_source",
+    registrationDiscExpiryDate: "registration_disc_expiry_date",
   };
 
   // Enforce status preconditions before staging the column update.
@@ -182,7 +197,12 @@ export async function PATCH(
   for (const [jsKey, dbCol] of Object.entries(allowedFields)) {
     if (body[jsKey] !== undefined) {
       fields.push(`${dbCol} = ?`);
-      values.push(body[jsKey]);
+      let v: unknown = body[jsKey];
+      if (jsKey === "registrationDiscExpiryDate") {
+        const s = String(v ?? "").trim();
+        v = s === "" ? null : s.slice(0, 10);
+      }
+      values.push(v);
     }
   }
 
@@ -238,16 +258,44 @@ export async function PATCH(
     }
   }
 
-  const updated = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id);
+  const updated = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id) as Record<string, unknown>;
+  if (user) {
+    recordMutation(db, {
+      entityType: "vehicle",
+      entityId: id,
+      organizationId: String(existing.organization_id ?? ""),
+      action: "update",
+      actor: actorFrom(user),
+      before: beforeVehicle,
+      after: vehicleAuditSubset(updated),
+      reason: statusReason || undefined,
+    });
+  }
   return NextResponse.json(updated);
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
+  const user = await getVerifiedFleetUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const row = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  recordMutation(db, {
+    entityType: "vehicle",
+    entityId: id,
+    organizationId: String(row.organization_id ?? ""),
+    action: "delete",
+    actor: actorFrom(user),
+    before: vehicleAuditSubset(row),
+  });
+
   const result = db.prepare("DELETE FROM vehicles WHERE id = ?").run(id);
   if (result.changes === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ success: true });

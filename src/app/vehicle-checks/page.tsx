@@ -9,6 +9,8 @@ import { auth } from "@/lib/firebase";
 import { DriverVehicleCheckForm } from "@/components/DriverVehicleCheckForm";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 import { MediaUpload } from "@/components/MediaUpload";
+import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
+import { bearerAuthHeaders } from "@/lib/client-bearer";
 
 interface MediaRow {
   id: string;
@@ -29,27 +31,39 @@ function dvcPhotoLabel(category: string): string {
   return m[category] || category;
 }
 
-function DriverCheckVerificationPhotos({ checkId }: { checkId: string }): React.ReactElement {
+function DriverCheckVerificationPhotos({
+  checkId,
+  listVersion = 0,
+}: {
+  checkId: string;
+  /** Increment to refetch after uploads elsewhere (e.g. MediaUpload on same card). */
+  listVersion?: number;
+}): React.ReactElement {
   const [items, setItems] = useState<MediaRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/media?entityType=driver_vehicle_check&entityId=${encodeURIComponent(checkId)}`)
-      .then((r) => r.json())
-      .then((d: unknown) => {
+    void (async () => {
+      const headers = await bearerAuthHeaders();
+      try {
+        const r = await fetch(
+          `/api/media?entityType=driver_vehicle_check&entityId=${encodeURIComponent(checkId)}`,
+          { headers }
+        );
+        const d: unknown = r.ok ? await r.json() : [];
         if (!cancelled && Array.isArray(d)) setItems(d as MediaRow[]);
-      })
-      .catch(() => {
+        else if (!cancelled) setItems([]);
+      } catch {
         if (!cancelled) setItems([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [checkId]);
+  }, [checkId, listVersion]);
 
   const images = items.filter((a) => a.mime_type?.startsWith("image/"));
 
@@ -71,13 +85,21 @@ function DriverCheckVerificationPhotos({ checkId }: { checkId: string }): React.
         {images.map((a) => (
           <a
             key={a.id}
-            href={`/uploads/driver_vehicle_check/${checkId}/${a.file_name}`}
+            href={mediaAttachmentFileUrl({
+              entity_type: "driver_vehicle_check",
+              entity_id: checkId,
+              file_name: a.file_name,
+            })}
             target="_blank"
             rel="noopener noreferrer"
             className="block rounded-lg border border-zinc-200 overflow-hidden bg-zinc-50 hover:ring-2 hover:ring-blue-400/50"
           >
             <img
-              src={`/uploads/driver_vehicle_check/${checkId}/${a.file_name}`}
+              src={mediaAttachmentFileUrl({
+                entity_type: "driver_vehicle_check",
+                entity_id: checkId,
+                file_name: a.file_name,
+              })}
               alt={dvcPhotoLabel(a.category)}
               className="w-full h-24 object-cover"
             />
@@ -234,6 +256,7 @@ function CheckCard({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [approveGate, setApproveGate] = useState<boolean | null>(null);
+  const [attachListRev, setAttachListRev] = useState(0);
 
   const failCount = STATUS_KEYS.filter((k) => check[k] === "fail").length;
   const missingEquip = EQUIP_KEYS.filter((k) => check[k] === 0).length;
@@ -364,7 +387,7 @@ function CheckCard({
             <div className="text-sm text-zinc-600">Mileage: <strong>{check.mileage_km.toLocaleString()} km</strong></div>
           )}
 
-          <DriverCheckVerificationPhotos checkId={check.id} />
+          <DriverCheckVerificationPhotos checkId={check.id} listVersion={attachListRev} />
 
           {user && (
             <div className="pt-2 border-t border-zinc-100">
@@ -372,9 +395,11 @@ function CheckCard({
               <MediaUpload
                 entityType="driver_vehicle_check"
                 entityId={check.id}
+                organizationId={organizationId}
                 uploadedById={user.id}
                 uploadedByName={user.name || user.email || ""}
                 defaultCategory="dvc-exterior-front"
+                onAttachmentsChanged={() => setAttachListRev((n) => n + 1)}
               />
             </div>
           )}

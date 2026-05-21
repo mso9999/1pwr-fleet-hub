@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser, isExecutiveRole, isFleetManagementRole } from "@/lib/server-auth";
+import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 function applyApprovedRequest(
   db: ReturnType<typeof getDb>,
@@ -55,6 +56,11 @@ export async function POST(
     | undefined;
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const vehicleId = row.vehicle_id as string;
+  const vehicleBefore = db.prepare("SELECT organization_id FROM vehicles WHERE id = ?").get(vehicleId) as
+    | { organization_id: string }
+    | undefined;
+
   const status = row.status as string;
   if (status !== "pending_fleet" && status !== "pending_executive") {
     return NextResponse.json({ error: "Request is not awaiting approval" }, { status: 400 });
@@ -104,6 +110,36 @@ export async function POST(
     });
     runExec();
   }
+
+  const toOrg = String(row.to_organization_id ?? "");
+  const fromOrg = String(vehicleBefore?.organization_id ?? "");
+  const orgId = fromOrg || toOrg;
+
+  recordMutation(db, {
+    entityType: "vehicle_country_change_request",
+    entityId: requestId,
+    organizationId: orgId,
+    action: "approve",
+    actor: actorFrom(user),
+    before: {
+      status: row.status,
+      change_kind: row.change_kind,
+      from_organization_id: row.from_organization_id,
+      to_organization_id: row.to_organization_id,
+    },
+    after: { status: "approved", vehicleId, toOrganizationId: toOrg },
+  });
+
+  recordMutation(db, {
+    entityType: "vehicle",
+    entityId: vehicleId,
+    organizationId: toOrg,
+    action: "update",
+    actor: actorFrom(user),
+    before: { organization_id: fromOrg },
+    after: { organization_id: toOrg },
+    reason: `vehicle_country_change_request:${requestId}`,
+  });
 
   const updated = db.prepare("SELECT * FROM vehicle_country_change_requests WHERE id = ?").get(requestId);
   return NextResponse.json(updated);

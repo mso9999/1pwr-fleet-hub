@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET(
@@ -33,10 +36,13 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const { id } = await params;
   const db = getDb();
 
-  const wo = db.prepare("SELECT id FROM work_orders WHERE id = ?").get(id);
+  const wo = db.prepare("SELECT id, organization_id FROM work_orders WHERE id = ?").get(id) as
+    | { id: string; organization_id: string }
+    | undefined;
   if (!wo) return NextResponse.json({ error: "Work order not found" }, { status: 404 });
 
   const formData = await request.formData();
@@ -88,6 +94,23 @@ export async function POST(
   const photos = db.prepare(
     "SELECT * FROM media_attachments WHERE entity_type = 'work_order_update' AND entity_id = ?"
   ).all(updateId);
+
+  recordMutation(db, {
+    entityType: "work_order",
+    entityId: id,
+    organizationId: String(wo.organization_id ?? ""),
+    action: "update",
+    actor: auditActorFrom(user, {
+      id: postedById,
+      name: postedByName,
+    }),
+    after: {
+      workOrderUpdateId: updateId,
+      updateType,
+      photoCount,
+      notePreview: note.trim().slice(0, 200),
+    },
+  });
 
   return NextResponse.json({ ...update, photos }, { status: 201 });
 }

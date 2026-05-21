@@ -1,3 +1,5 @@
+import { bearerAuthHeaders } from "@/lib/client-bearer";
+
 /**
  * Upload photos queued for failed checklist rows after the inspection row exists.
  */
@@ -13,6 +15,7 @@ export async function uploadInspectionFailPhotos(
     if (!Number.isFinite(idx) || !files?.length) continue;
     const row = items[idx];
     if (!row) continue;
+    const headers = await bearerAuthHeaders();
     for (const file of files) {
       const fd = new FormData();
       fd.append("file", file);
@@ -22,7 +25,7 @@ export async function uploadInspectionFailPhotos(
       fd.append("category", "fail_evidence");
       fd.append("uploadedById", uploadedById);
       fd.append("uploadedByName", uploadedByName);
-      const res = await fetch("/api/media", { method: "POST", body: fd });
+      const res = await fetch("/api/media", { method: "POST", headers, body: fd });
       if (!res.ok) {
         console.error("Inspection fail photo upload failed", idx, await res.text());
       }

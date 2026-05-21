@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { registrationDiscDashboardTier, calendarDaysUntil } from "@/lib/registration-disc";
 
 export function GET(request: NextRequest): NextResponse {
   try {
@@ -105,6 +106,48 @@ export function GET(request: NextRequest): NextResponse {
   ).all(org) as Array<{ code: string }>;
   for (const v of eolWarnings) {
     alerts.push({ type: "eol-warning", severity: "medium", message: `${v.code} flagged for end-of-life review` });
+  }
+
+  const discRows = db
+    .prepare(
+      `SELECT id, code, registration_disc_expiry_date AS exp
+       FROM vehicles
+       WHERE organization_id = ?
+         AND registration_disc_expiry_date IS NOT NULL
+         AND trim(registration_disc_expiry_date) != ''
+         AND length(trim(registration_disc_expiry_date)) >= 10
+       ORDER BY registration_disc_expiry_date ASC
+       LIMIT 24`
+    )
+    .all(org) as Array<{ id: string; code: string; exp: string }>;
+
+  for (const row of discRows) {
+    const exp = row.exp.trim().slice(0, 10);
+    const tier = registrationDiscDashboardTier(today, exp);
+    if (tier === "expired") {
+      alerts.push({
+        type: "registration-disc-expired",
+        severity: "high",
+        message: `${row.code}: registration disc expired (${exp})`,
+        entityId: row.id,
+      });
+    } else if (tier === "within_30") {
+      const days = calendarDaysUntil(today, exp) ?? 0;
+      alerts.push({
+        type: "registration-disc-30d",
+        severity: "high",
+        message: `${row.code}: registration disc expires in ${days} day(s) (${exp})`,
+        entityId: row.id,
+      });
+    } else if (tier === "within_60") {
+      const days = calendarDaysUntil(today, exp) ?? 0;
+      alerts.push({
+        type: "registration-disc-60d",
+        severity: "medium",
+        message: `${row.code}: registration disc expires in ${days} day(s) (${exp})`,
+        entityId: row.id,
+      });
+    }
   }
 
   const pendingRequests = db.prepare(

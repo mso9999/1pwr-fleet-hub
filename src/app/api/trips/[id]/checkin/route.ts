@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 
 export async function PATCH(
   request: NextRequest,
@@ -9,6 +12,7 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const now = new Date().toISOString();
+  const user = await getVerifiedFleetUser(request);
 
   const trip = db.prepare("SELECT * FROM trips WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!trip) return NextResponse.json({ error: "Trip not found" }, { status: 404 });
@@ -48,5 +52,28 @@ export async function PATCH(
   const updated = db.prepare(`
     SELECT t.*, v.code as vehicle_code FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?
   `).get(id);
+
+  recordMutation(db, {
+    entityType: "trip",
+    entityId: id,
+    organizationId: String(trip.organization_id ?? ""),
+    action: "checkin",
+    actor: auditActorFrom(user, {
+      id: String(trip.driver_id ?? ""),
+      name: String(trip.driver_name ?? ""),
+    }),
+    before: {
+      checkin_at: trip.checkin_at,
+      odo_end: trip.odo_end,
+      vehicle_status: "deployed",
+    },
+    after: {
+      odo_end: body.odoEnd ?? null,
+      arrival_location: body.arrivalLocation || "",
+      checkin_at: now,
+      vehicle_status: "operational",
+    },
+  });
+
   return NextResponse.json(updated);
 }

@@ -306,7 +306,13 @@ export const guideEn: GuideContent = {
             B("fleet team lead"),
             " ",
             B("reserves"),
-            " a pool vehicle on the mission (with date-based status rules and no double-booking; managers may override overlaps). Line approval of the request remains separate from mission approval where that flow is still used.",
+            " a pool vehicle on the mission (with date-based status rules and no double-booking; managers may override overlapping reservations). If the mission’s last day runs past that vehicle’s ",
+            B("registration disc expiry"),
+            " (window sticker), reservation is blocked unless someone who can ",
+            B("approve mission requests"),
+            " (fleet lead, manager, admin, superadmin, or a PR-listed country approver) enters the same ",
+            B("override reason"),
+            " field (8+ characters) — logged in the audit trail. Line approval of the request remains separate from mission approval where that flow is still used.",
           ],
           [
             L("/trips", "Trips"),
@@ -315,9 +321,9 @@ export const guideEn: GuideContent = {
             " (concrete vehicle, odometer, return). Use Requests for planning and mission reservation; use Trips when the vehicle is actually going out.",
           ],
           [
-            "Only drivers on the ",
-            L("/guide/ehs-approved-drivers", "EHS approved-drivers register"),
-            " may submit a request (superadmin excepted). If a request is blocked because you are not on the register, ask EHS to add you.",
+            "Logistics (step 2): pick the ",
+            B("designated driver"),
+            " from the searchable EHS-approved list for your organisation (country); the request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
           ],
           [
             "When you choose a ",
@@ -652,7 +658,7 @@ export const guideEn: GuideContent = {
         title: "What the register controls",
         bullets: [
           "Vehicle check form → Driver field: only fully-compliant drivers for this organisation appear in the dropdown. Typed write-ins are accepted but flagged amber.",
-          "Vehicle requests → the signed-in user must be on the register (superadmin excepted). The API returns a clear error if they are not.",
+          "Vehicle requests → step 2 requires picking the designated driver from the compliant EHS list for the organisation (country); the register row is stored on the request. Managers with prerequisite override may bypass with a logged reason (8+ characters). Superadmin may test without the full gate.",
           "Admin → Vehicle-check approvers is a separate list (who may approve exception failures on a check). Being an approver does not by itself make someone an approved driver.",
         ],
       },
@@ -682,7 +688,11 @@ export const guideEn: GuideContent = {
           [
             "The ",
             L("/", "Dashboard"),
-            " shows KPIs (uptime, MTTR, MTBF, open work orders, active trips), a breakdown of vehicles by status, alerts, active trips, open work orders, recent activity, and a quick grid of all vehicles.",
+            " shows KPIs (uptime, MTTR, MTBF, open work orders, active trips), a breakdown of vehicles by status, ",
+            B("alerts"),
+            " (including overdue trips, checkout holds, and ",
+            B("registration disc"),
+            " renewals at 60 / 30 days or expired), active trips, open work orders, recent activity, and a quick grid of all vehicles.",
           ],
         ],
       },
@@ -730,7 +740,11 @@ export const guideEn: GuideContent = {
             B("current location"),
             ", and ",
             B("pool"),
-            " at the top of the table. Click a code to open the vehicle detail page with dashboard tabs.",
+            " at the top of the table. Click a code to open the vehicle detail page with dashboard tabs. Rows may show a small ",
+            B("Disc"),
+            " badge when a registration disc expiry is within 60 days (amber) or 30 days / expired (red) — maintain the date under ",
+            B("Edit"),
+            " on the vehicle detail page.",
           ],
           [
             B("Changing operational / under-maintenance status: "),
@@ -769,7 +783,7 @@ export const guideEn: GuideContent = {
         ],
         bullets: [
           "Quick Status Change (detail page): use this whenever a vehicle moves between operational, diagnosis, workshop, awaiting-parts, grounded, or written-off. An open work order counts as submitted through in-progress, needs-parts, PR submitted, or awaiting-parts. The system enforces that rule and the management sign-off rule.",
-          "Overview tab: spec sheet (make / model / year / licence plate / VIN / engine number), asset class, home and current location, fuel type, transmission, drivetrain.",
+          "Overview tab: spec sheet (make / model / year / licence plate / VIN / engine number), asset class, home and current location, fuel type, transmission, drivetrain, and registration disc expiry (optional; leave blank when not tracked, e.g. some plant).",
           "TCO tab: purchase price, in-service date, total mileage, service intervals, cost-to-date, end-of-life score.",
           "History tab: trips, inspections, work orders filtered to this vehicle (with quick links).",
           "Tracker tab: GPS provider, IMEI / SIM, current status, last fix time, and recent tracking-report CSV summary.",
@@ -784,6 +798,13 @@ export const guideEn: GuideContent = {
             "Use ",
             L("/trips", "Trips"),
             " to log journeys. Vehicle checks are often required before the first trip of the day—see the vehicle checks guide.",
+          ],
+          [
+            "When you create a trip from a mission, ",
+            B("trip readiness"),
+            " may block checkout if the mission window extends past the reserved vehicle’s ",
+            B("registration disc expiry"),
+            " — same override rules as mission reservation (logged reason, approver permission).",
           ],
           [
             "Link load-out packing lists from Asset Management under each trip’s ",
@@ -1152,7 +1173,7 @@ export const guideEn: GuideContent = {
   personalVehicleReimbursement: {
     title: "Personal vehicle reimbursement (F006)",
     subtitle:
-      "Submit, approve, and export 1PWR personal-vehicle mileage claims when no fleet vehicle is available for assignment.",
+      "Submit, approve, and export 1PWR personal-vehicle mileage claims when no fleet vehicle is available — each claim must be tied to a pre-approved Fleet Hub mission.",
     sections: [
       {
         id: "purpose",
@@ -1160,7 +1181,7 @@ export const guideEn: GuideContent = {
         paragraphs: [
           [
             L("/personal-vehicle-reimbursement", "Personal vehicle claim"),
-            " replaces the F006 spreadsheet for cases where a 1PWR fleet vehicle could not be assigned and the employee drove their own car. Eligibility is checked server-side, the manager approves in-app, and finance exports approved claims as CSV.",
+            " replaces the F006 spreadsheet for cases where a 1PWR fleet vehicle could not be assigned and the employee drove their own car. You must pick an approved, active mission and keep the trip date within that mission’s window. Eligibility is checked server-side, the manager approves in-app, and finance exports approved claims as CSV.",
           ],
         ],
       },
@@ -1171,13 +1192,17 @@ export const guideEn: GuideContent = {
           [
             "The ",
             B("Eligibility"),
-            " panel at the top of the page tells you whether you can submit right now. A claim is blocked while the fleet has an operational vehicle available for the trip window — this is deliberate: personal-vehicle use is a fall-back, not a preference.",
+            " panel shows fleet pool status. When no operational 1PWR vehicle is available (green), you submit with a linked approved mission as usual. When vehicles are available (amber), you may still submit only if ",
+            B("Notes"),
+            " documents a formal override (minimum length enforced); approvers cannot approve those claims without that text. You still need an approved mission in ",
+            L("/fleet-reservations", "Fleet reservations"),
+            ".",
           ],
         ],
         bullets: [
-          "Green 'Eligible' → go ahead and submit.",
-          "Amber 'Blocked' → a fleet vehicle is available; use Requests to book one instead.",
-          "Manager / admin override: managers can still approve claims that were submitted before eligibility changed.",
+          "Green → no operational pool vehicles at check time; personal use is the normal fallback for that situation.",
+          "Amber → operational vehicles exist; Notes must record who agreed the exception and why a 1PWR vehicle was not used, or approval will be rejected.",
+          "The snapshot taken at submit time is what governs approval — editing Notes later can fix a claim that was submitted with vehicles available but forgot the override.",
         ],
       },
       {
@@ -1198,10 +1223,10 @@ export const guideEn: GuideContent = {
         id: "trip-details",
         title: "2. Trip details",
         bullets: [
-          "Trip date (required).",
-          "Route from / Route to — pick sites from the dropdown, or type a free-text location.",
-          "Purpose — mirrors a vehicle-request purpose so reports reconcile.",
-          "Kilometres — round-trip total; the form multiplies by the per-km rate to show the estimated LSL.",
+          "Pre-approved mission (required) — choose from approved, active missions for your organisation.",
+          "Trip date (required) — must fall between that mission’s departure and return dates.",
+          "Destination and reason — describe the trip; these should align with the linked mission where practical.",
+          "Kilometres — round-trip total for per-km mode; the form shows the estimated LSL.",
           "Notes — anything unusual (detour, waiting time, escort, etc.).",
         ],
         callout: {

@@ -591,6 +591,7 @@ function initializeSchema(db: Database.Database): void {
       tracker_model TEXT DEFAULT '',
       tracker_install_date TEXT DEFAULT '',
       tracker_status TEXT DEFAULT 'unknown',
+      registration_disc_expiry_date TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(organization_id, code)
@@ -1226,6 +1227,8 @@ function migrateVehiclesPhase1(db: Database.Database): void {
     ["updated_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["fuel_consumption_l_per_100km", "REAL"],
     ["fuel_consumption_source", "TEXT NOT NULL DEFAULT ''"],
+    /** Road registration disc (window sticker); YYYY-MM-DD or empty = not tracked. */
+    ["registration_disc_expiry_date", "TEXT DEFAULT NULL"],
   ];
 
   for (const [col, def] of additions) {

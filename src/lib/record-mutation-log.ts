@@ -19,7 +19,13 @@ export type MutationAction =
   | "mission_lifecycle"
   | "mission_reopened_approval"
   | "mission_checkout_hold"
-  | "reservation_overlap_override";
+  | "reservation_overlap_override"
+  | "registration_disc_reservation_override"
+  | "registration_disc_assign_override"
+  | "checkin"
+  | "approve"
+  | "reject"
+  | "admin_config";
 
 export type MutationEntityType =
   | "fleet_mechanic"
@@ -27,7 +33,18 @@ export type MutationEntityType =
   | "trip"
   | "vehicle_request"
   | "vehicle_country_change_request"
-  | "mission";
+  | "mission"
+  | "vehicle"
+  | "work_order"
+  | "inspection"
+  | "driver_vehicle_check"
+  | "field_report"
+  | "scheduled_maintenance"
+  | "post_deployment_check"
+  | "personal_vehicle_reimbursement_request"
+  | "organization"
+  | "reference_data"
+  | "media_attachment";
 
 export interface MutationActor {
   id: string;

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { parseBodyMarks, type BodyMark } from "@/lib/inspection-body-diagram";
 import { failEvidenceMessage } from "@/lib/inspection-validation";
 
@@ -34,6 +37,15 @@ function parseItems(raw: unknown): ParsedRow[] | null {
     out.push(base);
   }
   return out;
+}
+
+function inspectionAudit(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    vehicle_id: r.vehicle_id,
+    type: r.type,
+    overall_pass: r.overall_pass,
+    inspector_name: r.inspector_name,
+  };
 }
 
 export function GET(
@@ -72,6 +84,7 @@ export async function PATCH(
   const db = getDb();
   const body = await request.json();
   const org = body.organizationId || "1pwr_lesotho";
+  const user = await getVerifiedFleetUser(request);
 
   const existing = db
     .prepare("SELECT * FROM inspections WHERE id = ? AND organization_id = ?")
@@ -79,6 +92,7 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
   }
+  const beforeSnap = inspectionAudit(existing);
 
   let finalItems: Array<{ category: string; item: string; rating: string; note: string }>;
   if (body.items !== undefined) {
@@ -145,27 +159,46 @@ export async function PATCH(
     )
     .get(id) as Record<string, unknown>;
 
+  recordMutation(db, {
+    entityType: "inspection",
+    entityId: id,
+    organizationId: org,
+    action: "update",
+    actor: auditActorFrom(user, {
+      name: typeof body.inspectorName === "string" ? body.inspectorName : String(existing.inspector_name || ""),
+    }),
+    before: beforeSnap,
+    after: inspectionAudit(row),
+  });
+
   return NextResponse.json({
     ...row,
     items: typeof row.items === "string" ? JSON.parse(row.items as string) : row.items,
   });
 }
 
-export function DELETE(
+export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
-  return (async () => {
-    const { id } = await context.params;
-    const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
-    const db = getDb();
-    const row = db
-      .prepare("SELECT id FROM inspections WHERE id = ? AND organization_id = ?")
-      .get(id, org) as { id: string } | undefined;
-    if (!row) {
-      return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
-    }
-    db.prepare("DELETE FROM inspections WHERE id = ? AND organization_id = ?").run(id, org);
-    return NextResponse.json({ ok: true, id });
-  })();
+  const { id } = await context.params;
+  const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
+  const user = await getVerifiedFleetUser(request);
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM inspections WHERE id = ? AND organization_id = ?")
+    .get(id, org) as Record<string, unknown> | undefined;
+  if (!row) {
+    return NextResponse.json({ error: "Inspection not found" }, { status: 404 });
+  }
+  recordMutation(db, {
+    entityType: "inspection",
+    entityId: id,
+    organizationId: org,
+    action: "delete",
+    actor: auditActorFrom(user, {}),
+    before: inspectionAudit(row),
+  });
+  db.prepare("DELETE FROM inspections WHERE id = ? AND organization_id = ?").run(id, org);
+  return NextResponse.json({ ok: true, id });
 }

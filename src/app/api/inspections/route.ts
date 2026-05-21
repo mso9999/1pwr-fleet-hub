@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 import { failEvidenceMessage } from "@/lib/inspection-validation";
 
@@ -34,10 +37,12 @@ export function GET(request: NextRequest): NextResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const db = getDb();
   const body = await request.json();
   const id = uuidv4();
   const now = new Date().toISOString();
+  const orgId = body.organizationId || "1pwr_lesotho";
 
   const items = body.items || [];
   const evidenceErr = failEvidenceMessage(items, {});
@@ -52,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    orgId,
     body.vehicleId,
     body.inspectorId || "",
     body.inspectorName || "",
@@ -70,8 +75,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     db.prepare(`
       INSERT INTO work_orders (id, organization_id, vehicle_id, title, description, type, priority, status, downtime_start, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'inspection-flagged', 'high', 'reported', ?, ?, ?)
-    `).run(woId, body.organizationId || "1pwr_lesotho", body.vehicleId, `Inspection failure: ${failDesc.substring(0, 80)}`, `Auto-created from inspection ${id}. Failed items: ${failDesc}`, now, now, now);
+    `).run(woId, orgId, body.vehicleId, `Inspection failure: ${failDesc.substring(0, 80)}`, `Auto-created from inspection ${id}. Failed items: ${failDesc}`, now, now, now);
   }
+
+  recordMutation(db, {
+    entityType: "inspection",
+    entityId: id,
+    organizationId: orgId,
+    action: "create",
+    actor: auditActorFrom(user, {
+      id: String(body.inspectorId || ""),
+      name: String(body.inspectorName || ""),
+    }),
+    after: {
+      vehicleId: body.vehicleId,
+      type: body.type || "pre-departure",
+      overallPass,
+      autoWorkOrder: hasFailure,
+    },
+  });
 
   const inspection = db.prepare(`
     SELECT i.*, v.code as vehicle_code FROM inspections i JOIN vehicles v ON i.vehicle_id = v.id WHERE i.id = ?

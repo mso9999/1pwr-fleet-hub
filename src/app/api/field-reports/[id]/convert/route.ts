@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const { id } = await params;
   const db = getDb();
 
@@ -76,6 +80,36 @@ export async function POST(
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run("field_report", id, report.status, "converted", String(report.reported_by_name), now);
+
+  const orgId = String(report.organization_id ?? "");
+  recordMutation(db, {
+    entityType: "work_order",
+    entityId: woId,
+    organizationId: orgId,
+    action: "create",
+    actor: auditActorFrom(user, {
+      id: String(report.reported_by_id || ""),
+      name: String(report.reported_by_name || ""),
+    }),
+    after: {
+      fromFieldReportId: id,
+      vehicleId: report.vehicle_id,
+      title: report.title,
+    },
+  });
+
+  recordMutation(db, {
+    entityType: "field_report",
+    entityId: id,
+    organizationId: orgId,
+    action: "update",
+    actor: auditActorFrom(user, {
+      id: String(report.reported_by_id || ""),
+      name: String(report.reported_by_name || ""),
+    }),
+    before: { status: report.status, work_order_id: report.work_order_id },
+    after: { status: "converted", work_order_id: woId },
+  });
 
   return NextResponse.json({ workOrderId: woId, reportId: id, status: "converted" });
 }

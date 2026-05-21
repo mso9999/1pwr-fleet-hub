@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { v4 as uuidv4 } from "uuid";
 
 export function GET(request: NextRequest): NextResponse {
@@ -60,10 +63,12 @@ const MECHANICAL_CHECK_ITEMS = [
 ];
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const user = await getVerifiedFleetUser(request);
   const db = getDb();
   const body = await request.json();
   const id = uuidv4();
   const now = new Date().toISOString();
+  const orgId = body.organizationId || "1pwr_lesotho";
 
   const checkItems = body.checkItems || [];
   const failItems = checkItems.filter((i: { rating: string }) => i.rating === "fail");
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       VALUES (?, ?, ?, ?, ?, 'inspection-flagged', 'high', 'reported', ?, ?, ?)
     `).run(
       woId,
-      body.organizationId || "1pwr_lesotho",
+      orgId,
       body.vehicleId,
       `Post-deployment failures (${failItems.length}): ${failDesc.substring(0, 80)}`,
       `Auto-created from post-deployment check ${id}. Failed items: ${failDesc}`,
@@ -95,7 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    orgId,
     body.vehicleId,
     body.tripId || null,
     body.mechanicId || "",
@@ -113,6 +118,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     JOIN vehicles v ON pdc.vehicle_id = v.id
     WHERE pdc.id = ?
   `).get(id) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "post_deployment_check",
+    entityId: id,
+    organizationId: orgId,
+    action: "create",
+    actor: auditActorFrom(user, {
+      id: String(body.mechanicId || ""),
+      name: String(body.mechanicName || ""),
+    }),
+    after: {
+      vehicleId: body.vehicleId,
+      tripId: body.tripId || null,
+      overallStatus,
+      linkedWorkOrders: createdWoIds.length,
+    },
+  });
 
   return NextResponse.json({
     ...row,

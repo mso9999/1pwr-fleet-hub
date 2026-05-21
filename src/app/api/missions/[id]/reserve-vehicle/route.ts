@@ -7,11 +7,16 @@ import {
   findActiveReservationConflicts,
   vehicleStatusAllowedForReservation,
 } from "@/lib/mission-reservations";
+import {
+  registrationDiscMissionBlocked,
+  registrationDiscOverrideAllowed,
+} from "@/lib/registration-disc";
 
 /**
  * POST /api/missions/[id]/reserve-vehicle
  * Body: { vehicleId: string, overrideReason?: string } — fleet lead reserves a vehicle for an approved mission.
  * Overlapping active reservations require manager+ override reason.
+ * Mission window past registration disc expiry requires PR/manager override (same overrideReason, 8+ chars).
  */
 export async function POST(
   request: NextRequest,
@@ -96,7 +101,40 @@ export async function POST(
     );
   }
 
+  const discBlocked = registrationDiscMissionBlocked(endDate, vehicle.registration_disc_expiry_date);
+  let discOverrideUsed = false;
+  if (discBlocked) {
+    if (!registrationDiscOverrideAllowed(db, orgId, user.email, user.role, overrideReason)) {
+      const discExpiry = String(vehicle.registration_disc_expiry_date || "").slice(0, 10);
+      return NextResponse.json(
+        {
+          error: `Mission runs until ${endDate} but ${vehicle.code}'s registration disc expires ${discExpiry}. A PR-credentialed approver or manager must supply overrideReason (8+ characters) to reserve this vehicle.`,
+          reason: "registration_disc_exceeded",
+          missionEnd: endDate,
+          discExpiry,
+        },
+        { status: 400 }
+      );
+    }
+    discOverrideUsed = true;
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: missionId,
+      organizationId: orgId,
+      action: "registration_disc_reservation_override",
+      actor: actorFrom(user),
+      after: {
+        vehicleId,
+        vehicleCode: vehicle.code,
+        missionEnd: endDate,
+        discExpiry: String(vehicle.registration_disc_expiry_date || "").slice(0, 10),
+      },
+      reason: overrideReason,
+    });
+  }
+
   const conflicts = findActiveReservationConflicts(db, orgId, vehicleId, dep, endDate, missionId);
+  const beforeAssigned = mission.assigned_vehicle_id;
   if (conflicts.length > 0) {
     const canOverride = canOverrideReservationOverlap(user.role) && overrideReason.length >= 8;
     if (!canOverride) {
@@ -139,9 +177,9 @@ export async function POST(
       missionId,
       dep,
       endDate,
-      conflicts.length > 0 ? overrideReason : "",
-      conflicts.length > 0 ? user.id : "",
-      conflicts.length > 0 ? user.name || user.email : "",
+      conflicts.length > 0 || discOverrideUsed ? overrideReason : "",
+      conflicts.length > 0 || discOverrideUsed ? user.id : "",
+      conflicts.length > 0 || discOverrideUsed ? user.name || user.email : "",
       now,
       now
     );
@@ -158,6 +196,24 @@ export async function POST(
     console.error("[reserve-vehicle]", e);
     return NextResponse.json({ error: "Reservation failed." }, { status: 500 });
   }
+
+  recordMutation(db, {
+    entityType: "mission",
+    entityId: missionId,
+    organizationId: orgId,
+    action: "update",
+    actor: actorFrom(user),
+    before: {
+      assigned_vehicle_id: beforeAssigned,
+      hadOverlapOverride: conflicts.length > 0,
+    },
+    after: {
+      assigned_vehicle_id: vehicleId,
+      reservationWindow: { start: dep, end: endDate },
+      hadOverlapOverride: conflicts.length > 0,
+      hadRegistrationDiscOverride: discOverrideUsed,
+    },
+  });
 
   const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(missionId);
   return NextResponse.json(updated, { status: 200 });

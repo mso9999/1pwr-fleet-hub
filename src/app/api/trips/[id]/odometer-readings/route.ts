@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { recordMutation } from "@/lib/record-mutation-log";
+import { auditActorFrom } from "@/lib/mutation-audit";
 import { MEDIA_CATEGORY } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -141,6 +143,20 @@ export async function POST(
        WHERE r.id = ?`
     )
     .get(ENTITY_TYPE, ENTITY_TYPE, ENTITY_TYPE, readingId) as Record<string, unknown>;
+
+  recordMutation(db, {
+    entityType: "trip",
+    entityId: tripId,
+    organizationId: trip.organization_id,
+    action: "update",
+    actor: auditActorFrom(user, { id: recordedById, name: recordedByName }),
+    after: {
+      tripOdometerReadingId: readingId,
+      odoKm,
+      recordedAt,
+      hasPhoto: Boolean(file && file.size > 0),
+    },
+  });
 
   return NextResponse.json(row, { status: 201 });
 }

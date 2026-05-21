@@ -510,7 +510,8 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         created.id,
         uploadItems,
         user?.id ?? "",
-        user?.name || user?.email || ""
+        user?.name || user?.email || "",
+        organizationId
       );
       onComplete();
     } catch (err) {

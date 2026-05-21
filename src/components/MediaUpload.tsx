@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { MEDIA_CATEGORY } from "@/types";
+import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
+import { bearerAuthHeaders } from "@/lib/client-bearer";
 
 interface Attachment {
   id: string;
@@ -21,10 +23,14 @@ interface Attachment {
 interface MediaUploadProps {
   entityType: string;
   entityId: string;
+  /** For mutation audit when saving attachments */
+  organizationId?: string;
   uploadedByName?: string;
   uploadedById?: string;
   /** Pre-select category for uploads (e.g. insurance vs mileage evidence). */
   defaultCategory?: string;
+  /** Called after uploads or deletes refresh the attachment list from the server. */
+  onAttachmentsChanged?: () => void;
 }
 
 function formatSize(bytes: number): string {
@@ -38,10 +44,22 @@ function isImage(mimeType: string): boolean {
 }
 
 function fileUrl(a: Attachment): string {
-  return `/uploads/${a.entity_type}/${a.entity_id}/${a.file_name}`;
+  return mediaAttachmentFileUrl({
+    entity_type: a.entity_type,
+    entity_id: a.entity_id,
+    file_name: a.file_name,
+  });
 }
 
-export function MediaUpload({ entityType, entityId, uploadedByName = "", uploadedById = "", defaultCategory = "general" }: MediaUploadProps): React.ReactElement {
+export function MediaUpload({
+  entityType,
+  entityId,
+  organizationId = "",
+  uploadedByName = "",
+  uploadedById = "",
+  defaultCategory = "general",
+  onAttachmentsChanged,
+}: MediaUploadProps): React.ReactElement {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -55,37 +73,69 @@ export function MediaUpload({ entityType, entityId, uploadedByName = "", uploade
 
   const fetchAttachments = useCallback(() => {
     setIsLoading(true);
-    fetch(`/api/media?entityType=${entityType}&entityId=${entityId}`)
-      .then((r) => r.json())
-      .then((d) => { setAttachments(d); setIsLoading(false); })
-      .catch(() => setIsLoading(false));
+    void (async () => {
+      const headers = await bearerAuthHeaders();
+      const res = await fetch(`/api/media?entityType=${entityType}&entityId=${entityId}`, { headers });
+      const d = res.ok ? await res.json() : [];
+      setAttachments(d);
+      setIsLoading(false);
+    })();
   }, [entityType, entityId]);
 
   useEffect(() => { fetchAttachments(); }, [fetchAttachments]);
 
   async function handleUpload(files: FileList | File[]): Promise<void> {
     setIsUploading(true);
-    for (const file of Array.from(files)) {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("entityType", entityType);
-      fd.append("entityId", entityId);
-      fd.append("caption", caption);
-      fd.append("category", category);
-      fd.append("uploadedById", uploadedById);
-      fd.append("uploadedByName", uploadedByName);
-
-      await fetch("/api/media", { method: "POST", body: fd });
+    const headers = await bearerAuthHeaders();
+    if (!headers.Authorization) {
+      setIsUploading(false);
+      alert("You must be signed in to upload files.");
+      return;
     }
-    setCaption("");
-    setIsUploading(false);
-    fetchAttachments();
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("entityType", entityType);
+        fd.append("entityId", entityId);
+        fd.append("caption", caption);
+        fd.append("category", category);
+        fd.append("uploadedById", uploadedById);
+        fd.append("uploadedByName", uploadedByName);
+        if (organizationId) fd.append("organizationId", organizationId);
+
+        const res = await fetch("/api/media", { method: "POST", headers, body: fd });
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(t || `Upload failed (${res.status})`);
+        }
+      }
+      setCaption("");
+      fetchAttachments();
+      onAttachmentsChanged?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Upload failed";
+      alert(msg);
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   async function handleDelete(id: string): Promise<void> {
     if (!confirm("Delete this attachment?")) return;
-    await fetch(`/api/media?id=${id}`, { method: "DELETE" });
+    const headers = await bearerAuthHeaders();
+    if (!headers.Authorization) {
+      alert("You must be signed in to delete files.");
+      return;
+    }
+    const res = await fetch(`/api/media?id=${id}`, { method: "DELETE", headers });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      alert(t || `Delete failed (${res.status})`);
+      return;
+    }
     fetchAttachments();
+    onAttachmentsChanged?.();
   }
 
   function handleDrop(e: React.DragEvent): void {
