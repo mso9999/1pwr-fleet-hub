@@ -64,6 +64,60 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     localStorage.setItem("fleet_org_id", orgId);
   }
 
+  function mapServerUserToFleetUser(input: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    department?: string;
+    organizationId?: string;
+    firebaseUid?: string;
+  }): FleetUser {
+    const name = String(input.name || "").trim();
+    const parts = name ? name.split(/\s+/) : [];
+    const firstName = parts.slice(0, 1).join(" ");
+    const lastName = parts.slice(1).join(" ");
+    const org = String(input.organizationId || "1pwr_lesotho").toLowerCase().replace(/\s+/g, "_");
+    return {
+      id: input.id,
+      firebaseUid: input.firebaseUid || input.id,
+      email: input.email || "",
+      firstName,
+      lastName,
+      name: name || input.email || "",
+      role: input.role || "driver",
+      department: input.department || "",
+      organizationId: org,
+      permissionLevel: 5,
+      isActive: true,
+    };
+  }
+
+  async function loadServerProfile(fbUser: FirebaseUser): Promise<FleetUser | null> {
+    const token = await fbUser.getIdToken();
+    if (!token) return null;
+    const res = await fetch("/api/me/whoami", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as {
+      ok?: boolean;
+      user?: {
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+        department?: string;
+        organizationId?: string;
+      };
+    };
+    if (!payload.ok || !payload.user) return null;
+    return mapServerUserToFleetUser({
+      ...payload.user,
+      firebaseUid: fbUser.uid,
+    });
+  }
+
   useEffect(() => {
     const PROFILE_MS = 12_000;
 
@@ -110,10 +164,22 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
             body: JSON.stringify(fleetUser),
           }).catch(() => {});
         } else {
-          setUser(null);
+          const fallback = await loadServerProfile(fbUser);
+          if (fallback) {
+            setUser(fallback);
+            if (fallback.organizationId) persistOrg(fallback.organizationId);
+          } else {
+            setUser(null);
+          }
         }
       } catch {
-        setUser(null);
+        const fallback = await loadServerProfile(fbUser);
+        if (fallback) {
+          setUser(fallback);
+          if (fallback.organizationId) persistOrg(fallback.organizationId);
+        } else {
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -131,6 +197,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
       const msg = err instanceof Error ? err.message : "Sign in failed";
       if (msg.includes("invalid-credential")) {
         setError("Invalid email or password");
+      } else if (msg.includes("user-disabled")) {
+        setError("Your account is disabled. Contact Fleet Hub admin.");
       } else if (msg.includes("too-many-requests")) {
         setError("Too many attempts. Try again later.");
       } else {

@@ -19,6 +19,7 @@ export type VerifiedFleetUser = {
   role: string;
   name: string;
   department: string;
+  organizationId: string;
 };
 
 export type AuthFailure =
@@ -89,7 +90,7 @@ export async function verifyFleetUser(request: Request): Promise<VerifyFleetUser
   const db = getDb();
   const rowForUid = db
     .prepare(
-      "SELECT id, email, role, name, IFNULL(department, '') AS department, is_active FROM users WHERE firebase_uid = ?"
+      "SELECT id, email, role, name, IFNULL(department, '') AS department, IFNULL(organization_id, '1pwr_lesotho') AS organizationId, is_active FROM users WHERE firebase_uid = ?"
     )
     .get(decoded.uid) as (VerifiedFleetUser & { is_active: number }) | undefined;
 
@@ -104,7 +105,7 @@ export async function verifyFleetUser(request: Request): Promise<VerifyFleetUser
   if (email) {
     const rowForEmail = db
       .prepare(
-        "SELECT id, email, role, name, IFNULL(department, '') AS department, is_active FROM users WHERE email = ?"
+        "SELECT id, email, role, name, IFNULL(department, '') AS department, IFNULL(organization_id, '1pwr_lesotho') AS organizationId, is_active FROM users WHERE email = ?"
       )
       .get(email) as (VerifiedFleetUser & { is_active: number }) | undefined;
     if (rowForEmail) {
@@ -132,7 +133,7 @@ export async function verifyFleetUser(request: Request): Promise<VerifyFleetUser
   }
   const fresh = db
     .prepare(
-      "SELECT id, email, role, name, IFNULL(department, '') AS department FROM users WHERE firebase_uid = ?"
+      "SELECT id, email, role, name, IFNULL(department, '') AS department, IFNULL(organization_id, '1pwr_lesotho') AS organizationId FROM users WHERE firebase_uid = ?"
     )
     .get(decoded.uid) as VerifiedFleetUser | undefined;
   return { user: fresh ?? null };
