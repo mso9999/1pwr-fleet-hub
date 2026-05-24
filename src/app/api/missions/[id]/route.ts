@@ -59,7 +59,8 @@ export async function GET(
 
 /**
  * PATCH /api/missions/[id]
- * - action approve | reject (approvers)
+ * - action approve | reject | revise (approvers)
+ * - action resubmit (mission creator after revision feedback)
  * - action defer | cancel_capacity | reactivate (management arbitration — fleet_lead excluded)
  * - field updates (creator when pending, or fleet management; material edits on approved mission reopen approval)
  */
@@ -84,7 +85,7 @@ export async function PATCH(
   const action = String(body.action || "").toLowerCase();
   const now = new Date().toISOString();
 
-  if (action === "approve" || action === "reject") {
+  if (action === "approve" || action === "reject" || action === "revise") {
     if (!canApproveMissionRequests(db, orgId, user.email, user.role)) {
       return NextResponse.json(
         { error: "Only PR-credentialed approvers or fleet management can approve missions." },
@@ -97,11 +98,23 @@ export async function PATCH(
         `UPDATE missions SET approval_status = 'approved', approved_by_id = ?, approved_by_name = ?,
          approved_at = ?, rejection_reason = '', lifecycle_status = 'active', updated_at = ? WHERE id = ?`
       ).run(user.id, user.name || user.email, now, now, id);
-    } else {
+    } else if (action === "reject") {
       const reason = String(body.rejectionReason || "").trim() || "Rejected";
       db.prepare(
         `UPDATE missions SET approval_status = 'rejected', approved_by_id = ?, approved_by_name = ?,
          approved_at = ?, rejection_reason = ?, updated_at = ? WHERE id = ?`
+      ).run(user.id, user.name || user.email, now, reason, now, id);
+    } else {
+      const reason = String(body.revisionReason || "").trim();
+      if (reason.length < 8) {
+        return NextResponse.json(
+          { error: "Provide clear revision feedback (at least 8 characters)." },
+          { status: 400 }
+        );
+      }
+      db.prepare(
+        `UPDATE missions SET approval_status = 'revision_requested', approved_by_id = ?, approved_by_name = ?,
+         approved_at = ?, rejection_reason = ?, lifecycle_status = 'active', updated_at = ? WHERE id = ?`
       ).run(user.id, user.name || user.email, now, reason, now, id);
     }
     const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
@@ -109,11 +122,50 @@ export async function PATCH(
       entityType: "mission",
       entityId: id,
       organizationId: orgId,
-      action: action === "approve" ? "approve" : "reject",
+      action: action === "approve" ? "approve" : action === "reject" ? "reject" : "update",
       actor: actorFrom(user),
       before: beforeSnap,
       after: missionAuditSubset(updated),
-      reason: action === "reject" ? String(body.rejectionReason || "").trim() : "",
+      reason:
+        action === "reject"
+          ? String(body.rejectionReason || "").trim()
+          : action === "revise"
+            ? String(body.revisionReason || "").trim()
+            : "",
+    });
+    return NextResponse.json(updated);
+  }
+
+  if (action === "resubmit") {
+    const isCreator = String(row.created_by_id || "") === user.id;
+    const currentApproval = String(row.approval_status || "").toLowerCase();
+    if (!isCreator && user.role !== "superadmin") {
+      return NextResponse.json(
+        { error: "Only the mission requestor may resubmit for approval." },
+        { status: 403 }
+      );
+    }
+    if (currentApproval !== "revision_requested") {
+      return NextResponse.json(
+        { error: "Only missions marked 'revision requested' can be resubmitted." },
+        { status: 400 }
+      );
+    }
+    const beforeSnap = missionAuditSubset(row);
+    db.prepare(
+      `UPDATE missions SET approval_status = 'pending', approved_by_id = '', approved_by_name = '',
+       approved_at = NULL, rejection_reason = '', updated_at = ? WHERE id = ?`
+    ).run(now, id);
+    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: id,
+      organizationId: orgId,
+      action: "update",
+      actor: actorFrom(user),
+      before: beforeSnap,
+      after: missionAuditSubset(updated),
+      reason: "resubmitted_for_approval",
     });
     return NextResponse.json(updated);
   }

@@ -163,6 +163,60 @@ interface PlannedMissionRow {
   approved_by_name?: string;
   approved_at?: string;
   rejection_reason?: string;
+  created_by_id?: string;
+  updated_at?: string;
+}
+
+function missionApprovalStage(statusRaw: string | undefined): {
+  label: string;
+  tone: "warning" | "success" | "destructive" | "secondary";
+} {
+  const s = String(statusRaw || "pending").toLowerCase();
+  if (s === "approved") return { label: "Approved", tone: "success" };
+  if (s === "rejected") return { label: "Rejected", tone: "destructive" };
+  if (s === "revision_requested") return { label: "Revision requested", tone: "warning" };
+  return { label: "Pending approval", tone: "secondary" };
+}
+
+function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): React.ReactElement {
+  const stage = missionApprovalStage(mission.approval_status);
+  const created = mission.created_at ? new Date(mission.created_at).toLocaleString() : "";
+  const reviewed = mission.approved_at ? new Date(mission.approved_at).toLocaleString() : "";
+  const maybeResubmitted =
+    String(mission.approval_status || "").toLowerCase() === "pending" &&
+    !!mission.updated_at &&
+    !!mission.created_at &&
+    mission.updated_at !== mission.created_at;
+
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50/60 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-semibold text-zinc-700 uppercase tracking-wide">Approval timeline</span>
+        <Badge variant={stage.tone}>{stage.label}</Badge>
+      </div>
+      <div className="mt-1.5 text-xs text-zinc-700 space-y-0.5">
+        <div>
+          <span className="font-medium text-zinc-600">Submitted:</span> {created || "—"}
+          {mission.created_by_name ? ` by ${mission.created_by_name}` : ""}
+        </div>
+        {maybeResubmitted && (
+          <div>
+            <span className="font-medium text-zinc-600">Resubmitted:</span>{" "}
+            {mission.updated_at ? new Date(mission.updated_at).toLocaleString() : "—"}
+          </div>
+        )}
+        {reviewed && (
+          <div>
+            <span className="font-medium text-zinc-600">
+              {stage.label === "Approved" ? "Approved" : stage.label === "Rejected" ? "Rejected" : "Reviewed"}:
+            </span>{" "}
+            {reviewed}
+            {mission.approved_by_name ? ` by ${mission.approved_by_name}` : ""}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FleetMissionReserveRow({
@@ -419,14 +473,29 @@ export default function VehicleRequestsPage() {
     void refetchApprovedMissionsFleet();
   }
 
-  async function patchMissionApproval(missionId: string, action: "approve" | "reject"): Promise<void> {
+  async function patchMissionApproval(
+    missionId: string,
+    action: "approve" | "reject" | "revise"
+  ): Promise<void> {
     const reason =
-      action === "reject" ? window.prompt("Rejection reason (optional):") ?? "" : "";
+      action === "reject"
+        ? window.prompt("Rejection reason (optional):") ?? ""
+        : action === "revise"
+          ? window.prompt("What should the requestor revise? (required, 8+ chars)") ?? ""
+          : "";
+    if (action === "revise" && reason.trim().length < 8) {
+      window.alert("Provide clear revision feedback (at least 8 characters).");
+      return;
+    }
     const headers = await jsonHeadersWithBearer();
     const res = await fetch(`/api/missions/${missionId}`, {
       method: "PATCH",
       headers,
-      body: JSON.stringify({ action, ...(action === "reject" ? { rejectionReason: reason } : {}) }),
+      body: JSON.stringify({
+        action,
+        ...(action === "reject" ? { rejectionReason: reason } : {}),
+        ...(action === "revise" ? { revisionReason: reason.trim() } : {}),
+      }),
     });
     if (!res.ok) return;
     const r2 = await fetch(
@@ -435,7 +504,7 @@ export default function VehicleRequestsPage() {
     );
     const j = (await r2.json()) as PlannedMissionRow[];
     setPendingMissions(Array.isArray(j) ? j : []);
-    if (action === "approve" && expandedPendingMissionId === missionId) {
+    if ((action === "approve" || action === "revise") && expandedPendingMissionId === missionId) {
       setExpandedPendingMissionId(null);
     }
     void loadData();
@@ -813,6 +882,7 @@ export default function VehicleRequestsPage() {
                 </button>
                 {expandedPendingMissionId === m.id && (
                   <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
+                    <MissionApprovalTimeline mission={m} />
                     <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">Created by</dt>
@@ -853,6 +923,15 @@ export default function VehicleRequestsPage() {
                         onClick={() => void patchMissionApproval(m.id, "approve")}
                       >
                         Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-amber-800 border-amber-300"
+                        onClick={() => void patchMissionApproval(m.id, "revise")}
+                      >
+                        Revise &amp; resubmit
                       </Button>
                       <Button
                         type="button"
@@ -1625,6 +1704,7 @@ function RequestForm({
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
   const [approvedMissions, setApprovedMissions] = useState<PlannedMissionRow[]>([]);
+  const [revisionRequestedMissions, setRevisionRequestedMissions] = useState<PlannedMissionRow[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [destinationChoice, setDestinationChoice] = useState("");
@@ -1643,16 +1723,28 @@ function RequestForm({
 
   const loadApprovedMissions = useCallback(() => {
     setMissionsLoading(true);
-    void fetch(
-      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`
-    )
-      .then((r) => r.json())
-      .then((d: unknown) => {
-        setApprovedMissions(Array.isArray(d) ? (d as PlannedMissionRow[]) : []);
+    Promise.all([
+      fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`).then((r) =>
+        r.json()
+      ),
+      fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=revision_requested`).then(
+        (r) => r.json()
+      ),
+    ])
+      .then(([approvedRaw, revisionRaw]) => {
+        const approved = Array.isArray(approvedRaw) ? (approvedRaw as PlannedMissionRow[]) : [];
+        const revisions = Array.isArray(revisionRaw) ? (revisionRaw as PlannedMissionRow[]) : [];
+        setApprovedMissions(approved);
+        setRevisionRequestedMissions(
+          revisions.filter((m) => String(m.created_by_id || "").trim() === userId)
+        );
       })
-      .catch(() => setApprovedMissions([]))
+      .catch(() => {
+        setApprovedMissions([]);
+        setRevisionRequestedMissions([]);
+      })
       .finally(() => setMissionsLoading(false));
-  }, [organizationId]);
+  }, [organizationId, userId]);
 
   useEffect(() => {
     Promise.all([
@@ -1720,6 +1812,25 @@ function RequestForm({
 
   const siteRows = sites.filter((s) => s.code !== "OTHER");
   const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
+
+  async function resubmitMissionForApproval(missionId: string): Promise<void> {
+    const ok = window.confirm(
+      "Resubmit this mission for management approval now? Make sure required changes are complete."
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action: "resubmit" }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setMissionFormError(err.error || "Could not resubmit mission.");
+      return;
+    }
+    setMissionMessage("Mission resubmitted for management approval.");
+    loadApprovedMissions();
+  }
 
   async function handleCreateMission(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
@@ -1976,6 +2087,48 @@ function RequestForm({
             {missionMessage && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                 {missionMessage}
+              </div>
+            )}
+            {revisionRequestedMissions.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
+                <div className="text-sm font-medium text-amber-900">
+                  Revisions requested on your mission submissions
+                </div>
+                <p className="text-xs text-amber-800">
+                  Management sent these back for updates. Apply requested edits, then click
+                  <strong> Resubmit</strong>.
+                </p>
+                <div className="space-y-2">
+                  {revisionRequestedMissions.map((m) => (
+                    <div key={m.id} className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm">
+                      <div className="font-medium text-zinc-900">
+                        {(m.title?.trim() || m.destination).slice(0, 120)}
+                      </div>
+                      <div className="text-xs text-zinc-600">
+                        {m.destination} · {m.departure_date}
+                        {m.return_date ? ` → ${m.return_date}` : ""}
+                      </div>
+                      <div className="mt-1 text-xs text-amber-900 whitespace-pre-wrap">
+                        <span className="font-medium">Revision feedback: </span>
+                        {m.rejection_reason || "See approver comments."}
+                      </div>
+                      <div className="mt-2">
+                        <MissionApprovalTimeline mission={m} />
+                      </div>
+                      <div className="mt-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-300 text-amber-900"
+                          onClick={() => void resubmitMissionForApproval(m.id)}
+                        >
+                          Resubmit
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {missionFormError && (

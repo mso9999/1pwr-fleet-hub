@@ -34,7 +34,7 @@ export function GET(request: NextRequest): NextResponse {
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
            m.mission_profile, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
-           m.created_by_name, m.created_at, m.updated_at,
+           m.created_by_id, m.created_by_name, m.created_at, m.updated_at,
            v.code AS assigned_vehicle_code
     FROM missions m
     LEFT JOIN vehicles v ON m.assigned_vehicle_id = v.id
