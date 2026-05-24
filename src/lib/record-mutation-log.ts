@@ -18,6 +18,8 @@ export type MutationAction =
   | "prerequisite_override"
   | "mission_lifecycle"
   | "mission_reopened_approval"
+  | "status_sync"
+  | "sync_conflict"
   | "mission_checkout_hold"
   | "reservation_overlap_override"
   | "registration_disc_reservation_override"

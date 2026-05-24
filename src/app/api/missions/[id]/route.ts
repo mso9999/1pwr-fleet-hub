@@ -46,6 +46,53 @@ function materialMissionFieldsChanged(
   return false;
 }
 
+function mapMissionApprovalToHrStatus(approvalStatus: string): string {
+  const normalized = approvalStatus.toLowerCase();
+  if (normalized === "approved") return "Approved";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "revision_requested") return "Revise and Resubmit";
+  if (normalized === "pending") return "Resubmitted";
+  return "Submitted";
+}
+
+async function syncMissionDecisionToHr(args: {
+  hrRequestId: string;
+  status: string;
+  remarks?: string;
+  actionAtIso: string;
+  missionId: string;
+}): Promise<void> {
+  const base = (process.env.HR_API_BASE_URL || "").replace(/\/$/, "");
+  const key = process.env.HR_API_KEY || "";
+  if (!base || !key || !args.hrRequestId) {
+    return;
+  }
+  const endpoint = `${base}/api/per-diem/requests/${encodeURIComponent(args.hrRequestId)}/status-sync`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": key,
+    },
+    body: JSON.stringify({
+      status: args.status,
+      remarks: args.remarks || "",
+      action_at: args.actionAtIso,
+      source: "fleet_hub",
+      fleet_mission_id: args.missionId,
+    }),
+  });
+  if (!res.ok && res.status !== 409) {
+    const text = await res.text();
+    console.error("[api/missions PATCH] failed to sync decision to HR", {
+      hrRequestId: args.hrRequestId,
+      status: args.status,
+      httpStatus: res.status,
+      body: text.slice(0, 300),
+    });
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -133,6 +180,21 @@ export async function PATCH(
             ? String(body.revisionReason || "").trim()
             : "",
     });
+    const hrRequestId = String(updated.hr_request_id || "").trim();
+    if (hrRequestId) {
+      await syncMissionDecisionToHr({
+        hrRequestId,
+        missionId: id,
+        status: mapMissionApprovalToHrStatus(String(updated.approval_status || "")),
+        remarks:
+          action === "reject"
+            ? String(body.rejectionReason || "").trim()
+            : action === "revise"
+              ? String(body.revisionReason || "").trim()
+              : "",
+        actionAtIso: now,
+      });
+    }
     return NextResponse.json(updated);
   }
 
@@ -167,6 +229,16 @@ export async function PATCH(
       after: missionAuditSubset(updated),
       reason: "resubmitted_for_approval",
     });
+    const hrRequestId = String(updated.hr_request_id || "").trim();
+    if (hrRequestId) {
+      await syncMissionDecisionToHr({
+        hrRequestId,
+        missionId: id,
+        status: "Resubmitted",
+        remarks: "resubmitted_for_approval",
+        actionAtIso: now,
+      });
+    }
     return NextResponse.json(updated);
   }
 

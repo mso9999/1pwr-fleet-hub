@@ -18,6 +18,10 @@ export function insertPlannedMission(
     missionProfile?: string;
     requiredVehicleClass?: string;
     rrStatus?: string;
+    hrRequestId?: string;
+    hrRequestStatus?: string;
+    hrSyncSource?: string;
+    hrSourceUpdatedAt?: string;
   }
 ): string {
   const id = uuidv4();
@@ -32,8 +36,9 @@ export function insertPlannedMission(
       id, organization_id, title, destination, departure_date, return_date,
       mission_type, passengers, loadout_summary, notes, status, approval_status,
       mission_profile, required_vehicle_class, rr_status,
+      hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
       created_by_id, created_by_name, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', 'pending', ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.organizationId,
@@ -48,6 +53,10 @@ export function insertPlannedMission(
     profile,
     reqClass,
     rrNorm,
+    input.hrRequestId || null,
+    input.hrRequestStatus || null,
+    input.hrSyncSource || null,
+    input.hrSourceUpdatedAt || null,
     input.createdById,
     input.createdByName,
     now,
