@@ -1239,6 +1239,8 @@ function migrateVehiclesPhase1(db: Database.Database): void {
     ["fuel_consumption_source", "TEXT NOT NULL DEFAULT ''"],
     /** Road registration disc (window sticker); YYYY-MM-DD or empty = not tracked. */
     ["registration_disc_expiry_date", "TEXT DEFAULT NULL"],
+    /** Legacy PR Firestore referenceData_vehicles doc id before FM UUID became canonical. */
+    ["pr_firestore_id", "TEXT DEFAULT ''"],
   ];
 
   for (const [col, def] of additions) {

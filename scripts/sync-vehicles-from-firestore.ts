@@ -1,10 +1,10 @@
 #!/usr/bin/env npx tsx
 /**
- * Sync vehicle data from PR System Firestore (pr.1pwrafrica.com)
- * into Fleet Hub SQLite database.
+ * LEGACY bootstrap: one-time import from PR Firestore → FM SQLite.
+ * Direction is PR → FM for initial seeding only.
  *
- * Reads from Firestore collection: referenceData_vehicles
- * Filtered by organizationId for 1PWR Lesotho (1pwr_lesotho)
+ * Ongoing sync is the reverse: FM is source of truth and pushes to PR via
+ * `src/lib/pr-vehicle-sync.ts` (vehicle API routes + `sync-vehicles-to-pr-firestore.ts`).
  *
  * Usage: npx tsx scripts/sync-vehicles-from-firestore.ts
  */

@@ -58,6 +58,29 @@ Fleet users with a Fleet-team department (or superadmin) can also call **`POST /
 1. Before creating a vehicle- or fleet-related PR line item, call **`GET /api/integrations/v1/work-orders/{woId}`** and confirm the WO belongs to the expected org and vehicle.
 2. After the PR is created, call **`POST .../pr-links`** with at least `prNumber` (and optional financial fields). Fleet Hub never writes to Firestore purchase requests from these routes.
 
+## Vehicles (FM → PR mirror)
+
+Fleet Hub is the **source of truth** for the vehicle registry. The PR system keeps a read-only Firestore mirror (`referenceData_vehicles`) for expense-type dropdowns.
+
+| Mechanism | Detail |
+|-----------|--------|
+| **Push sync** | On vehicle create/update/delete, FM upserts/deactivates mirror docs via `src/lib/pr-vehicle-sync.ts` (Firebase Admin). |
+| **Firestore doc id** | FM vehicle UUID (`fmVehicleId`). |
+| **Display fields** | `fleetCode`, `registrationNumber`, make/model/year mirrored from FM. |
+| **Bulk backfill** | `npx tsx scripts/sync-vehicles-to-pr-firestore.ts` |
+| **Reconciliation** | `npx tsx scripts/reconcile-fm-pr-vehicles.ts` |
+| **Legacy bootstrap** | `sync-vehicles-from-firestore.ts` (PR → FM) — initial seed only, not ongoing sync. |
+
+### Vehicle export (machine-to-machine)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/integrations/v1/vehicles` | List FM vehicles for an org. Query: `org` (default `1pwr_lesotho`), optional `includeInactive=true`. Auth: `X-Fleet-Integration-Key`. |
+
+Response shape: `{ organizationId, count, vehicles: [{ fmVehicleId, organizationId, fleetCode, make, model, year, licensePlate, vin, engineNumber, status, prFirestoreId, updatedAt }] }`.
+
+PR stores `purchaseRequests.vehicle` = `fmVehicleId`. Run PR `scripts/migrate-pr-vehicle-refs.ts` once to remap legacy Firestore doc ids.
+
 ## Related scripts
 
 - Phase 0 Excel paths: **`FLEET_DATA_DIR`** — see [PHASE0-MIGRATION.md](./PHASE0-MIGRATION.md).
