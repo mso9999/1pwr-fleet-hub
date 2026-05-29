@@ -15,6 +15,7 @@ export const VR_SELECT_FIELDS = `
     m.destination as mission_destination,
     m.departure_date as mission_departure_date,
     m.return_date as mission_return_date,
+    m.trip_shape as mission_trip_shape,
     m.status as mission_status,
     m.trip_id as mission_trip_id,
     m.approval_status as mission_approval_status`;

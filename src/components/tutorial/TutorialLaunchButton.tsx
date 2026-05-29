@@ -1,12 +1,12 @@
 "use client";
 
 import { useLocaleContext } from "@/i18n/locale-context";
-import { TUTORIAL_TRACK_ORDER, TUTORIAL_TRACKS } from "@/lib/tutorial-steps";
+import { TUTORIAL_TRACK_ORDER, getTutorialTrackLabel } from "@/lib/tutorial-steps";
 import { useTutorial } from "./tutorial-context";
 
 export function TutorialLaunchButton({ className }: { className?: string }): React.ReactElement {
   const { active, start } = useTutorial();
-  const { t } = useLocaleContext();
+  const { locale, t } = useLocaleContext();
   if (active) return <></>;
 
   const baseClass =
@@ -31,7 +31,7 @@ export function TutorialLaunchButton({ className }: { className?: string }): Rea
         </option>
         {TUTORIAL_TRACK_ORDER.map((id) => (
           <option key={id} value={id}>
-            {TUTORIAL_TRACKS[id]?.label ?? id}
+            {getTutorialTrackLabel(id, locale)}
           </option>
         ))}
       </select>

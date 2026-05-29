@@ -235,6 +235,17 @@ export const TRIP_APPROVAL_STATUS = {
 } as const;
 
 export type TripApprovalStatus = (typeof TRIP_APPROVAL_STATUS)[keyof typeof TRIP_APPROVAL_STATUS];
+export type TripShape = "one_way" | "round_trip" | "multi_stop";
+
+export interface MissionStop {
+  id: string;
+  missionId: string;
+  stopOrder: number;
+  location: string;
+  loadOut: string;
+  loadIn: string;
+  notes: string;
+}
 
 export interface Trip {
   id: string;
@@ -249,6 +260,7 @@ export interface Trip {
   destination: string;
   arrivalLocation: string;
   missionType: string;
+  tripShape?: TripShape;
   /** local = short in-town; field = multi-day / substantive deployment (stricter gates). */
   missionProfile?: string;
   passengers: string;

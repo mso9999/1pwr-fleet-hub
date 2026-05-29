@@ -5,10 +5,12 @@ import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { pathToNavTarget } from "@/lib/tutorial-steps";
 import { Button } from "@/components/ui/button";
+import { useLocaleContext } from "@/i18n/locale-context";
 import { useTutorial } from "./tutorial-context";
 
 export function TutorialOverlay(): React.ReactElement | null {
   const { active, stepIndex, next, prev, exit, totalSteps, steps } = useTutorial();
+  const { t } = useLocaleContext();
   const pathname = usePathname();
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [missing, setMissing] = useState(false);
@@ -97,13 +99,13 @@ export function TutorialOverlay(): React.ReactElement | null {
         <div className="mx-auto max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl pointer-events-auto">
           {missing && (
             <p className="text-xs text-amber-700 mb-2 font-medium">
-              Open the highlighted navigation item or tap Next — the page is still loading.
+              {t("tutorial.overlay.missingTarget")}
             </p>
           )}
           {stepData?.role && (
             <div className="mb-2">
               <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-900">
-                Role: {stepData.role}
+                {t("tutorial.overlay.rolePrefix")}: {stepData.role}
               </span>
             </div>
           )}
@@ -113,23 +115,23 @@ export function TutorialOverlay(): React.ReactElement | null {
           <p className="mt-2 text-sm text-zinc-600 leading-relaxed">{stepData?.body}</p>
           {stepData?.suggestion && (
             <div className="mt-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-900">
-              <span className="font-semibold">Tip: </span>
+              <span className="font-semibold">{t("tutorial.overlay.tipPrefix")}: </span>
               {stepData.suggestion}
             </div>
           )}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => prev()} disabled={stepIndex === 0}>
-              Back
+              {t("tutorial.overlay.back")}
             </Button>
             <Button type="button" size="sm" onClick={() => next()} className="bg-blue-600 hover:bg-blue-700">
-              {isLast ? "Finish tutorial" : "Next"}
+              {isLast ? t("tutorial.overlay.finish") : t("tutorial.overlay.next")}
             </Button>
             <button type="button" className="ml-auto text-xs text-zinc-500 hover:text-zinc-800 underline" onClick={() => exit()}>
-              Exit &amp; clean up
+              {t("tutorial.overlay.exitCleanup")}
             </button>
           </div>
           <div className="mt-2 text-[11px] text-zinc-400">
-            Step {stepIndex + 1} of {totalSteps}
+            {t("tutorial.overlay.stepLabel")} {stepIndex + 1} {t("tutorial.overlay.ofLabel")} {totalSteps}
           </div>
         </div>
       </div>

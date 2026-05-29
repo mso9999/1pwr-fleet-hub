@@ -2,6 +2,7 @@
  * Interactive tutorials: each step highlights [data-tutorial] targets.
  * Multiple tracks: full app overview + focused workflow walkthroughs.
  */
+import { TUTORIAL_STEP_TRANSLATIONS_FR } from "@/lib/tutorial-steps-fr";
 
 export interface TutorialStep {
   id: string;
@@ -21,6 +22,9 @@ export interface TutorialTrack {
   label: string;
   steps: TutorialStep[];
 }
+
+type TutorialLocale = "en" | "fr";
+type TutorialStepLocaleFields = Pick<TutorialStep, "title" | "body" | "suggestion" | "role">;
 
 /** Full app tour (original): dashboard → vehicles → trips → … */
 const OVERVIEW_STEPS: TutorialStep[] = [
@@ -898,6 +902,20 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
   },
 };
 
+const TUTORIAL_TRACK_LABELS_FR: Record<string, string> = {
+  overview: "Parcours complet de l'application",
+  fieldDeployment: "Deploiement terrain (de bout en bout)",
+  driverCheck: "Controle conducteur du vehicule",
+  vehicleInspection: "Inspection mecanique",
+  vehicleRequest: "Demander un vehicule",
+  ehsDriverRegister: "Registre des conducteurs EHS approuves",
+  workOrder: "Creer un ordre de travail",
+  fieldIssueToWorkOrder: "Incident terrain -> ordre de travail",
+  loadoutManifest: "Manifeste de chargement (AM)",
+  countryTransfer: "Transferts pays / organisation",
+  personalVehicleReimbursement: "Remboursement vehicule personnel (F006)",
+};
+
 export const TUTORIAL_TRACK_ORDER: string[] = [
   "overview",
   "fieldDeployment",
@@ -915,12 +933,35 @@ export const TUTORIAL_TRACK_ORDER: string[] = [
 /** @deprecated Use TUTORIAL_TRACKS.overview.steps */
 export const TUTORIAL_STEPS = OVERVIEW_STEPS;
 
-export function getTutorialSteps(trackId: string): TutorialStep[] {
-  return TUTORIAL_TRACKS[trackId]?.steps ?? TUTORIAL_TRACKS.overview.steps;
+export function getTutorialTracks(locale: TutorialLocale = "en"): Record<string, TutorialTrack> {
+  if (locale !== "fr") return TUTORIAL_TRACKS;
+  return Object.fromEntries(
+    Object.entries(TUTORIAL_TRACKS).map(([id, track]) => [
+      id,
+      {
+        ...track,
+        label: TUTORIAL_TRACK_LABELS_FR[id] ?? track.label,
+        steps: track.steps.map((step) => {
+          const tr = TUTORIAL_STEP_TRANSLATIONS_FR[step.id] as Partial<TutorialStepLocaleFields> | undefined;
+          if (!tr) return step;
+          return {
+            ...step,
+            ...tr,
+          };
+        }),
+      },
+    ])
+  );
 }
 
-export function getTutorialTrackLabel(trackId: string): string {
-  return TUTORIAL_TRACKS[trackId]?.label ?? TUTORIAL_TRACKS.overview.label;
+export function getTutorialSteps(trackId: string, locale: TutorialLocale = "en"): TutorialStep[] {
+  const tracks = getTutorialTracks(locale);
+  return tracks[trackId]?.steps ?? tracks.overview.steps;
+}
+
+export function getTutorialTrackLabel(trackId: string, locale: TutorialLocale = "en"): string {
+  const tracks = getTutorialTracks(locale);
+  return tracks[trackId]?.label ?? tracks.overview.label;
 }
 
 /** Sidebar `data-tutorial` id for a nav href (e.g. /vehicles → nav-vehicles). */

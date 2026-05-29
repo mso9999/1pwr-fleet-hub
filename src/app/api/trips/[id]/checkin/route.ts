@@ -20,9 +20,17 @@ export async function PATCH(
   const distance = body.odoEnd ? body.odoEnd - (trip.odo_start as number) : null;
 
   db.prepare(`
-    UPDATE trips SET odo_end = ?, arrival_location = ?, checkin_at = ?, issues_observed = ?, distance = ?
+    UPDATE trips SET odo_end = ?, arrival_location = ?, checkin_at = ?, issues_observed = ?, load_in = ?, distance = ?
     WHERE id = ?
-  `).run(body.odoEnd || null, body.arrivalLocation || "", now, body.issuesObserved || "", distance, id);
+  `).run(
+    body.odoEnd || null,
+    body.arrivalLocation || "",
+    now,
+    body.issuesObserved || "",
+    body.loadIn || "",
+    distance,
+    id
+  );
 
   const missionId = trip.mission_id ? String(trip.mission_id) : "";
   if (missionId) {

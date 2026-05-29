@@ -10,7 +10,7 @@
  * - If Firestore rules deny reads: expect an error message (coordinate rules with AM — do not deploy unilaterally).
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import {
   collection,
   query,
@@ -37,7 +37,22 @@ export interface LoadoutManifestRow {
   title?: string;
   status?: string;
   destination_site_label?: string;
+  lines?: Array<{
+    asset_id?: string;
+    asset_name?: string;
+    quantity?: number;
+    notes?: string;
+    stop_number?: number | null;
+    stop_id?: string | null;
+    operation?: string | null;
+  }>;
 }
+
+type TripStopRef = {
+  id: string;
+  stop_number: number;
+  location: string;
+};
 
 function firestoreErrorMessage(err: unknown): string {
   if (err && typeof err === "object" && "code" in err) {
@@ -58,10 +73,13 @@ function firestoreErrorMessage(err: unknown): string {
 export function LoadoutManifestsSection({
   tripId,
   tripLabel = "",
+  tripStops = [],
 }: {
   tripId: string;
   /** Stored on the manifest as `trip_label` when linking */
   tripLabel?: string;
+  /** Optional trip stop references from Fleet Hub trip_stops */
+  tripStops?: TripStopRef[];
 }): React.ReactElement {
   const { user } = useAuth();
   const canManage =
@@ -108,6 +126,32 @@ export function LoadoutManifestsSection({
                 typeof data.destination_site_label === "string"
                   ? data.destination_site_label
                   : undefined,
+              lines: Array.isArray(data.lines)
+                ? (data.lines as Array<Record<string, unknown>>).map((line) => ({
+                    asset_id: typeof line.asset_id === "string" ? line.asset_id : undefined,
+                    asset_name:
+                      typeof line.asset_name === "string"
+                        ? line.asset_name
+                        : typeof line.asset_label === "string"
+                          ? line.asset_label
+                          : undefined,
+                    quantity:
+                      typeof line.quantity === "number"
+                        ? line.quantity
+                        : Number.isFinite(Number(line.quantity))
+                          ? Number(line.quantity)
+                          : undefined,
+                    notes: typeof line.notes === "string" ? line.notes : undefined,
+                    stop_number:
+                      typeof line.stop_number === "number"
+                        ? line.stop_number
+                        : Number.isFinite(Number(line.stop_number))
+                          ? Number(line.stop_number)
+                          : null,
+                    stop_id: typeof line.stop_id === "string" ? line.stop_id : null,
+                    operation: typeof line.operation === "string" ? line.operation : null,
+                  }))
+                : [],
             };
           })
         );
@@ -209,40 +253,96 @@ export function LoadoutManifestsSection({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b border-zinc-100">
-                  <td className="py-2 pr-3 font-medium">
-                    {r.manifest_number || "—"}
-                  </td>
-                  <td className="py-2 pr-3 text-zinc-700">{r.title || "—"}</td>
-                  <td className="py-2 pr-3">{r.status || "—"}</td>
-                  <td className="py-2 pr-3 hidden sm:table-cell text-zinc-600">
-                    {r.destination_site_label || "—"}
-                  </td>
-                  <td className="py-2 pr-3">
-                    <a
-                      href={`${AM_MANIFEST_VIEW}?id=${encodeURIComponent(r.id)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline text-xs"
-                    >
-                      Open in AM
-                    </a>
-                  </td>
-                  {canManage && (
-                    <td className="py-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="text-red-600 border-red-200 hover:bg-red-50"
-                        disabled={busyId === r.id}
-                        onClick={() => handleUnlink(r.id)}
-                      >
-                        {busyId === r.id ? "…" : "Unlink"}
-                      </Button>
-                    </td>
-                  )}
-                </tr>
+                  <Fragment key={r.id}>
+                    <tr className="border-b border-zinc-100">
+                      <td className="py-2 pr-3 font-medium">
+                        {r.manifest_number || "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-zinc-700">{r.title || "—"}</td>
+                      <td className="py-2 pr-3">{r.status || "—"}</td>
+                      <td className="py-2 pr-3 hidden sm:table-cell text-zinc-600">
+                        {r.destination_site_label || "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <a
+                          href={`${AM_MANIFEST_VIEW}?id=${encodeURIComponent(r.id)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline text-xs"
+                        >
+                          Open in AM
+                        </a>
+                      </td>
+                      {canManage && (
+                        <td className="py-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            disabled={busyId === r.id}
+                            onClick={() => handleUnlink(r.id)}
+                          >
+                            {busyId === r.id ? "…" : "Unlink"}
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                    {Array.isArray(r.lines) && r.lines.length > 0 && (
+                      <tr className="border-b border-zinc-100 bg-zinc-50/60">
+                        <td colSpan={canManage ? 6 : 5} className="px-3 py-2">
+                          <div className="text-[11px] text-zinc-600 uppercase tracking-wide font-medium">
+                            Stop cargo plan
+                          </div>
+                          <div className="mt-1 grid gap-1 text-xs text-zinc-700">
+                            {Object.entries(
+                              r.lines.reduce<Record<string, { drop: number; pickup: number; carry: number }>>(
+                                (acc, line) => {
+                                  const key =
+                                    line.stop_id && tripStops.some((s) => s.id === line.stop_id)
+                                      ? line.stop_id
+                                      : line.stop_number != null
+                                        ? `n:${line.stop_number}`
+                                        : "trip";
+                                  const current = acc[key] ?? { drop: 0, pickup: 0, carry: 0 };
+                                  const qty = Number(line.quantity || 0);
+                                  const op = String(line.operation || "carry").toLowerCase();
+                                  if (op === "drop") current.drop += qty;
+                                  else if (op === "pickup") current.pickup += qty;
+                                  else current.carry += qty;
+                                  acc[key] = current;
+                                  return acc;
+                                },
+                                {}
+                              )
+                            ).map(([key, v]) => {
+                              const label =
+                                key === "trip"
+                                  ? "Trip-level"
+                                  : key.startsWith("n:")
+                                    ? (() => {
+                                        const num = Number(key.slice(2));
+                                        const stop = tripStops.find((s) => s.stop_number === num);
+                                        return stop ? `Stop ${num} (${stop.location})` : `Stop ${num}`;
+                                      })()
+                                    : (() => {
+                                        const stop = tripStops.find((s) => s.id === key);
+                                        return stop
+                                          ? `Stop ${stop.stop_number} (${stop.location})`
+                                          : "Mapped stop";
+                                      })();
+                              return (
+                                <div key={key}>
+                                  <span className="font-medium">{label}</span>: drop {v.drop || 0}, pickup{" "}
+                                  {v.pickup || 0}, carry {v.carry || 0}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
               ))}
             </tbody>
           </table>

@@ -9,6 +9,12 @@ import { Select } from "@/components/ui/select";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { MISSION_PROFILE, type MissionProfile } from "@/lib/trip-readiness";
 import { useOverrideCapability } from "@/lib/useOverrideCapability";
+import {
+  normalizeRouteStops,
+  normalizeTripShape,
+  routeStopsEqual,
+} from "@/lib/trip-route";
+import { isMultiStopRolloutEnabled } from "@/lib/feature-flags";
 
 interface RefItem {
   code: string;
@@ -21,12 +27,20 @@ interface MissionForTrip {
   departure_date: string;
   return_date: string;
   mission_type: string;
+  trip_shape?: string;
   mission_profile: string;
   assigned_vehicle_id: string;
   assigned_vehicle_code?: string | null;
   title: string;
   passengers: string;
   loadout_summary: string;
+  stops?: Array<{
+    stop_order: number;
+    location: string;
+    load_out?: string;
+    load_in?: string;
+    notes?: string;
+  }>;
 }
 
 interface StopInput {
@@ -83,6 +97,7 @@ export function TripCheckoutForm({
   onComplete: () => void;
   onCancel: () => void;
 }): ReactElement {
+  const multiStopEnabled = isMultiStopRolloutEnabled();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [missions, setMissions] = useState<MissionForTrip[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
@@ -113,6 +128,8 @@ export function TripCheckoutForm({
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isMultiStop, setIsMultiStop] = useState(false);
   const [stops, setStops] = useState<StopInput[]>([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+  const [plannedStops, setPlannedStops] = useState<StopInput[]>([]);
+  const [routeChangeReason, setRouteChangeReason] = useState("");
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
@@ -171,6 +188,9 @@ export function TripCheckoutForm({
   useEffect(() => {
     if (!selectedMission) {
       setMissionSnapshot(null);
+      setPlannedStops([]);
+      setStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+      setIsMultiStop(false);
       return;
     }
     setMissionSnapshot({ ...selectedMission });
@@ -186,6 +206,25 @@ export function TripCheckoutForm({
       passengers: selectedMission.passengers || "",
       loadoutSummary: selectedMission.loadout_summary || "",
     });
+    const orderedStops = [...(selectedMission.stops || [])].sort(
+      (a, b) => (a.stop_order || 0) - (b.stop_order || 0)
+    );
+    const normalizedStops = orderedStops.map((s) => ({
+      location: String(s.location || ""),
+      loadOut: String(s.load_out || ""),
+      loadIn: String(s.load_in || ""),
+      notes: String(s.notes || ""),
+    }));
+    setPlannedStops(normalizedStops);
+    if (multiStopEnabled && normalizedStops.length > 0) {
+      setStops(normalizedStops);
+      setIsMultiStop(true);
+    } else {
+      const shape = normalizeTripShape(selectedMission.trip_shape);
+      setIsMultiStop(shape === "multi_stop" || shape === "round_trip");
+      setStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+    }
+    setRouteChangeReason("");
   }, [selectedMission]);
 
   const vehicleId = selectedMission?.assigned_vehicle_id ?? "";
@@ -314,6 +353,7 @@ export function TripCheckoutForm({
       departureLocation: fd.get("departureLocation"),
       destination: dest,
       missionType: mType,
+      tripShape: normalizeTripShape(selectedMission.trip_shape),
       missionProfile:
         adjustMission && canMissionManage
           ? missionEdits.missionProfile
@@ -322,8 +362,22 @@ export function TripCheckoutForm({
       loadOut: fd.get("loadOut"),
     };
 
-    if (isMultiStop && stops.some((s) => s.location)) {
-      body.stops = stops.filter((s) => s.location);
+    const normalizedStops = multiStopEnabled ? normalizeRouteStops(stops) : [];
+    const normalizedPlannedStops = multiStopEnabled ? normalizeRouteStops(plannedStops) : [];
+    const stopPlanChanged =
+      multiStopEnabled &&
+      normalizedPlannedStops.length > 0 &&
+      !routeStopsEqual(normalizedPlannedStops, normalizedStops);
+    if (multiStopEnabled && isMultiStop && normalizedStops.length > 0) {
+      body.stops = normalizedStops;
+    }
+    if (stopPlanChanged) {
+      if (routeChangeReason.trim().length < 8) {
+        setCheckoutError("Route differs from mission plan. Add a route change reason (min 8 chars).");
+        setIsSubmitting(false);
+        return;
+      }
+      body.routeChangeReason = routeChangeReason.trim();
     }
 
     if (canOverride && overrideEnabled && overrideReason.trim().length > 0) {
@@ -632,6 +686,7 @@ export function TripCheckoutForm({
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{checkoutError}</div>
           )}
 
+          {multiStopEnabled && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -644,8 +699,9 @@ export function TripCheckoutForm({
             </button>
             <span className="text-sm text-zinc-600">Multi-stop itinerary</span>
           </div>
+          )}
 
-          {isMultiStop && (
+          {multiStopEnabled && isMultiStop && (
             <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/20 p-4">
               <p className="text-xs font-medium text-zinc-500 uppercase">Intermediate stops</p>
               {stops.map((stop, idx) => (
@@ -693,6 +749,20 @@ export function TripCheckoutForm({
               <Button type="button" variant="outline" size="sm" onClick={addStop}>
                 + Add stop
               </Button>
+              {plannedStops.length > 0 && !routeStopsEqual(normalizeRouteStops(stops), normalizeRouteStops(plannedStops)) && (
+                <div className="space-y-1 pt-2 border-t border-blue-100">
+                  <label className="text-xs font-medium text-zinc-700 uppercase tracking-wide">
+                    Route change reason *
+                  </label>
+                  <textarea
+                    value={routeChangeReason}
+                    onChange={(e) => setRouteChangeReason(e.target.value)}
+                    rows={2}
+                    placeholder="Explain why checkout route differs from approved mission plan."
+                    className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm"
+                  />
+                </div>
+              )}
             </div>
           )}
 

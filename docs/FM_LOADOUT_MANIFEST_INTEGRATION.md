@@ -37,7 +37,7 @@ The **source of truth for manifest content** (lines, quantities, status, print v
 | `trip_id` | string | **FM writes this** when linking — should equal the **Firestore document ID** of the trip in FM (recommended). |
 | `trip_label` | string | Optional display string (e.g. trip name + date) |
 | `destination_site_label` | string | Denormalized; useful for FM list display without joins |
-| `lines` | array | Line objects: `asset_id`, `quantity`, `notes`, snapshots — **read in FM only if you need a preview**; full editing stays in AM |
+| `lines` | array | Line objects: `asset_id`, `quantity`, `notes`, snapshots. For multi-stop routing, include optional leg metadata: `stop_number` (integer) and/or `stop_id` (FM `trip_stops.id`), plus `operation` (`drop` \| `pickup` \| `carry`). |
 | `updated_at` | string | ISO timestamp |
 | `linked_from_fm` | boolean | AM API may set this when linking via REST |
 
@@ -49,6 +49,19 @@ If FM’s trip IDs are not Firestore doc IDs (e.g. only a business code exists),
 
 - Store that code in `trip_id` **consistently** in both systems, or  
 - Add an optional field on the manifest such as `trip_code` in a future AM change (not in scope unless agreed).
+
+### Per-stop cargo semantics (multi-stop deployments)
+
+For manifests attached to a trip with multiple stops:
+
+- Use `lines[].stop_number` for ordered leg mapping when `trip_stops` exists but IDs are not yet known to AM.
+- Prefer `lines[].stop_id` once FM `trip_stops.id` is available to avoid ambiguity after reorder.
+- `lines[].operation` meaning:
+  - `drop`: quantity leaves vehicle at this stop.
+  - `pickup`: quantity is loaded at this stop.
+  - `carry`: quantity remains onboard through this stop.
+
+Backward compatibility: manifests with no stop metadata remain valid and are treated as trip-level load plans.
 
 ---
 

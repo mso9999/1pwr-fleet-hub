@@ -208,6 +208,7 @@ export function ensureMissionsRowShape(db: Database.Database): void {
     ["approved_at", "TEXT DEFAULT NULL"],
     ["rejection_reason", "TEXT DEFAULT ''"],
     ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
+    ["trip_shape", "TEXT NOT NULL DEFAULT 'one_way'"],
     ["required_vehicle_class", "TEXT NOT NULL DEFAULT ''"],
     ["assigned_vehicle_id", "TEXT DEFAULT NULL"],
     ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
@@ -277,6 +278,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       approved_at TEXT DEFAULT NULL,
       rejection_reason TEXT DEFAULT '',
       mission_profile TEXT NOT NULL DEFAULT 'local',
+      trip_shape TEXT NOT NULL DEFAULT 'one_way',
       required_vehicle_class TEXT NOT NULL DEFAULT '',
       assigned_vehicle_id TEXT DEFAULT NULL,
       rr_status TEXT NOT NULL DEFAULT 'na',
@@ -294,6 +296,18 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS mission_stops (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+      stop_order INTEGER NOT NULL DEFAULT 1,
+      location TEXT NOT NULL,
+      load_out TEXT DEFAULT '',
+      load_in TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mission_stops_mission ON mission_stops(mission_id, stop_order);
     CREATE INDEX IF NOT EXISTS idx_missions_org ON missions(organization_id);
     CREATE INDEX IF NOT EXISTS idx_missions_org_status ON missions(organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
@@ -329,6 +343,7 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
     /** Older DBs may have been created before trip_id / mission-centric columns; SELECTs assume these exist. */
     ["trip_id", "TEXT"],
     ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
+    ["trip_shape", "TEXT NOT NULL DEFAULT 'one_way'"],
     ["required_vehicle_class", "TEXT NOT NULL DEFAULT ''"],
     ["assigned_vehicle_id", "TEXT DEFAULT NULL"],
     ["rr_status", "TEXT NOT NULL DEFAULT 'na'"],
@@ -344,6 +359,19 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
   }
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS mission_stops (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+      stop_order INTEGER NOT NULL DEFAULT 1,
+      location TEXT NOT NULL,
+      load_out TEXT DEFAULT '',
+      load_in TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mission_stops_mission ON mission_stops(mission_id, stop_order);
+
     CREATE TABLE IF NOT EXISTS vehicle_reservations (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
@@ -366,6 +394,13 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
   migrateTripsMissionId(db);
 
   const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE missions
+       SET trip_shape = 'one_way'
+       WHERE trim(COALESCE(trip_shape,'')) = ''
+          OR lower(trip_shape) NOT IN ('one_way','round_trip','multi_stop')`
+    ).run();
+
     db.prepare(
       `
       UPDATE missions SET
@@ -633,6 +668,7 @@ function initializeSchema(db: Database.Database): void {
       destination TEXT NOT NULL,
       arrival_location TEXT DEFAULT '',
       mission_type TEXT NOT NULL DEFAULT 'other',
+      trip_shape TEXT NOT NULL DEFAULT 'one_way',
       passengers TEXT DEFAULT '',
       load_out TEXT DEFAULT '',
       load_in TEXT DEFAULT '',
@@ -1400,6 +1436,7 @@ function migrateTripsPhase1(db: Database.Database): void {
     ["approved_by", "TEXT DEFAULT ''"],
     ["am_allocation_ids", "TEXT DEFAULT '[]'"],
     ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
+    ["trip_shape", "TEXT NOT NULL DEFAULT 'one_way'"],
   ];
 
   for (const [col, def] of additions) {

@@ -30,6 +30,7 @@ interface TripRow {
   destination: string;
   arrival_location: string;
   mission_type: string;
+  trip_shape?: string;
   mission_profile?: string;
   passengers: string;
   load_out: string;
@@ -39,9 +40,26 @@ interface TripRow {
   issues_observed: string;
   distance: number | null;
   source: string;
+  stops?: Array<{
+    id: string;
+    stop_number: number;
+    location: string;
+    arrived_at: string | null;
+    departed_at: string | null;
+    odo_reading: number | null;
+    load_out: string;
+    load_in: string;
+    notes: string;
+  }>;
 }
 
 interface RefItem { code: string; label: string; }
+function tripShapeLabel(shape?: string): string {
+  const s = String(shape || "").toLowerCase();
+  if (s === "round_trip") return "Round trip";
+  if (s === "multi_stop") return "Multi-stop";
+  return "One-way";
+}
 function TripsPageContent(): React.ReactElement {
   const { active, trackId, stepIndex } = useTutorial();
   const searchParams = useSearchParams();
@@ -59,7 +77,7 @@ function TripsPageContent(): React.ReactElement {
   const [isSaving, setIsSaving] = useState(false);
 
   const loadTrips = useCallback(() => {
-    fetch(`/api/trips?org=${organizationId}`)
+    fetch(`/api/trips?org=${organizationId}&includeStops=true`)
       .then((r) => r.json())
       .then((d) => { setTrips(d); setIsLoading(false); })
       .catch(() => setIsLoading(false));
@@ -93,6 +111,7 @@ function TripsPageContent(): React.ReactElement {
       destination: fd.get("destination"),
       arrivalLocation: fd.get("arrivalLocation"),
       missionType: fd.get("missionType"),
+      tripShape: fd.get("tripShape"),
       missionProfile: fd.get("missionProfile"),
       passengers: fd.get("passengers"),
       loadOut: fd.get("loadOut"),
@@ -112,6 +131,19 @@ function TripsPageContent(): React.ReactElement {
       loadTrips();
     }
     setIsSaving(false);
+  }
+
+  async function markStopEvent(tripId: string, stopId: string, action: "arrive" | "depart"): Promise<void> {
+    const odoRaw = window.prompt("Optional ODO reading at this stop (km):");
+    const odoReading = odoRaw && odoRaw.trim() ? Number(odoRaw) : null;
+    const payload: Record<string, unknown> = { action };
+    if (odoReading !== null && Number.isFinite(odoReading)) payload.odoReading = odoReading;
+    const res = await fetch(`/api/trips/${tripId}/stops/${stopId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) loadTrips();
   }
 
   const activeTrips = trips.filter((t) => !t.checkin_at);
@@ -230,6 +262,9 @@ function TripsPageContent(): React.ReactElement {
                           <Badge variant="secondary" className="text-[10px]">Local</Badge>
                         )}
                         {trip.vehicle_make ? `${trip.vehicle_make} ${trip.vehicle_model}` : null}
+                        <Badge variant="secondary" className="text-[10px]">
+                          {tripShapeLabel(trip.trip_shape)}
+                        </Badge>
                       </div>
                       <div className="text-sm text-zinc-600 mt-1">
                         {trip.departure_location} → {trip.destination}
@@ -249,8 +284,59 @@ function TripsPageContent(): React.ReactElement {
                     )}
                   </div>
                   <div className="px-4 pb-4 space-y-3">
+                    {Array.isArray(trip.stops) && trip.stops.length > 0 && (
+                      <div className="rounded-lg border border-zinc-200 bg-white p-3 space-y-2">
+                        <div className="text-xs font-medium text-zinc-500 uppercase">Stop execution</div>
+                        {trip.stops.map((s) => (
+                          <div key={s.id} className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="font-medium text-zinc-800">
+                                Stop {s.stop_number}: {s.location}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {!s.arrived_at && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-[11px]"
+                                    onClick={() => void markStopEvent(trip.id, s.id, "arrive")}
+                                  >
+                                    Mark arrived
+                                  </Button>
+                                )}
+                                {s.arrived_at && !s.departed_at && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-[11px]"
+                                    onClick={() => void markStopEvent(trip.id, s.id, "depart")}
+                                  >
+                                    Mark departed
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-zinc-600">
+                              Arrived: {s.arrived_at ? new Date(s.arrived_at).toLocaleString() : "—"} · Departed:{" "}
+                              {s.departed_at ? new Date(s.departed_at).toLocaleString() : "—"}
+                              {s.odo_reading != null ? ` · ODO ${Number(s.odo_reading).toLocaleString()} km` : ""}
+                            </div>
+                            {(s.load_out || s.load_in || s.notes) && (
+                              <div className="mt-1 text-zinc-700">
+                                {s.load_out ? `Load out: ${s.load_out}` : ""}
+                                {s.load_in ? `${s.load_out ? " · " : ""}Load in: ${s.load_in}` : ""}
+                                {s.notes ? `${s.load_out || s.load_in ? " · " : ""}${s.notes}` : ""}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <LoadoutManifestsSection
                       tripId={trip.id}
+                      tripStops={trip.stops || []}
                       tripLabel={`${trip.vehicle_code} · ${trip.departure_location} → ${trip.destination} · ${new Date(trip.checkout_at).toLocaleDateString()}`}
                     />
                     <TripOdometerLog
@@ -435,6 +521,11 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                       <option value={MISSION_PROFILE.LOCAL}>Local / in-town</option>
                       <option value={MISSION_PROFILE.FIELD}>Field deployment</option>
                     </Select>
+                    <Select name="tripShape" label="Trip shape" defaultValue={trip.trip_shape || "one_way"}>
+                      <option value="one_way">One-way</option>
+                      <option value="round_trip">Round trip</option>
+                      <option value="multi_stop">Multi-stop</option>
+                    </Select>
                     <Input name="passengers" label="Passengers" defaultValue={trip.passengers} />
                     <div>
                       <label className="text-sm font-medium text-zinc-700">Load Out</label>
@@ -476,6 +567,10 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Trip kind</div>
                       <div>{(trip.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? "Field deployment" : "Local / in-town"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-500 uppercase font-medium">Trip shape</div>
+                      <div>{tripShapeLabel(trip.trip_shape)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Distance</div>
@@ -523,6 +618,23 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                     )}
                   </div>
 
+                  {Array.isArray(trip.stops) && trip.stops.length > 0 && (
+                    <div className="rounded-lg border border-zinc-200 bg-white p-3">
+                      <div className="text-xs text-zinc-500 uppercase font-medium mb-2">Stop timeline</div>
+                      <ul className="space-y-1.5 text-xs text-zinc-700">
+                        {trip.stops.map((s) => (
+                          <li key={s.id}>
+                            <span className="font-medium">#{s.stop_number} {s.location}</span>
+                            <span className="text-zinc-500 ml-2">
+                              Arrived {s.arrived_at ? new Date(s.arrived_at).toLocaleString() : "—"} · Departed{" "}
+                              {s.departed_at ? new Date(s.departed_at).toLocaleString() : "—"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <TripOdometerLog
                     tripId={trip.id}
                     organizationId={organizationId}
@@ -539,6 +651,7 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
 
                   <LoadoutManifestsSection
                     tripId={trip.id}
+                    tripStops={trip.stops || []}
                     tripLabel={`${trip.vehicle_code} · ${new Date(trip.checkout_at).toLocaleDateString()}`}
                   />
 

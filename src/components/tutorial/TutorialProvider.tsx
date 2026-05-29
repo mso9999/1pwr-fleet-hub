@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef, Suspense } from "rea
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getTutorialSteps } from "@/lib/tutorial-steps";
+import { useLocaleContext } from "@/i18n/locale-context";
 import { TutorialOverlay } from "./TutorialOverlay";
 import { TutorialContext } from "./tutorial-context";
 
@@ -63,12 +64,13 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
   const router = useRouter();
   const pathname = usePathname();
   const { organizationId } = useAuth();
+  const { locale } = useLocaleContext();
   const [active, setActive] = useState(false);
   const [trackId, setTrackId] = useState("overview");
   const [stepIndex, setStepIndex] = useState(0);
   const seededRef = useRef<Set<string>>(new Set());
 
-  const steps = useMemo(() => getTutorialSteps(trackId), [trackId]);
+  const steps = useMemo(() => getTutorialSteps(trackId, locale), [trackId, locale]);
   const totalSteps = steps.length;
 
   const runCleanup = useCallback(async () => {
@@ -108,10 +110,10 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
           /* non-fatal — user can still follow narration */
         }
       }
-      const first = getTutorialSteps(tid)[0];
+      const first = getTutorialSteps(tid, locale)[0];
       router.push(first.path);
     },
-    [router, organizationId]
+    [router, organizationId, locale]
   );
 
   const next = useCallback(async () => {

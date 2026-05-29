@@ -8,8 +8,52 @@ import {
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
+import {
+  normalizeRouteStops,
+  normalizeTripShape,
+  validateRoutePlan,
+} from "@/lib/trip-route";
 
 export const runtime = "nodejs";
+
+type MissionListRow = Record<string, unknown> & {
+  id: string;
+};
+
+function withMissionStops(
+  db: ReturnType<typeof getDb>,
+  rows: MissionListRow[]
+): MissionListRow[] {
+  if (rows.length === 0) return rows;
+  const ids = rows.map((r) => String(r.id || ""));
+  const placeholders = ids.map(() => "?").join(", ");
+  const stopRows = db
+    .prepare(
+      `SELECT mission_id, stop_order, location, load_out, load_in, notes
+       FROM mission_stops
+       WHERE mission_id IN (${placeholders})
+       ORDER BY mission_id, stop_order`
+    )
+    .all(...ids) as Array<{
+    mission_id: string;
+    stop_order: number;
+    location: string;
+    load_out: string;
+    load_in: string;
+    notes: string;
+  }>;
+  const byMission = new Map<string, typeof stopRows>();
+  for (const s of stopRows) {
+    const arr = byMission.get(s.mission_id) ?? [];
+    arr.push(s);
+    byMission.set(s.mission_id, arr);
+  }
+  return rows.map((r) => {
+    const stops = byMission.get(String(r.id || "")) ?? [];
+    return { ...r, stops, stop_count: stops.length };
+  });
+}
 
 /**
  * Planned missions (trip shells) — linked from vehicle requests before an operational trip checkout exists.
@@ -32,7 +76,7 @@ export function GET(request: NextRequest): NextResponse {
     SELECT m.id, m.organization_id, m.title, m.destination, m.departure_date, m.return_date, m.mission_type,
            m.passengers, m.loadout_summary, m.notes, m.status, m.trip_id,
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
-           m.mission_profile, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
+           m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
            m.created_by_id, m.created_by_name, m.created_at, m.updated_at,
            v.code AS assigned_vehicle_code
@@ -84,14 +128,14 @@ export function GET(request: NextRequest): NextResponse {
   const execList = () => db.prepare(sql).all(...params);
 
   try {
-    const rows = execList();
+    const rows = withMissionStops(db, execList() as MissionListRow[]);
     return NextResponse.json(rows);
   } catch (e) {
     console.error("[api/missions GET] first attempt", { org, status, approvalStatus, tripCheckoutEligible, err: e });
     /** Schema drift / partial migrations only — fixed queries like `m.status` do not need this. */
     repairListSchema();
     try {
-      const rows = execList();
+      const rows = withMissionStops(db, execList() as MissionListRow[]);
       return NextResponse.json(rows);
     } catch (e2) {
       const message = e2 instanceof Error ? e2.message : String(e2);
@@ -122,11 +166,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.json();
   const organizationId = String(body.organizationId || "1pwr_lesotho");
   const db = getDb();
+  const rollout = isMultiStopRolloutEnabledServer();
+  const tripShape = rollout ? normalizeTripShape(body.tripShape) : "one_way";
+  const stops = rollout ? normalizeRouteStops(body.stops) : [];
+  const destination = String(body.destination || "").trim();
+  const routeValidationError = validateRoutePlan({ tripShape, destination, stops });
+  if (routeValidationError) {
+    return NextResponse.json({ error: routeValidationError }, { status: 400 });
+  }
 
   const id = insertPlannedMission(db, {
     organizationId,
     title: String(body.title || ""),
-    destination: String(body.destination || ""),
+    destination,
     departureDate: String(body.departureDate || ""),
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "other"),
@@ -136,6 +188,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     createdById: user.id,
     createdByName: user.name || user.email,
     missionProfile: String(body.missionProfile || "local"),
+    tripShape,
+    stops,
     requiredVehicleClass: String(body.requiredVehicleClass || ""),
     rrStatus: String(body.rrStatus || "na"),
   });
@@ -152,7 +206,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       destination: row.destination,
       departure_date: row.departure_date,
       mission_profile: row.mission_profile,
+      trip_shape: row.trip_shape,
       required_vehicle_class: row.required_vehicle_class,
+      stop_count: stops.length,
     },
   });
   return NextResponse.json(row, { status: 201 });

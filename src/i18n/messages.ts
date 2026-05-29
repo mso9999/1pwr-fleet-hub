@@ -115,6 +115,17 @@ const en = {
   tutorial: {
     mode: "Tutorials",
     chooseTrack: "Choose a tutorial…",
+    overlay: {
+      missingTarget: "Open the highlighted navigation item or tap Next — the page is still loading.",
+      rolePrefix: "Role",
+      tipPrefix: "Tip",
+      back: "Back",
+      next: "Next",
+      finish: "Finish tutorial",
+      exitCleanup: "Exit & clean up",
+      stepLabel: "Step",
+      ofLabel: "of",
+    },
   },
   language: {
     en: "EN",
@@ -362,6 +373,17 @@ const fr: MessageTree = {
   tutorial: {
     mode: "Tutoriels",
     chooseTrack: "Choisir un tutoriel…",
+    overlay: {
+      missingTarget: "Ouvrez l'element de navigation en surbrillance ou appuyez sur Suivant — la page charge encore.",
+      rolePrefix: "Role",
+      tipPrefix: "Conseil",
+      back: "Retour",
+      next: "Suivant",
+      finish: "Terminer le tutoriel",
+      exitCleanup: "Quitter et nettoyer",
+      stepLabel: "Etape",
+      ofLabel: "sur",
+    },
   },
   language: {
     en: "EN",

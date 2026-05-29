@@ -18,6 +18,7 @@ import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 import { lPer100kmToUsMpg } from "@/lib/vehicle-fuel-lookup";
 import { useOverrideCapability } from "@/lib/useOverrideCapability";
 import { cn } from "@/lib/utils";
+import { isMultiStopRolloutEnabled } from "@/lib/feature-flags";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -62,9 +63,19 @@ interface RequestRow {
   mission_destination?: string | null;
   mission_departure_date?: string | null;
   mission_return_date?: string | null;
+  mission_trip_shape?: string | null;
   mission_status?: string | null;
   mission_trip_id?: string | null;
   mission_approval_status?: string | null;
+}
+
+interface MissionStopRow {
+  id?: string;
+  stop_order: number;
+  location: string;
+  load_out?: string;
+  load_in?: string;
+  notes?: string;
 }
 
 interface PoolVehicle {
@@ -133,6 +144,28 @@ function normalizeRr(s: string | undefined): string {
   return t === "pending" || t === "approved" ? t : "na";
 }
 
+function normalizeTripShape(s: string | undefined): "one_way" | "round_trip" | "multi_stop" {
+  const v = String(s || "").toLowerCase();
+  if (v === "round_trip") return "round_trip";
+  if (v === "multi_stop") return "multi_stop";
+  return "one_way";
+}
+
+function tripShapeLabel(s: string | undefined): string {
+  const v = normalizeTripShape(s);
+  if (v === "round_trip") return "Round trip";
+  if (v === "multi_stop") return "Multi-stop";
+  return "One-way";
+}
+
+function missionRouteSummary(m: PlannedMissionRow): string {
+  const stops = Array.isArray(m.stops) ? m.stops : [];
+  const ordered = [...stops].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
+  const points = ordered.map((s) => String(s.location || "").trim()).filter(Boolean);
+  if (points.length > 0) return points.join(" -> ");
+  return String(m.destination || "").trim() || "—";
+}
+
 interface RefRow {
   code: string;
   label: string;
@@ -150,6 +183,9 @@ interface PlannedMissionRow {
   status: string;
   approval_status?: string;
   mission_profile?: string;
+  trip_shape?: string;
+  stops?: MissionStopRow[];
+  stop_count?: number;
   required_vehicle_class?: string;
   assigned_vehicle_id?: string | null;
   assigned_vehicle_code?: string | null;
@@ -165,6 +201,13 @@ interface PlannedMissionRow {
   rejection_reason?: string;
   created_by_id?: string;
   updated_at?: string;
+}
+
+interface RouteStopInput {
+  location: string;
+  loadOut: string;
+  loadIn: string;
+  notes: string;
 }
 
 function missionApprovalStage(statusRaw: string | undefined): {
@@ -719,12 +762,20 @@ export default function VehicleRequestsPage() {
                         {m.destination} · {m.departure_date}
                         {m.return_date ? ` → ${m.return_date}` : ""}
                       </span>
+                      <div className="text-xs text-zinc-600 mt-1">
+                        <span className="font-medium">Route:</span> {missionRouteSummary(m)}
+                      </div>
                     </div>
-                    {m.required_vehicle_class && (
+                    <div className="flex flex-wrap gap-1 shrink-0">
                       <Badge variant="secondary" className="text-[10px] shrink-0">
-                        Class: {m.required_vehicle_class}
+                        {tripShapeLabel(m.trip_shape)}
                       </Badge>
-                    )}
+                      {m.required_vehicle_class && (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">
+                          Class: {m.required_vehicle_class}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <FleetMissionReserveRow
                     mission={m}
@@ -781,6 +832,9 @@ export default function VehicleRequestsPage() {
                         {m.departure_date}
                         {m.assigned_vehicle_code ? ` · ${m.assigned_vehicle_code}` : " · no vehicle"}
                       </span>
+                      <div className="text-xs text-zinc-600 mt-1">
+                        {tripShapeLabel(m.trip_shape)} · {missionRouteSummary(m)}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1.5 shrink-0">
                       {arbActive ? (
@@ -859,8 +913,12 @@ export default function VehicleRequestsPage() {
                         {m.destination} · {m.departure_date}
                         {m.return_date ? ` → ${m.return_date}` : ""}
                       </div>
+                      <div className="text-xs text-zinc-600 mt-1">
+                        <span className="font-medium">Route:</span> {missionRouteSummary(m)}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1 shrink-0">
+                      <Badge variant="secondary">{tripShapeLabel(m.trip_shape)}</Badge>
                       {m.mission_profile && (
                         <Badge variant="secondary" className="capitalize">
                           {m.mission_profile}
@@ -897,6 +955,14 @@ export default function VehicleRequestsPage() {
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">Mission type</dt>
                         <dd className="text-zinc-900 mt-0.5">{m.mission_type || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Trip shape</dt>
+                        <dd className="text-zinc-900 mt-0.5">{tripShapeLabel(m.trip_shape)}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500 uppercase tracking-wide">Planned route</dt>
+                        <dd className="text-zinc-900 mt-0.5">{missionRouteSummary(m)}</dd>
                       </div>
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">R&amp;R</dt>
@@ -1374,6 +1440,12 @@ function RequestDetailModal({
                 {r.mission_return_date ? ` → ${r.mission_return_date}` : ""}
                 {r.mission_status ? ` · ${r.mission_status}` : ""}
               </div>
+              {r.mission_trip_shape && (
+                <div className="text-zinc-700 text-xs">
+                  <span className="text-zinc-500">Trip shape: </span>
+                  {tripShapeLabel(r.mission_trip_shape)}
+                </div>
+              )}
               {r.mission_approval_status && (
                 <div className="text-zinc-700 text-xs">
                   <span className="text-zinc-500">PR mission approval: </span>
@@ -1691,6 +1763,7 @@ function RequestForm({
   onComplete: () => void;
   onCancel: () => void;
 }) {
+  const multiStopEnabled = isMultiStopRolloutEnabled();
   const [vrSubmitting, setVrSubmitting] = useState(false);
   const [missionSubmitting, setMissionSubmitting] = useState(false);
   const [missionFormError, setMissionFormError] = useState("");
@@ -1709,6 +1782,11 @@ function RequestForm({
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [destinationChoice, setDestinationChoice] = useState("");
   const [destinationOther, setDestinationOther] = useState("");
+  const [tripShape, setTripShape] = useState<"one_way" | "round_trip" | "multi_stop">("one_way");
+  const [routeOrigin, setRouteOrigin] = useState("HQ");
+  const [routeStops, setRouteStops] = useState<RouteStopInput[]>([
+    { location: "", loadOut: "", loadIn: "", notes: "" },
+  ]);
   const [requestedForChoice, setRequestedForChoice] = useState("");
   const [requestedForOther, setRequestedForOther] = useState("");
   const [designatedOperator, setDesignatedOperator] = useState<DesignatedOperatorSelection | null>(null);
@@ -1813,6 +1891,22 @@ function RequestForm({
   const siteRows = sites.filter((s) => s.code !== "OTHER");
   const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
 
+  function addRouteStop(): void {
+    setRouteStops((prev) => [...prev, { location: "", loadOut: "", loadIn: "", notes: "" }]);
+  }
+
+  function updateRouteStop(idx: number, field: keyof RouteStopInput, value: string): void {
+    setRouteStops((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
+  }
+
+  function removeRouteStop(idx: number): void {
+    setRouteStops((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function resubmitMissionForApproval(missionId: string): Promise<void> {
     const ok = window.confirm(
       "Resubmit this mission for management approval now? Make sure required changes are complete."
@@ -1861,6 +1955,27 @@ function RequestForm({
       setMissionFormError("Select the vehicle type / asset class required for this mission.");
       return;
     }
+    const normalizedStops = routeStops
+      .map((s) => ({
+        location: s.location.trim(),
+        loadOut: s.loadOut.trim(),
+        loadIn: s.loadIn.trim(),
+        notes: s.notes.trim(),
+      }))
+      .filter((s) => s.location);
+    if (multiStopEnabled && tripShape === "multi_stop" && normalizedStops.length < 2) {
+      setMissionFormError("Multi-stop missions need at least two planned stops.");
+      return;
+    }
+    const finalStops =
+      !multiStopEnabled || tripShape === "one_way"
+        ? []
+        : tripShape === "round_trip"
+          ? [
+              ...(normalizedStops.length > 0 ? normalizedStops : [{ location: destination, loadOut: "", loadIn: "", notes: "" }]),
+              { location: routeOrigin.trim() || "HQ", loadOut: "", loadIn: "", notes: "Return leg" },
+            ]
+          : normalizedStops;
     setMissionSubmitting(true);
     const res = await fetch("/api/missions", {
       method: "POST",
@@ -1876,6 +1991,8 @@ function RequestForm({
         missionType: "other",
         notes: String(fd.get("cmNotes") || ""),
         missionProfile: String(fd.get("cmMissionProfile") || "local"),
+        tripShape: multiStopEnabled ? tripShape : "one_way",
+        stops: multiStopEnabled ? finalStops : [],
         requiredVehicleClass: reqClass,
         rrStatus: String(fd.get("cmRrStatus") || "na"),
       }),
@@ -1888,6 +2005,9 @@ function RequestForm({
       e.currentTarget.reset();
       setDestinationChoice("");
       setDestinationOther("");
+      setTripShape("one_way");
+      setRouteOrigin("HQ");
+      setRouteStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
       loadApprovedMissions();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -1970,7 +2090,7 @@ function RequestForm({
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            One form captures timeframe, destination, mission profile (local vs field), required vehicle asset class, loadout, and R&amp;R. Management approves the mission; fleet then reserves a pool vehicle on the mission (not a free-text vehicle code).
+            One form captures timeframe, route shape (one-way, round-trip, multi-stop), destination, mission profile, required vehicle class, loadout, and R&amp;R. Management approves the mission; fleet then reserves a pool vehicle on the mission.
           </p>
         </CardHeader>
         <CardContent>
@@ -2033,6 +2153,84 @@ function RequestForm({
               <Input name="cmDepartureDate" label="Departure date *" type="date" required />
               <Input name="cmReturnDate" label="Return date" type="date" />
             </div>
+            {multiStopEnabled && (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-zinc-700">Trip shape *</label>
+                  <select
+                    value={tripShape}
+                    onChange={(e) =>
+                      setTripShape(
+                        e.target.value === "round_trip"
+                          ? "round_trip"
+                          : e.target.value === "multi_stop"
+                            ? "multi_stop"
+                            : "one_way"
+                      )
+                    }
+                    className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="one_way">One-way</option>
+                    <option value="round_trip">Round trip</option>
+                    <option value="multi_stop">Multi-stop</option>
+                  </select>
+                </div>
+                {tripShape !== "one_way" && (
+                  <Input
+                    label="Route origin (for return leg)"
+                    value={routeOrigin}
+                    onChange={(e) => setRouteOrigin(e.target.value)}
+                    placeholder="HQ"
+                  />
+                )}
+              </div>
+            )}
+            {multiStopEnabled && tripShape !== "one_way" && (
+              <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/20 p-4">
+                <p className="text-xs font-medium text-zinc-500 uppercase">Planned stops</p>
+                {routeStops.map((stop, idx) => (
+                  <div key={idx} className="grid gap-2 sm:grid-cols-5 items-end">
+                    <select
+                      value={stop.location}
+                      onChange={(e) => updateRouteStop(idx, "location", e.target.value)}
+                      className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">Stop location…</option>
+                      {siteRows.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.code} — {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      label="Load out"
+                      value={stop.loadOut}
+                      onChange={(e) => updateRouteStop(idx, "loadOut", e.target.value)}
+                    />
+                    <Input
+                      label="Load in"
+                      value={stop.loadIn}
+                      onChange={(e) => updateRouteStop(idx, "loadIn", e.target.value)}
+                    />
+                    <Input
+                      label="Stop notes"
+                      value={stop.notes}
+                      onChange={(e) => updateRouteStop(idx, "notes", e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      {routeStops.length > 1 && (
+                        <Button type="button" variant="outline" size="sm" onClick={() => removeRouteStop(idx)}>
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={addRouteStop}>
+                  + Add stop
+                </Button>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Input name="cmPassengers" label="Passengers" placeholder="Number or names" />
               <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
@@ -2190,6 +2388,8 @@ function RequestForm({
                       m.return_date,
                       m.required_vehicle_class ?? "",
                       m.mission_profile ?? "",
+                      m.trip_shape ?? "",
+                      missionRouteSummary(m),
                     ],
                   }))}
                   emptyState={
@@ -2208,6 +2408,10 @@ function RequestForm({
                 <div className="text-sm text-zinc-700 rounded-md border border-zinc-200 bg-zinc-50/80 px-3 py-2">
                   <span className="text-zinc-500">Mission: </span>
                   {selectedMission.destination} · {selectedMission.departure_date}
+                  <span className="ml-2 text-zinc-500">· {tripShapeLabel(selectedMission.trip_shape)}</span>
+                  <div className="text-xs text-zinc-600 mt-1">
+                    <span className="font-medium">Route:</span> {missionRouteSummary(selectedMission)}
+                  </div>
                 </div>
               )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

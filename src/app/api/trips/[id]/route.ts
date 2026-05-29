@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import { normalizeRouteStops } from "@/lib/trip-route";
 
 function tripAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -64,6 +65,7 @@ export async function PATCH(
     destination: "destination",
     arrivalLocation: "arrival_location",
     missionType: "mission_type",
+    tripShape: "trip_shape",
     missionProfile: "mission_profile",
     passengers: "passengers",
     loadOut: "load_out",
@@ -85,7 +87,7 @@ export async function PATCH(
     }
   }
 
-  if (fields.length === 0) {
+  if (fields.length === 0 && body.stops === undefined) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
@@ -98,13 +100,36 @@ export async function PATCH(
     }
   }
 
-  values.push(id);
-  db.prepare(`UPDATE trips SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  const incomingStops = body.stops !== undefined ? normalizeRouteStops(body.stops) : null;
+  const tx = db.transaction(() => {
+    if (fields.length > 0) {
+      values.push(id);
+      db.prepare(`UPDATE trips SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    }
+    if (incomingStops !== null) {
+      db.prepare("DELETE FROM trip_stops WHERE trip_id = ?").run(id);
+      if (incomingStops.length > 0) {
+        const insStop = db.prepare(`
+          INSERT INTO trip_stops (id, trip_id, stop_number, location, load_out, load_in, notes)
+          VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)
+        `);
+        for (let i = 0; i < incomingStops.length; i += 1) {
+          const s = incomingStops[i];
+          insStop.run(id, i + 1, s.location, s.loadOut, s.loadIn, s.notes);
+        }
+      }
+    }
+  });
+  tx();
 
   const updated = db.prepare(`
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
     FROM trips t JOIN vehicles v ON t.vehicle_id = v.id WHERE t.id = ?
   `).get(id);
+
+  const updatedStops = db
+    .prepare("SELECT * FROM trip_stops WHERE trip_id = ? ORDER BY stop_number ASC")
+    .all(id) as Record<string, unknown>[];
 
   recordMutation(db, {
     entityType: "trip",
@@ -113,10 +138,13 @@ export async function PATCH(
     action: "update",
     actor: actorFrom(user),
     before: beforeSnap,
-    after: tripAuditSubset(updated as Record<string, unknown>),
+    after: {
+      ...tripAuditSubset(updated as Record<string, unknown>),
+      stop_count: updatedStops.length,
+    },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...(updated as Record<string, unknown>), stops: updatedStops });
 }
 
 export async function DELETE(
