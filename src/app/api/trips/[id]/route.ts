@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { normalizeRouteStops } from "@/lib/trip-route";
+import { canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
 
 function tripAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -18,11 +19,26 @@ function tripAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
+  const isDraft = request.nextUrl.searchParams.get("draft") === "true";
+
+  if (isDraft) {
+    const user = await getVerifiedFleetUser(request);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const draft = db.prepare("SELECT * FROM trip_drafts WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    const canView = canViewPrivateDraft({
+      role: user.role,
+      department: user.department,
+      isCreator: String(draft.created_by_id || "") === user.id,
+    });
+    if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return NextResponse.json(draft);
+  }
 
   const trip = db.prepare(`
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
@@ -50,6 +66,27 @@ export async function PATCH(
   const user = await getVerifiedFleetUser(request);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const isDraft = request.nextUrl.searchParams.get("draft") === "true";
+
+  if (isDraft) {
+    const existingDraft = db.prepare("SELECT * FROM trip_drafts WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!existingDraft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    const canEdit = canEditPrivateDraft({
+      role: user.role,
+      department: user.department,
+      isCreator: String(existingDraft.created_by_id || "") === user.id,
+    });
+    if (!canEdit) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const prevPayload = JSON.parse(String(existingDraft.payload_json || "{}")) as Record<string, unknown>;
+    const nextPayload = { ...prevPayload, ...body, updatedAt: new Date().toISOString() };
+    db.prepare(
+      `UPDATE trip_drafts
+       SET mission_id = ?, payload_json = ?, updated_at = datetime('now'), expires_at = datetime('now', '+30 days')
+       WHERE id = ?`
+    ).run(String(body.missionId || existingDraft.mission_id || ""), JSON.stringify(nextPayload), id);
+    const updatedDraft = db.prepare("SELECT * FROM trip_drafts WHERE id = ?").get(id) as Record<string, unknown>;
+    return NextResponse.json(updatedDraft);
   }
 
   const existing = db.prepare("SELECT * FROM trips WHERE id = ?").get(id);
@@ -156,6 +193,20 @@ export async function DELETE(
   const user = await getVerifiedFleetUser(request);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const isDraft = request.nextUrl.searchParams.get("draft") === "true";
+
+  if (isDraft) {
+    const draft = db.prepare("SELECT * FROM trip_drafts WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    const canDelete = canEditPrivateDraft({
+      role: user.role,
+      department: user.department,
+      isCreator: String(draft.created_by_id || "") === user.id,
+    });
+    if (!canDelete) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    db.prepare("DELETE FROM trip_drafts WHERE id = ?").run(id);
+    return NextResponse.json({ success: true });
   }
 
   const trip = db.prepare("SELECT * FROM trips WHERE id = ?").get(id) as Record<string, unknown> | undefined;

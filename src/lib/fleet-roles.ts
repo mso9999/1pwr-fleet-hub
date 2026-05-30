@@ -114,11 +114,12 @@ export function canManageFleetMechanics(role: string, department?: string | null
 }
 
 /** Every signed-in user can see the fleet mechanics roster (read-only). */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function canViewFleetMechanicsRegister(
-  role: string,
-  department?: string | null
+  _role: string,
+  _department?: string | null
 ): boolean {
+  void _role;
+  void _department;
   return true;
 }
 
@@ -131,4 +132,30 @@ export function canSignOffVehicleStatus(role: string): boolean {
   if (isExecutiveRole(role)) return true;
   if (isFinanceOrSuperAdmin(role)) return true;
   return false;
+}
+
+/**
+ * Private mission/trip draft visibility policy:
+ * - creator can always view/edit own drafts
+ * - admin/superadmin can view/edit all drafts
+ * - IT department can view/edit all drafts
+ * - fleet manager roles (fleet_lead, manager) do NOT get access by role alone
+ */
+export function canViewPrivateDraft(args: {
+  role: string;
+  department?: string | null;
+  isCreator: boolean;
+}): boolean {
+  if (args.isCreator) return true;
+  const role = (args.role || "").toLowerCase();
+  if (role === "admin" || role === "superadmin") return true;
+  return isItDepartment(args.department);
+}
+
+export function canEditPrivateDraft(args: {
+  role: string;
+  department?: string | null;
+  isCreator: boolean;
+}): boolean {
+  return canViewPrivateDraft(args);
 }

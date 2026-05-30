@@ -7,21 +7,48 @@ import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
+import { canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
   normalizeTripShape,
   routeStopsEqual,
 } from "@/lib/trip-route";
 
-export function GET(request: NextRequest): NextResponse {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const { searchParams } = new URL(request.url);
+  const draftsOnly = searchParams.get("drafts") === "true";
   const vehicleId = searchParams.get("vehicleId");
   const active = searchParams.get("active");
   const includeStops = searchParams.get("includeStops") === "true";
 
   const org = searchParams.get("org") || "1pwr_lesotho";
   const allOrgs = searchParams.get("allOrgs") === "true" && vehicleId;
+
+  if (draftsOnly) {
+    const user = await getVerifiedFleetUser(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    db.prepare(
+      "DELETE FROM trip_drafts WHERE status = 'draft' AND datetime(expires_at) <= datetime('now')"
+    ).run();
+    const rows = db
+      .prepare(
+        `SELECT * FROM trip_drafts
+         WHERE organization_id = ? AND status = 'draft'
+         ORDER BY updated_at DESC LIMIT 200`
+      )
+      .all(org) as Array<Record<string, unknown>>;
+    const visible = rows.filter((row) =>
+      canViewPrivateDraft({
+        role: user.role,
+        department: user.department,
+        isCreator: String(row.created_by_id || "") === user.id,
+      })
+    );
+    return NextResponse.json(visible);
+  }
 
   let query = `
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
@@ -75,9 +102,65 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   const db = getDb();
   const body = await request.json();
+  const action = String(body.action || body.intent || "").toLowerCase();
+  const organizationId = String(body.organizationId || "1pwr_lesotho");
+
+  if (action === "savedraft" || action === "save_draft" || action === "draft") {
+    db.prepare(
+      "DELETE FROM trip_drafts WHERE status = 'draft' AND datetime(expires_at) <= datetime('now')"
+    ).run();
+    const draftId = typeof body.draftId === "string" && body.draftId.trim()
+      ? body.draftId.trim()
+      : uuidv4();
+    const missionId = typeof body.missionId === "string" ? body.missionId.trim() : "";
+    const now = new Date().toISOString();
+    const payload = {
+      missionId,
+      driverName: String(body.driverName || ""),
+      odoStart: body.odoStart ?? "",
+      departureLocation: String(body.departureLocation || ""),
+      destination: String(body.destination || ""),
+      missionType: String(body.missionType || "other"),
+      passengers: String(body.passengers || ""),
+      loadOut: String(body.loadOut || ""),
+      loadIn: String(body.loadIn || ""),
+      stops: Array.isArray(body.stops) ? body.stops : [],
+      routeChangeReason: String(body.routeChangeReason || ""),
+      overrideReason: String(body.overrideReason || ""),
+      tripShape: normalizeTripShape(body.tripShape),
+      missionProfile: String(body.missionProfile || "local"),
+      updatedAt: now,
+    };
+
+    const existing = db
+      .prepare("SELECT id, created_by_id FROM trip_drafts WHERE id = ?")
+      .get(draftId) as { id: string; created_by_id: string } | undefined;
+    if (existing && existing.created_by_id !== user.id && user.role !== "admin" && user.role !== "superadmin") {
+      return NextResponse.json({ error: "Not allowed to edit this trip draft." }, { status: 403 });
+    }
+
+    if (existing) {
+      db.prepare(
+        `UPDATE trip_drafts
+         SET organization_id = ?, mission_id = ?, payload_json = ?, updated_at = ?, expires_at = datetime('now', '+30 days')
+         WHERE id = ?`
+      ).run(organizationId, missionId, JSON.stringify(payload), now, draftId);
+    } else {
+      db.prepare(
+        `INSERT INTO trip_drafts (
+           id, organization_id, created_by_id, created_by_name, mission_id, payload_json, status, expires_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 'draft', datetime('now', '+30 days'), ?, ?)`
+      ).run(draftId, organizationId, user.id, user.name || user.email, missionId, JSON.stringify(payload), now, now);
+    }
+
+    const row = db
+      .prepare("SELECT * FROM trip_drafts WHERE id = ?")
+      .get(draftId) as Record<string, unknown> | undefined;
+    return NextResponse.json(row ?? { id: draftId }, { status: existing ? 200 : 201 });
+  }
+
   const id = uuidv4();
   const now = new Date().toISOString();
-  const organizationId = body.organizationId || "1pwr_lesotho";
   const rawVehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
   const hasVehicle = rawVehicleId.length > 0;
 

@@ -10,7 +10,7 @@ import { VehicleCheckApproversAdmin } from "@/components/VehicleCheckApproversAd
 import { PvrRatesAdmin } from "@/components/PvrRatesAdmin";
 import { SiteCoordsPicker } from "@/components/SiteCoordsPicker";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
-import { jsonHeadersWithBearer } from "@/lib/client-bearer";
+import { bearerAuthHeaders, jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { canManageFleetMechanics } from "@/lib/fleet-roles";
 
 interface RefItem {
@@ -36,9 +36,16 @@ interface OrgRow {
 function parseSiteMeta(meta: string | null | undefined): { lat: number; lng: number } | null {
   if (!meta?.trim()) return null;
   try {
-    const o = JSON.parse(meta) as { lat?: unknown; lng?: unknown };
-    const lat = typeof o.lat === "number" ? o.lat : Number(o.lat);
-    const lng = typeof o.lng === "number" ? o.lng : Number(o.lng);
+    const o = JSON.parse(meta) as {
+      lat?: unknown;
+      lng?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
+    };
+    const latRaw = o.lat ?? o.latitude;
+    const lngRaw = o.lng ?? o.longitude;
+    const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+    const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     return { lat, lng };
   } catch {
@@ -55,6 +62,8 @@ function mergeSiteMeta(meta: string | null | undefined, lat: number, lng: number
   }
   o.lat = lat;
   o.lng = lng;
+  o.latitude = lat;
+  o.longitude = lng;
   return JSON.stringify(o);
 }
 
@@ -84,6 +93,7 @@ export default function AdminPage() {
   const [newSort, setNewSort] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncingPr, setIsSyncingPr] = useState(false);
+  const [isSyncingUgp, setIsSyncingUgp] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [gpsEditingId, setGpsEditingId] = useState<string | null>(null);
   const [gpsLat, setGpsLat] = useState("");
@@ -112,7 +122,7 @@ export default function AdminPage() {
     if (!newCode.trim() || !newLabel.trim()) return;
     await fetch("/api/reference-data", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({
         organization_id: organizationId,
         type: selectedType,
@@ -130,7 +140,7 @@ export default function AdminPage() {
   async function handleUpdate(id: string): Promise<void> {
     await fetch(`/api/reference-data/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ label: editLabel, sort_order: editSort }),
     });
     setEditingId(null);
@@ -140,7 +150,7 @@ export default function AdminPage() {
   async function handleToggleActive(item: RefItem): Promise<void> {
     await fetch(`/api/reference-data/${item.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ active: item.active ? 0 : 1 }),
     });
     loadItems();
@@ -148,7 +158,10 @@ export default function AdminPage() {
 
   async function handleDelete(id: string): Promise<void> {
     if (!confirm("Delete this item permanently?")) return;
-    await fetch(`/api/reference-data/${id}`, { method: "DELETE" });
+    await fetch(`/api/reference-data/${id}`, {
+      method: "DELETE",
+      headers: await bearerAuthHeaders(),
+    });
     loadItems();
   }
 
@@ -156,7 +169,10 @@ export default function AdminPage() {
     setIsSyncingPr(true);
     setSyncMessage(null);
     try {
-      const res = await fetch(`/api/sync/pr-reference?org=${organizationId}`, { method: "POST" });
+      const res = await fetch(`/api/sync/pr-reference?org=${organizationId}`, {
+        method: "POST",
+        headers: await bearerAuthHeaders(),
+      });
       const data = (await res.json()) as {
         success?: boolean;
         sites?: { upserted: number; deactivated: number };
@@ -175,6 +191,38 @@ export default function AdminPage() {
       setSyncMessage("Sync request failed");
     } finally {
       setIsSyncingPr(false);
+    }
+  }
+
+  async function syncFromUgp(): Promise<void> {
+    setIsSyncingUgp(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch("/api/sync/ugp-sites", {
+        method: "POST",
+        headers: await bearerAuthHeaders(),
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        upserted?: number;
+        created?: number;
+        updated?: number;
+        withCoords?: number;
+        missingCoords?: number;
+        error?: string;
+      };
+      if (data.success) {
+        setSyncMessage(
+          `UGP site sync OK — upserted: ${data.upserted ?? 0} (new ${data.created ?? 0}, updated ${data.updated ?? 0}), with GPS: ${data.withCoords ?? 0}, missing GPS: ${data.missingCoords ?? 0}`
+        );
+        loadItems();
+      } else {
+        setSyncMessage(data.error || "UGP sync failed");
+      }
+    } catch {
+      setSyncMessage("UGP sync request failed");
+    } finally {
+      setIsSyncingUgp(false);
     }
   }
 
@@ -207,7 +255,7 @@ export default function AdminPage() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     await fetch(`/api/reference-data/${item.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ meta: mergeSiteMeta(item.meta ?? null, lat, lng) }),
     });
     setGpsEditingId(null);
@@ -254,9 +302,14 @@ export default function AdminPage() {
             ).
           </p>
         </div>
-        <Button type="button" variant="outline" disabled={isSyncingPr} onClick={() => void syncFromPr()}>
-          {isSyncingPr ? "Syncing from PR…" : "Sync sites & departments from PR"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" disabled={isSyncingPr} onClick={() => void syncFromPr()}>
+            {isSyncingPr ? "Syncing from PR…" : "Sync sites & departments from PR"}
+          </Button>
+          <Button type="button" variant="outline" disabled={isSyncingUgp} onClick={() => void syncFromUgp()}>
+            {isSyncingUgp ? "Syncing from UGP…" : "Seed site GPS from UGP"}
+          </Button>
+        </div>
       </div>
       {syncMessage && (
         <p className={`text-sm ${/failed|Sync request/i.test(syncMessage) ? "text-red-600" : "text-emerald-700"}`}>

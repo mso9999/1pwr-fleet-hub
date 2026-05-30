@@ -84,7 +84,7 @@ async function fetchSinoTrackPosition(imei: string): Promise<TrackerPosition | n
   return null;
 }
 
-const SITE_COORDINATES: Record<string, { lat: number; lng: number }> = {
+const LEGACY_SITE_COORDINATES: Record<string, { lat: number; lng: number }> = {
   HQ: { lat: -29.3387, lng: 27.4618 },
   MAK: { lat: -29.1929, lng: 27.5681 },
   MAS: { lat: -29.3902, lng: 27.5603 },
@@ -98,6 +98,48 @@ const SITE_COORDINATES: Record<string, { lat: number; lng: number }> = {
   JHB: { lat: -26.205, lng: 28.0497 },
   OTHER: { lat: -29.3387, lng: 27.4618 },
 };
+
+function readSiteCoordsFromMeta(meta: string | null | undefined): { lat: number; lng: number } | null {
+  if (!meta || !meta.trim()) return null;
+  try {
+    const parsed = JSON.parse(meta) as {
+      lat?: unknown;
+      lng?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
+    };
+    const latRaw = parsed.lat ?? parsed.latitude;
+    const lngRaw = parsed.lng ?? parsed.longitude;
+    const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+    const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
+}
+
+function loadSiteCoordinates(
+  db: ReturnType<typeof getDb>,
+  organizationId: string
+): Record<string, { lat: number; lng: number }> {
+  const rows = db
+    .prepare(
+      `SELECT code, meta FROM reference_data
+       WHERE organization_id = ? AND type = 'site' AND active = 1`
+    )
+    .all(organizationId) as Array<{ code: string; meta: string | null }>;
+
+  const fromDb: Record<string, { lat: number; lng: number }> = {};
+  for (const row of rows) {
+    const code = String(row.code || "").trim().toUpperCase();
+    if (!code) continue;
+    const coords = readSiteCoordsFromMeta(row.meta);
+    if (coords) fromDb[code] = coords;
+  }
+
+  return { ...LEGACY_SITE_COORDINATES, ...fromDb };
+}
 
 interface VehicleRow {
   id: string;
@@ -136,6 +178,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (rewindHours > 144) rewindHours = 144;
 
   const db = getDb();
+  const siteCoordinates = loadSiteCoordinates(db, orgId);
   let vehicleSql = `SELECT id, code, make, model, license_plate, current_location, status,
             tracker_imei, tracker_status, tracker_provider
      FROM vehicles
@@ -200,7 +243,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const result = vehicles.map((v) => {
     const siteKey = v.current_location?.toUpperCase() || "HQ";
-    const coords = SITE_COORDINATES[siteKey] || SITE_COORDINATES["HQ"];
+    const coords = siteCoordinates[siteKey] || siteCoordinates["HQ"] || LEGACY_SITE_COORDINATES["HQ"];
     const jitter = () => (Math.random() - 0.5) * 0.003;
 
     const gps = v.tracker_imei ? gpsMap.get(v.tracker_imei) : undefined;
@@ -271,5 +314,5 @@ export async function GET(request: Request): Promise<NextResponse> {
     };
   });
 
-  return NextResponse.json({ vehicles: result, sites: SITE_COORDINATES, serverTimeUnix: nowUnix });
+  return NextResponse.json({ vehicles: result, sites: siteCoordinates, serverTimeUnix: nowUnix });
 }

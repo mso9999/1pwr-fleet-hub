@@ -9,6 +9,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
+import { canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
   normalizeTripShape,
@@ -58,7 +59,7 @@ function withMissionStops(
 /**
  * Planned missions (trip shells) — linked from vehicle requests before an operational trip checkout exists.
  */
-export function GET(request: NextRequest): NextResponse {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   let db: ReturnType<typeof getDb>;
   try {
     db = getDb();
@@ -68,6 +69,13 @@ export function GET(request: NextRequest): NextResponse {
   }
 
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
+  const user = await getVerifiedFleetUser(request);
+  db.prepare(
+    `DELETE FROM missions
+     WHERE lower(COALESCE(approval_status, '')) = 'draft'
+       AND datetime(created_at) <= datetime('now', '-30 days')`
+  ).run();
+
   const status = request.nextUrl.searchParams.get("status") ?? "planned";
   const approvalStatus = request.nextUrl.searchParams.get("approvalStatus");
   const tripCheckoutEligible = request.nextUrl.searchParams.get("tripCheckoutEligible") === "true";
@@ -128,14 +136,32 @@ export function GET(request: NextRequest): NextResponse {
   const execList = () => db.prepare(sql).all(...params);
 
   try {
-    const rows = withMissionStops(db, execList() as MissionListRow[]);
+    const rows = withMissionStops(db, execList() as MissionListRow[]).filter((row) => {
+      const approval = String(row.approval_status || "").toLowerCase();
+      if (approval !== "draft") return true;
+      if (!user) return false;
+      return canViewPrivateDraft({
+        role: user.role,
+        department: user.department,
+        isCreator: String(row.created_by_id || "") === user.id,
+      });
+    });
     return NextResponse.json(rows);
   } catch (e) {
     console.error("[api/missions GET] first attempt", { org, status, approvalStatus, tripCheckoutEligible, err: e });
     /** Schema drift / partial migrations only — fixed queries like `m.status` do not need this. */
     repairListSchema();
     try {
-      const rows = withMissionStops(db, execList() as MissionListRow[]);
+      const rows = withMissionStops(db, execList() as MissionListRow[]).filter((row) => {
+        const approval = String(row.approval_status || "").toLowerCase();
+        if (approval !== "draft") return true;
+        if (!user) return false;
+        return canViewPrivateDraft({
+          role: user.role,
+          department: user.department,
+          isCreator: String(row.created_by_id || "") === user.id,
+        });
+      });
       return NextResponse.json(rows);
     } catch (e2) {
       const message = e2 instanceof Error ? e2.message : String(e2);
@@ -164,6 +190,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json();
+  const intent = String(body.action || body.intent || "submit").toLowerCase();
+  const initialApprovalStatus = intent === "savedraft" || intent === "save_draft" || intent === "draft"
+    ? "draft"
+    : "pending";
   const organizationId = String(body.organizationId || "1pwr_lesotho");
   const db = getDb();
   const rollout = isMultiStopRolloutEnabledServer();
@@ -192,6 +222,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     stops,
     requiredVehicleClass: String(body.requiredVehicleClass || ""),
     rrStatus: String(body.rrStatus || "na"),
+    initialApprovalStatus,
   });
 
   const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;

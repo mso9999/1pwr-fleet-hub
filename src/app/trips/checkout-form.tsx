@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, type ChangeEvent, type ReactElement } from "react";
+import { useEffect, useState, useMemo, useRef, type ChangeEvent, type ReactElement } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ interface MissionForTrip {
   assigned_vehicle_id: string;
   assigned_vehicle_code?: string | null;
   title: string;
+  approval_status?: string;
   passengers: string;
   loadout_summary: string;
   stops?: Array<{
@@ -55,6 +56,13 @@ interface ReadinessResponse {
   missionProfile: string;
   gates: Array<{ id: string; label: string; status: string; detail: string }>;
   missionBlockedReason?: string;
+}
+
+interface TripDraftRow {
+  id: string;
+  mission_id?: string;
+  payload_json?: string;
+  updated_at?: string;
 }
 
 function buildMissionPatch(
@@ -99,6 +107,10 @@ export function TripCheckoutForm({
 }): ReactElement {
   const multiStopEnabled = isMultiStopRolloutEnabled();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
+  const [tripDrafts, setTripDrafts] = useState<TripDraftRow[]>([]);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [missions, setMissions] = useState<MissionForTrip[]>([]);
   const [missionsLoading, setMissionsLoading] = useState(true);
   const [selectedMissionId, setSelectedMissionId] = useState("");
@@ -133,6 +145,7 @@ export function TripCheckoutForm({
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   const selectedMission = useMemo(
     () => missions.find((m) => m.id === selectedMissionId) ?? null,
@@ -160,6 +173,23 @@ export function TripCheckoutForm({
           setMissionsLoading(false);
         }
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/trips?org=${encodeURIComponent(organizationId)}&drafts=true`,
+        { headers }
+      );
+      if (!res.ok) return;
+      const drafts = (await res.json()) as TripDraftRow[];
+      if (!cancelled) setTripDrafts(Array.isArray(drafts) ? drafts : []);
+    })();
     return () => {
       cancelled = true;
     };
@@ -409,6 +439,83 @@ export function TripCheckoutForm({
     setIsSubmitting(false);
   }
 
+  async function saveTripDraft(): Promise<void> {
+    if (!formRef.current) return;
+    setDraftNotice(null);
+    setCheckoutError(null);
+    setIsSavingDraft(true);
+    const fd = new FormData(formRef.current);
+    const body: Record<string, unknown> = {
+      action: "saveDraft",
+      draftId: activeDraftId ?? undefined,
+      organizationId,
+      missionId: selectedMissionId || "",
+      driverName: fd.get("driverName") || "",
+      odoStart: fd.get("odoStart") || "",
+      departureLocation: fd.get("departureLocation") || "",
+      destination: selectedMission?.destination || "",
+      missionType: fd.get("missionType") || selectedMission?.mission_type || "other",
+      tripShape: normalizeTripShape(selectedMission?.trip_shape),
+      missionProfile: selectedMission?.mission_profile || MISSION_PROFILE.LOCAL,
+      passengers: fd.get("passengers") || "",
+      loadOut: fd.get("loadOut") || "",
+      stops: isMultiStop ? normalizeRouteStops(stops) : [],
+      routeChangeReason,
+      overrideReason,
+    };
+    const res = await fetch("/api/trips", {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify(body),
+    });
+    setIsSavingDraft(false);
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setCheckoutError(err.error || "Could not save draft trip.");
+      return;
+    }
+    const row = (await res.json()) as TripDraftRow;
+    const nextId = String(row.id || "");
+    setActiveDraftId(nextId || null);
+    setDraftNotice("Trip draft saved. Only you, admins, and IT can view/edit it.");
+    const headers = await jsonHeadersWithBearer();
+    const listRes = await fetch(
+      `/api/trips?org=${encodeURIComponent(organizationId)}&drafts=true`,
+      { headers }
+    );
+    if (listRes.ok) {
+      const drafts = (await listRes.json()) as TripDraftRow[];
+      setTripDrafts(Array.isArray(drafts) ? drafts : []);
+    }
+  }
+
+  function loadTripDraft(row: TripDraftRow): void {
+    const payload = JSON.parse(String(row.payload_json || "{}")) as Record<string, unknown>;
+    setActiveDraftId(row.id);
+    const missionId = String(payload.missionId || row.mission_id || "");
+    setSelectedMissionId(missionId);
+    setRouteChangeReason(String(payload.routeChangeReason || ""));
+    setOverrideReason(String(payload.overrideReason || ""));
+    const incomingStops = Array.isArray(payload.stops) ? normalizeRouteStops(payload.stops) : [];
+    if (incomingStops.length > 0) {
+      setIsMultiStop(true);
+      setStops(incomingStops);
+    }
+    const form = formRef.current;
+    if (!form) return;
+    const setValue = (name: string, value: string): void => {
+      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+      if (el) el.value = value;
+    };
+    setValue("driverName", String(payload.driverName || ""));
+    setValue("odoStart", String(payload.odoStart || ""));
+    setValue("departureLocation", String(payload.departureLocation || ""));
+    setValue("missionType", String(payload.missionType || "other"));
+    setValue("passengers", String(payload.passengers || ""));
+    setValue("loadOut", String(payload.loadOut || ""));
+    setDraftNotice("Trip draft loaded. Continue editing and click Create trip when ready.");
+  }
+
   const readinessFailing = vehicleId !== "" && readiness !== null && !readiness.ok;
   const overrideValid = canOverride && overrideEnabled && overrideReason.trim().length >= 8;
   const submitBlocked =
@@ -430,7 +537,26 @@ export function TripCheckoutForm({
         </p>
       </CardHeader>
       <CardContent>
-        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+        <form ref={formRef} onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+          {tripDrafts.length > 0 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 space-y-1">
+              <div className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Saved trip drafts</div>
+              <div className="flex flex-wrap gap-2">
+                {tripDrafts.map((d) => (
+                  <Button
+                    key={d.id}
+                    type="button"
+                    size="sm"
+                    variant={activeDraftId === d.id ? "default" : "outline"}
+                    onClick={() => loadTripDraft(d)}
+                  >
+                    {activeDraftId === d.id ? "Editing draft" : "Load draft"}{" "}
+                    {d.updated_at ? `(${new Date(d.updated_at).toLocaleDateString()})` : ""}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-sm font-medium text-zinc-700">Mission *</label>
@@ -448,9 +574,16 @@ export function TripCheckoutForm({
                 ))}
               </select>
               {!missionsLoading && missions.length === 0 && (
-                <p className="text-xs text-amber-800 mt-1">
-                  No eligible missions. You need an approved mission, active status, a reserved vehicle, and no open trip on that mission.
-                </p>
+                <div className="mt-1 space-y-1">
+                  <p className="text-xs text-amber-800">
+                    No eligible missions. You need an approved mission, active status, a reserved vehicle, and no open trip on that mission.
+                  </p>
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <Link href="/vehicle-requests?newMission=1&returnTo=%2Ftrips">
+                      + Create mission now
+                    </Link>
+                  </Button>
+                </div>
               )}
             </div>
 
@@ -470,7 +603,7 @@ export function TripCheckoutForm({
               </div>
             )}
 
-            {selectedMission && canMissionManage && (
+            {selectedMission && canMissionManage && selectedMission.approval_status === "draft" && (
               <div className="sm:col-span-2 rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2 space-y-2">
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
@@ -685,6 +818,9 @@ export function TripCheckoutForm({
           {checkoutError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{checkoutError}</div>
           )}
+          {draftNotice && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{draftNotice}</div>
+          )}
 
           {multiStopEnabled && (
           <div className="flex items-center gap-2">
@@ -769,6 +905,9 @@ export function TripCheckoutForm({
           <div className="flex gap-3 flex-wrap items-center">
             <Button type="submit" disabled={isSubmitting || submitBlocked} size="lg">
               {isSubmitting ? "Creating…" : "Create trip"}
+            </Button>
+            <Button type="button" variant="outline" disabled={isSavingDraft} onClick={() => void saveTripDraft()}>
+              {isSavingDraft ? "Saving draft…" : "Save draft"}
             </Button>
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel

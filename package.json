@@ -13,7 +13,8 @@
     "backfill:vehicle-status": "tsx scripts/backfill-vehicle-status-vs-wo.ts",
     "test:ehs-compliance": "tsx scripts/test-ehs-operator-compliance.ts",
     "test:registration-disc": "tsx scripts/test-registration-disc.ts",
-    "test:mission-integration": "tsx scripts/test-mission-integration.ts"
+    "test:mission-integration": "tsx scripts/test-mission-integration.ts",
+    "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

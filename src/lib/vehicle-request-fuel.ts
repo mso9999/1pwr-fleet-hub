@@ -2,12 +2,37 @@ import type Database from "better-sqlite3";
 import { drivingDistanceKm, type LatLng } from "@/lib/routing-osrm";
 import { litersForDistanceKm, suggestFuelLPer100km } from "@/lib/vehicle-fuel-lookup";
 
+/**
+ * Last-resort fallback coordinates for common Lesotho route sites.
+ * These are only used when a site row exists but metadata lat/lng is missing.
+ */
+const LEGACY_SITE_COORDINATES: Record<string, LatLng> = {
+  HQ: { lat: -29.3387, lng: 27.4618 },
+  MAK: { lat: -29.1929, lng: 27.5681 },
+  MAS: { lat: -29.3902, lng: 27.5603 },
+  SEB: { lat: -30.2921, lng: 27.8153 },
+  MAT: { lat: -29.6181, lng: 27.5653 },
+  LEB: { lat: -30.1793, lng: 27.9874 },
+  SEH: { lat: -29.908, lng: 29.1169 },
+  QN: { lat: -29.9657, lng: 28.7381 },
+  TY: { lat: -29.152, lng: 27.7428 },
+  BFN: { lat: -29.1164, lng: 26.2155 },
+  JHB: { lat: -26.205, lng: 28.0497 },
+};
+
 function parseMeta(meta: string | null | undefined): { lat?: number; lng?: number } {
   if (!meta || !meta.trim()) return {};
   try {
-    const o = JSON.parse(meta) as { lat?: unknown; lng?: unknown };
-    const lat = typeof o.lat === "number" ? o.lat : Number(o.lat);
-    const lng = typeof o.lng === "number" ? o.lng : Number(o.lng);
+    const o = JSON.parse(meta) as {
+      lat?: unknown;
+      lng?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
+    };
+    const latRaw = o.lat ?? o.latitude;
+    const lngRaw = o.lng ?? o.longitude;
+    const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+    const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return {};
     return { lat, lng };
   } catch {
@@ -53,6 +78,7 @@ export function getSiteCoordsByCode(
   organizationId: string,
   siteCode: string
 ): LatLng | null {
+  const normalizedCode = siteCode.trim().toUpperCase();
   const row = db
     .prepare(
       `SELECT meta FROM reference_data
@@ -68,9 +94,13 @@ export function getSiteCoordsByCode(
   // use the organisation's route origin (populated by migrateOrganizationsRouteOrigin for
   // 1pwr_lesotho, admin-editable for other orgs). This unblocks HQ-destination estimates
   // that would otherwise surface "Could not resolve route" despite the origin being valid.
-  if (siteCode.toUpperCase() === "HQ") {
+  if (normalizedCode === "HQ") {
     return getRouteOrigin(db, organizationId);
   }
+
+  // Safety-net fallback for known static sites when metadata is absent.
+  const legacy = LEGACY_SITE_COORDINATES[normalizedCode];
+  if (legacy) return legacy;
 
   return null;
 }

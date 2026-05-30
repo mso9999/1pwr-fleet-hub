@@ -4,10 +4,10 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
   canApproveMissionRequests,
   canArbitrateMissionCapacity,
-  canFullyManageVehicleRequests,
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
+import { canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
   normalizeTripShape,
@@ -124,13 +124,24 @@ async function syncMissionDecisionToHr(args: {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const { id } = await params;
   const db = getDb();
   const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const user = await getVerifiedFleetUser(request);
+  const approval = String((row as Record<string, unknown>).approval_status || "").toLowerCase();
+  if (approval === "draft") {
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const canView = canViewPrivateDraft({
+      role: user.role,
+      department: user.department,
+      isCreator: String((row as Record<string, unknown>).created_by_id || "") === user.id,
+    });
+    if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const stops = getMissionStops(db, id);
   return NextResponse.json({ ...(row as Record<string, unknown>), stops, stop_count: stops.length });
 }
@@ -138,6 +149,7 @@ export async function GET(
 /**
  * PATCH /api/missions/[id]
  * - action approve | reject | revise (approvers)
+ * - action submit (draft -> pending)
  * - action resubmit (mission creator after revision feedback)
  * - action defer | cancel_capacity | reactivate (management arbitration — fleet_lead excluded)
  * - field updates (creator when pending, or fleet management; material edits on approved mission reopen approval)
@@ -231,6 +243,40 @@ export async function PATCH(
     return NextResponse.json(updated);
   }
 
+  if (action === "submit") {
+    const currentApproval = String(row.approval_status || "").toLowerCase();
+    if (currentApproval !== "draft") {
+      return NextResponse.json({ error: "Only draft missions can be submitted." }, { status: 400 });
+    }
+    const canSubmit = canEditPrivateDraft({
+      role: user.role,
+      department: user.department,
+      isCreator: String(row.created_by_id || "") === user.id,
+    });
+    if (!canSubmit && user.role !== "superadmin") {
+      return NextResponse.json({ error: "Not allowed to submit this draft mission." }, { status: 403 });
+    }
+    const beforeSnap = missionAuditSubset(row);
+    db.prepare(
+      `UPDATE missions
+       SET approval_status = 'pending', approved_by_id = '', approved_by_name = '',
+           approved_at = NULL, rejection_reason = '', updated_at = ?
+       WHERE id = ?`
+    ).run(now, id);
+    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: id,
+      organizationId: orgId,
+      action: "update",
+      actor: actorFrom(user),
+      before: beforeSnap,
+      after: missionAuditSubset(updated),
+      reason: "draft_submitted_for_approval",
+    });
+    return NextResponse.json(updated);
+  }
+
   if (action === "resubmit") {
     const isCreator = String(row.created_by_id || "") === user.id;
     const currentApproval = String(row.approval_status || "").toLowerCase();
@@ -313,20 +359,23 @@ export async function PATCH(
 
   // Field updates
   const isCreator = String(row.created_by_id || "") === user.id;
-  const wasApproved = String(row.approval_status || "").toLowerCase() === "approved";
-  const canManage = canFullyManageVehicleRequests(user.role);
-  const pending = String(row.approval_status || "").toLowerCase() === "pending";
-
-  if (!isCreator && !canManage && user.role !== "superadmin") {
-    return NextResponse.json({ error: "Not allowed to edit this mission." }, { status: 403 });
-  }
-  if (!canManage && user.role !== "superadmin" && wasApproved) {
+  const canDraftEdit = canEditPrivateDraft({
+    role: user.role,
+    department: user.department,
+    isCreator,
+  });
+  const currentApproval = String(row.approval_status || "").toLowerCase();
+  if (currentApproval !== "draft") {
     return NextResponse.json(
-      { error: "Only fleet management can edit an already-approved mission; use a change request or ask a manager." },
-      { status: 403 }
+      { error: "Only draft missions can be edited. Submit a draft first, then follow approval actions." },
+      { status: 400 }
     );
   }
+  const wasApproved = String(row.approval_status || "").toLowerCase() === "approved";
 
+  if (!canDraftEdit) {
+    return NextResponse.json({ error: "Not allowed to edit this mission." }, { status: 403 });
+  }
   const material = materialMissionFieldsChanged(row, body as Record<string, unknown>);
   const incomingStops =
     rollout && body.stops !== undefined ? normalizeRouteStops(body.stops) : null;

@@ -47,6 +47,16 @@ export interface SyncResult {
 
 export type ReferenceDataKind = "site" | "department";
 
+function parseMeta(meta: string | null | undefined): Record<string, unknown> {
+  if (!meta) return {};
+  try {
+    const parsed = JSON.parse(meta) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * READ-ONLY: Sync one reference list from shared PR Firestore into local `reference_data`.
  * Collections follow the PR app convention: `referenceData_sites`, `referenceData_departments`.
@@ -99,22 +109,26 @@ export async function syncReferenceListFromPr(
 
         const label = String(data.name || data.label || code).trim();
         const sortOrder = Number(data.sortOrder ?? data.sort_order ?? 0);
-        const meta = JSON.stringify({
-          latitude: data.latitude ?? null,
-          longitude: data.longitude ?? null,
-          country: data.country ?? "",
-          firestoreId: doc.id,
-          source: "pr_firestore",
-          collection: collectionName,
-        });
-
         firestoreCodes.add(code);
 
         const existing = db
           .prepare(
-            "SELECT id FROM reference_data WHERE organization_id = ? AND type = ? AND code = ?"
+            "SELECT id, meta FROM reference_data WHERE organization_id = ? AND type = ? AND code = ?"
           )
-          .get(organizationId, refType, code) as { id: string } | undefined;
+          .get(organizationId, refType, code) as { id: string; meta: string | null } | undefined;
+
+        const existingMeta = parseMeta(existing?.meta);
+        const latitude = data.latitude ?? existingMeta.latitude ?? null;
+        const longitude = data.longitude ?? existingMeta.longitude ?? null;
+        const meta = JSON.stringify({
+          ...existingMeta,
+          latitude,
+          longitude,
+          country: data.country ?? existingMeta.country ?? "",
+          firestoreId: doc.id,
+          source: "pr_firestore",
+          collection: collectionName,
+        });
 
         if (existing) {
           db.prepare(

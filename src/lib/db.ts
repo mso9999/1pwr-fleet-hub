@@ -692,6 +692,22 @@ function initializeSchema(db: Database.Database): void {
       notes TEXT DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS trip_drafts (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
+      created_by_id TEXT NOT NULL DEFAULT '',
+      created_by_name TEXT NOT NULL DEFAULT '',
+      mission_id TEXT DEFAULT '',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'draft',
+      expires_at TEXT NOT NULL DEFAULT (datetime('now', '+30 days')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_trip_drafts_org ON trip_drafts(organization_id, status);
+    CREATE INDEX IF NOT EXISTS idx_trip_drafts_creator ON trip_drafts(created_by_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_trip_drafts_expiry ON trip_drafts(expires_at);
+
     CREATE TABLE IF NOT EXISTS inspections (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',

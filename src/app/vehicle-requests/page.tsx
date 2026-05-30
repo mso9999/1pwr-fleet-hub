@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -215,6 +216,7 @@ function missionApprovalStage(statusRaw: string | undefined): {
   tone: "warning" | "success" | "destructive" | "secondary";
 } {
   const s = String(statusRaw || "pending").toLowerCase();
+  if (s === "draft") return { label: "Draft", tone: "secondary" };
   if (s === "approved") return { label: "Approved", tone: "success" };
   if (s === "rejected") return { label: "Rejected", tone: "destructive" };
   if (s === "revision_requested") return { label: "Revision requested", tone: "warning" };
@@ -386,6 +388,7 @@ function FleetMissionReserveRow({
 export default function VehicleRequestsPage() {
   const { organizationId, user } = useAuth();
   const { active, trackId, stepIndex } = useTutorial();
+  const searchParams = useSearchParams();
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [pool, setPool] = useState<PoolData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -683,6 +686,12 @@ export default function VehicleRequestsPage() {
     if (stepIndex >= 1 && stepIndex <= 2) setShowForm(true);
     else setShowForm(false);
   }, [active, trackId, stepIndex]);
+
+  useEffect(() => {
+    if (searchParams.get("newMission") !== "1") return;
+    setView("requests");
+    setShowForm(true);
+  }, [searchParams]);
 
   const pendingCount = (Array.isArray(requests) ? requests : []).filter((r) => r.status === "requested").length;
 
@@ -1778,6 +1787,8 @@ function RequestForm({
   const [departments, setDepartments] = useState<RefRow[]>([]);
   const [approvedMissions, setApprovedMissions] = useState<PlannedMissionRow[]>([]);
   const [revisionRequestedMissions, setRevisionRequestedMissions] = useState<PlannedMissionRow[]>([]);
+  const [draftMissions, setDraftMissions] = useState<PlannedMissionRow[]>([]);
+  const [editingMissionDraftId, setEditingMissionDraftId] = useState<string | null>(null);
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState("");
   const [destinationChoice, setDestinationChoice] = useState("");
@@ -1798,30 +1809,40 @@ function RequestForm({
     fuelLiters: number | null;
     lPer100km: number | null;
   } | null>(null);
+  const missionFormRef = useRef<HTMLFormElement | null>(null);
 
   const loadApprovedMissions = useCallback(() => {
     setMissionsLoading(true);
-    Promise.all([
-      fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`).then((r) =>
-        r.json()
-      ),
-      fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=revision_requested`).then(
-        (r) => r.json()
-      ),
-    ])
-      .then(([approvedRaw, revisionRaw]) => {
+    void (async () => {
+      const headers = await jsonHeadersWithBearer();
+      Promise.all([
+        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`, { headers }).then((r) =>
+          r.json()
+        ),
+        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=revision_requested`, { headers }).then(
+          (r) => r.json()
+        ),
+        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=draft`, { headers }).then(
+          (r) => r.json()
+        ),
+      ])
+      .then(([approvedRaw, revisionRaw, draftRaw]) => {
         const approved = Array.isArray(approvedRaw) ? (approvedRaw as PlannedMissionRow[]) : [];
         const revisions = Array.isArray(revisionRaw) ? (revisionRaw as PlannedMissionRow[]) : [];
+        const drafts = Array.isArray(draftRaw) ? (draftRaw as PlannedMissionRow[]) : [];
         setApprovedMissions(approved);
         setRevisionRequestedMissions(
           revisions.filter((m) => String(m.created_by_id || "").trim() === userId)
         );
+        setDraftMissions(drafts);
       })
       .catch(() => {
         setApprovedMissions([]);
         setRevisionRequestedMissions([]);
+        setDraftMissions([]);
       })
       .finally(() => setMissionsLoading(false));
+    })();
   }, [organizationId, userId]);
 
   useEffect(() => {
@@ -1891,6 +1912,51 @@ function RequestForm({
   const siteRows = sites.filter((s) => s.code !== "OTHER");
   const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
 
+  function loadMissionDraftIntoForm(m: PlannedMissionRow): void {
+    setEditingMissionDraftId(m.id);
+    const knownSite = siteRows.some((s) => s.code === m.destination);
+    setDestinationChoice(knownSite ? m.destination : "__write__");
+    setDestinationOther(knownSite ? "" : String(m.destination || ""));
+    const shape = normalizeTripShape(m.trip_shape);
+    setTripShape(shape);
+    const orderedStops = [...(m.stops || [])].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
+    if (shape === "round_trip" && orderedStops.length > 0) {
+      const returnLeg = orderedStops[orderedStops.length - 1];
+      setRouteOrigin(String(returnLeg.location || "HQ"));
+      const interior = orderedStops.slice(0, -1).map((s) => ({
+        location: String(s.location || ""),
+        loadOut: String(s.load_out || ""),
+        loadIn: String(s.load_in || ""),
+        notes: String(s.notes || ""),
+      }));
+      setRouteStops(interior.length > 0 ? interior : [{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+    } else {
+      setRouteOrigin("HQ");
+      const nextStops = orderedStops.map((s) => ({
+        location: String(s.location || ""),
+        loadOut: String(s.load_out || ""),
+        loadIn: String(s.load_in || ""),
+        notes: String(s.notes || ""),
+      }));
+      setRouteStops(nextStops.length > 0 ? nextStops : [{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+    }
+    const form = missionFormRef.current;
+    if (!form) return;
+    const setValue = (name: string, value: string): void => {
+      const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (el) el.value = value;
+    };
+    setValue("cmTitle", String(m.title || ""));
+    setValue("cmDepartureDate", String(m.departure_date || ""));
+    setValue("cmReturnDate", String(m.return_date || ""));
+    setValue("cmPassengers", String(m.passengers || ""));
+    setValue("cmLoadout", String(m.loadout_summary || ""));
+    setValue("cmNotes", String(m.notes || ""));
+    setValue("cmMissionProfile", String(m.mission_profile || "local"));
+    setValue("cmRequiredVehicleClass", String(m.required_vehicle_class || ""));
+    setValue("cmRrStatus", normalizeRr(m.rr_status));
+  }
+
   function addRouteStop(): void {
     setRouteStops((prev) => [...prev, { location: "", loadOut: "", loadIn: "", notes: "" }]);
   }
@@ -1926,11 +1992,30 @@ function RequestForm({
     loadApprovedMissions();
   }
 
+  async function submitDraftMissionNow(missionId: string): Promise<void> {
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ action: "submit" }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setMissionFormError(err.error || "Could not submit mission draft.");
+      return;
+    }
+    setMissionMessage("Mission submitted for management approval.");
+    setEditingMissionDraftId(null);
+    loadApprovedMissions();
+  }
+
   async function handleCreateMission(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setMissionMessage(null);
     setMissionFormError("");
     const fd = new FormData(e.currentTarget);
+    const intent = String(fd.get("intent") || "submit").toLowerCase();
+    const saveAsDraft = intent === "savedraft";
     let destination = "";
     const destChoice = String(fd.get("cmDestination") || "");
     if (destChoice === "__write__") {
@@ -1977,30 +2062,53 @@ function RequestForm({
             ]
           : normalizedStops;
     setMissionSubmitting(true);
-    const res = await fetch("/api/missions", {
-      method: "POST",
-      headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({
-        organizationId,
-        title: String(fd.get("cmTitle") || "").slice(0, 240),
-        destination,
-        departureDate,
-        returnDate: String(fd.get("cmReturnDate") || ""),
-        passengers: String(fd.get("cmPassengers") || ""),
-        loadoutSummary: String(fd.get("cmLoadout") || ""),
-        missionType: "other",
-        notes: String(fd.get("cmNotes") || ""),
-        missionProfile: String(fd.get("cmMissionProfile") || "local"),
-        tripShape: multiStopEnabled ? tripShape : "one_way",
-        stops: multiStopEnabled ? finalStops : [],
-        requiredVehicleClass: reqClass,
-        rrStatus: String(fd.get("cmRrStatus") || "na"),
-      }),
-    });
+    const payload = {
+      organizationId,
+      title: String(fd.get("cmTitle") || "").slice(0, 240),
+      destination,
+      departureDate,
+      returnDate: String(fd.get("cmReturnDate") || ""),
+      passengers: String(fd.get("cmPassengers") || ""),
+      loadoutSummary: String(fd.get("cmLoadout") || ""),
+      missionType: "other",
+      notes: String(fd.get("cmNotes") || ""),
+      missionProfile: String(fd.get("cmMissionProfile") || "local"),
+      tripShape: multiStopEnabled ? tripShape : "one_way",
+      stops: multiStopEnabled ? finalStops : [],
+      requiredVehicleClass: reqClass,
+      rrStatus: String(fd.get("cmRrStatus") || "na"),
+    };
+    const headers = await jsonHeadersWithBearer();
+    let res: Response;
+    if (editingMissionDraftId) {
+      res = await fetch(`/api/missions/${editingMissionDraftId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (res.ok && !saveAsDraft) {
+        res = await fetch(`/api/missions/${editingMissionDraftId}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ action: "submit" }),
+        });
+      }
+    } else {
+      res = await fetch("/api/missions", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          ...payload,
+          action: saveAsDraft ? "saveDraft" : "submit",
+        }),
+      });
+    }
     setMissionSubmitting(false);
     if (res.ok) {
       setMissionMessage(
-        "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
+        saveAsDraft
+          ? "Mission draft saved. Only you, admins, and IT can view/edit it until submission."
+          : "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
       );
       e.currentTarget.reset();
       setDestinationChoice("");
@@ -2008,6 +2116,7 @@ function RequestForm({
       setTripShape("one_way");
       setRouteOrigin("HQ");
       setRouteStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+      setEditingMissionDraftId(null);
       loadApprovedMissions();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -2094,7 +2203,7 @@ function RequestForm({
           </p>
         </CardHeader>
         <CardContent>
-          <form onSubmit={(e) => void handleCreateMission(e)} className="space-y-4">
+          <form ref={missionFormRef} onSubmit={(e) => void handleCreateMission(e)} className="space-y-4">
             <Input name="cmTitle" label="Mission title" placeholder="Short label (optional)" />
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex flex-col gap-1.5 sm:col-span-1">
@@ -2287,6 +2396,42 @@ function RequestForm({
                 {missionMessage}
               </div>
             )}
+            {draftMissions.length > 0 && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 space-y-2">
+                <div className="text-sm font-medium text-blue-900">Mission drafts</div>
+                <p className="text-xs text-blue-800">
+                  Drafts are private to creator + admin + IT and auto-expire after 30 days if not submitted.
+                </p>
+                <div className="space-y-2">
+                  {draftMissions.map((m) => (
+                    <div key={m.id} className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium text-zinc-900 truncate">
+                          {(m.title?.trim() || m.destination).slice(0, 120)}
+                        </div>
+                        <div className="text-xs text-zinc-600">
+                          {m.destination || "—"} · {m.departure_date || "—"}
+                          {m.updated_at ? ` · Updated ${new Date(m.updated_at).toLocaleString()}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => loadMissionDraftIntoForm(m)}>
+                          {editingMissionDraftId === m.id ? "Editing" : "Edit draft"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="bg-blue-700 hover:bg-blue-800"
+                          onClick={() => void submitDraftMissionNow(m.id)}
+                        >
+                          Submit
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {revisionRequestedMissions.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
                 <div className="text-sm font-medium text-amber-900">
@@ -2332,9 +2477,29 @@ function RequestForm({
             {missionFormError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{missionFormError}</div>
             )}
-            <Button type="submit" disabled={missionSubmitting} size="lg" className="touch-manipulation">
-              {missionSubmitting ? "Submitting…" : "Submit mission for approval"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                name="intent"
+                value="saveDraft"
+                variant="outline"
+                disabled={missionSubmitting}
+                size="lg"
+                className="touch-manipulation"
+              >
+                {missionSubmitting ? "Saving…" : editingMissionDraftId ? "Update draft" : "Save draft"}
+              </Button>
+              <Button
+                type="submit"
+                name="intent"
+                value="submit"
+                disabled={missionSubmitting}
+                size="lg"
+                className="touch-manipulation"
+              >
+                {missionSubmitting ? "Submitting…" : editingMissionDraftId ? "Submit draft for approval" : "Submit mission for approval"}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>

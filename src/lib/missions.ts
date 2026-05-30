@@ -29,6 +29,7 @@ export function insertPlannedMission(
     hrRequestStatus?: string;
     hrSyncSource?: string;
     hrSourceUpdatedAt?: string;
+    initialApprovalStatus?: "draft" | "pending";
   }
 ): string {
   const id = uuidv4();
@@ -39,6 +40,8 @@ export function insertPlannedMission(
   const reqClass = String(input.requiredVehicleClass || "").trim();
   const rr = String(input.rrStatus || "na").toLowerCase();
   const rrNorm = rr === "pending" || rr === "approved" ? rr : "na";
+  const initialApprovalStatus =
+    input.initialApprovalStatus === "draft" ? "draft" : "pending";
 
   const tx = db.transaction((routeStops: RouteStopNormalized[]) => {
     db.prepare(`
@@ -48,7 +51,7 @@ export function insertPlannedMission(
         mission_profile, trip_shape, required_vehicle_class, rr_status,
         hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
         created_by_id, created_by_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.organizationId,
@@ -60,6 +63,7 @@ export function insertPlannedMission(
       input.passengers,
       input.loadoutSummary,
       input.notes,
+      initialApprovalStatus,
       profile,
       tripShape,
       reqClass,
