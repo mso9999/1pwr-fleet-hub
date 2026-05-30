@@ -578,11 +578,12 @@ export function TripCheckoutForm({
                   <p className="text-xs text-amber-800">
                     No eligible missions. You need an approved mission, active status, a reserved vehicle, and no open trip on that mission.
                   </p>
-                  <Button type="button" size="sm" variant="outline" asChild>
-                    <Link href="/vehicle-requests?newMission=1&returnTo=%2Ftrips">
-                      + Create mission now
-                    </Link>
-                  </Button>
+                  <Link
+                    href="/vehicle-requests?newMission=1&returnTo=%2Ftrips"
+                    className="inline-flex h-9 items-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm hover:bg-zinc-50"
+                  >
+                    + Create mission now
+                  </Link>
                 </div>
               )}
             </div>
