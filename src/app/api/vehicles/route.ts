@@ -75,6 +75,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
   const createdById = user?.id ?? "";
   const createdByName = user ? user.name || user.email : "";
+  const requestedOrg = String(body.organizationId || "").trim().toLowerCase();
+  const actorOrg = String(user?.organizationId || "").trim().toLowerCase();
+  const targetOrg = requestedOrg || actorOrg || "1pwr_lesotho";
 
   const id = uuidv4();
   const now = new Date().toISOString();
@@ -103,7 +106,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   stmt.run(
     id,
-    body.organizationId || "1pwr_lesotho",
+    targetOrg,
     body.code,
     body.make || "",
     body.model || "",
@@ -149,7 +152,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     recordMutation(db, {
       entityType: "vehicle",
       entityId: id,
-      organizationId: String(vehicle.organization_id ?? body.organizationId ?? "1pwr_lesotho"),
+      organizationId: String(vehicle.organization_id ?? targetOrg),
       action: "create",
       actor: actorFrom(user),
       after: {

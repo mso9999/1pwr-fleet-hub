@@ -170,7 +170,16 @@ export default function VehiclesPage(): React.ReactElement {
         </span>
       </div>
 
-      {isAddOpen && <AddVehicleForm onAdded={() => { setIsAddOpen(false); loadVehicles(); }} onCancel={() => setIsAddOpen(false)} />}
+      {isAddOpen && (
+        <AddVehicleForm
+          organizationId={organizationId}
+          onAdded={() => {
+            setIsAddOpen(false);
+            loadVehicles();
+          }}
+          onCancel={() => setIsAddOpen(false)}
+        />
+      )}
 
       {isLoading ? (
         <div className="text-zinc-500 text-center py-12">Loading vehicles...</div>
@@ -237,7 +246,15 @@ export default function VehiclesPage(): React.ReactElement {
   );
 }
 
-function AddVehicleForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: () => void }): React.ReactElement {
+function AddVehicleForm({
+  organizationId,
+  onAdded,
+  onCancel,
+}: {
+  organizationId: string;
+  onAdded: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -245,6 +262,7 @@ function AddVehicleForm({ onAdded, onCancel }: { onAdded: () => void; onCancel: 
     setIsSubmitting(true);
     const fd = new FormData(e.currentTarget);
     const body = {
+      organizationId,
       code: fd.get("code"),
       make: fd.get("make"),
       model: fd.get("model"),
