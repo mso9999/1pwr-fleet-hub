@@ -24,6 +24,13 @@ export const FIELD_DEPLOYMENT_INSPECTION_TYPES = ["detailed"] as const;
 /** Inspection must be no older than this many days before checkout. */
 export const MECHANICAL_INSPECTION_MAX_AGE_DAYS = 14;
 
+/**
+ * A departing driver checklist is considered valid for this many hours after it
+ * was performed. Covers the common case where the team inspects the evening
+ * before and departs the next morning.
+ */
+export const DVC_VALIDITY_WINDOW_HOURS = 24;
+
 export interface TripReadinessInput {
   organizationId: string;
   vehicleId: string;
@@ -39,6 +46,12 @@ export interface TripReadinessInput {
   skipMechanicalInspection?: boolean;
   /** When set (YYYY-MM-DD), registration disc must cover this day or the gate blocks (unless trip override). */
   missionCalendarEndDay?: string;
+  /**
+   * Planned departure date (YYYY-MM-DD) — typically the mission's departure_date.
+   * When set, a DVC whose `valid_for_departure_on` matches this day counts as
+   * satisfying the gate even if `checkDate` (today) differs.
+   */
+  plannedDepartureDate?: string;
 }
 
 function normalizeProfile(raw: string | undefined): MissionProfile {
@@ -118,17 +131,20 @@ export function evaluateTripReadiness(
 
   const dvc = db
     .prepare(
-      `SELECT id, overall_pass, has_exceptions, exception_approved
+      `SELECT id, overall_pass, has_exceptions, exception_approved, check_date, valid_for_departure_on, created_at
        FROM driver_vehicle_checks
-       WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing' AND check_date = ?
+       WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing'
        ORDER BY datetime(created_at) DESC LIMIT 1`
     )
-    .get(input.organizationId, input.vehicleId, checkDate) as
+    .get(input.organizationId, input.vehicleId) as
     | {
         id: string;
         overall_pass: number;
         has_exceptions: number;
         exception_approved: number;
+        check_date: string;
+        valid_for_departure_on: string | null;
+        created_at: string;
       }
     | undefined;
 
@@ -137,17 +153,39 @@ export function evaluateTripReadiness(
     (dvc.overall_pass === 1 ||
       (dvc.has_exceptions === 1 && dvc.exception_approved === 1));
 
+  // A passing check still has to be "current". Accept it when any of:
+  //   - it was performed on today's checkDate, OR
+  //   - it was tagged valid_for_departure_on = planned departure date, OR
+  //   - it was created within the DVC validity window (covers evening-before / morning-after).
+  const plannedDay = String(input.plannedDepartureDate || "").slice(0, 10);
+  const validForDay = String(dvc?.valid_for_departure_on || "").slice(0, 10);
+  const dvcCheckDay = String(dvc?.check_date || "").slice(0, 10);
+  const createdMs = dvc?.created_at ? Date.parse(dvc.created_at) : NaN;
+  const withinWindow =
+    Number.isFinite(createdMs) &&
+    now.getTime() - createdMs <= DVC_VALIDITY_WINDOW_HOURS * 60 * 60 * 1000;
+  const dvcCurrent = !!dvc && (dvcCheckDay === checkDate || validForDay === plannedDay || withinWindow);
+
   const skipDvc = input.skipDriverChecklist === true;
-  const dvcGateOk = skipDvc || dvcPass;
+  const dvcGateOk = skipDvc || (dvcPass && dvcCurrent);
+  const dvcDetail = skipDvc
+    ? "Not required for this mission profile (local / HQ-vicinity)."
+    : !dvc
+      ? `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`
+      : !dvcPass
+        ? `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} (pass all lines, or get manager approval for exceptions).`
+        : !dvcCurrent
+          ? `The last departing checklist for ${vehicle.code} was on ${dvcCheckDay} and is outside the ${DVC_VALIDITY_WINDOW_HOURS}h validity window. Re-inspect before departing${
+              plannedDay ? ` (planned departure ${plannedDay})` : ""
+            }, or tag the check as valid for the departure date.`
+          : plannedDay && validForDay === plannedDay
+            ? `Departing checklist performed ${dvcCheckDay} covers planned departure ${plannedDay} (pass or approved exceptions).`
+            : "Today's departing driver checklist is complete (pass or approved exceptions).";
   gates.push({
     id: "driver_checklist",
     label: "Driver checklist (departing)",
     status: dvcGateOk ? "satisfied" : "blocked",
-    detail: skipDvc
-      ? "Not required for this mission profile (local / HQ-vicinity)."
-      : dvcPass
-        ? "Today’s departing driver checklist is complete (pass or approved exceptions)."
-        : `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`,
+    detail: dvcDetail,
   });
 
   if (missionProfile === MISSION_PROFILE.FIELD && input.skipMechanicalInspection !== true) {

@@ -16,6 +16,10 @@ import {
   assetClassToOperatorCategory,
   DEFAULT_OPERATOR_CATEGORY,
 } from "@/lib/ehs-operator-categories";
+import {
+  PassengerManifestPicker,
+  type ManifestPassenger,
+} from "@/components/PassengerManifestPicker";
 
 interface ApprovedDriverOption {
   id: string;
@@ -298,6 +302,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
+  const [passengerManifest, setPassengerManifest] = useState<ManifestPassenger[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
@@ -468,6 +473,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       remarks,
       travelPhoneNumber: (fd.get("travelPhoneNumber") as string) || "",
       failureDescriptions: failureDescs,
+      passengerManifest,
     };
 
     for (const item of STATUS_ITEMS) {
@@ -686,6 +692,15 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               ))}
             </datalist>
           </div>
+
+          {direction === "departing" && (
+            <div className="rounded-xl border border-zinc-200 bg-white p-4">
+              <PassengerManifestPicker
+                value={passengerManifest}
+                onChange={setPassengerManifest}
+              />
+            </div>
+          )}
 
           {formError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">

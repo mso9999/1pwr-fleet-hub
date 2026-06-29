@@ -102,6 +102,7 @@ export function evaluateReadinessForMissionLinkedTrip(
   const skipDvc = profile === MISSION_PROFILE.LOCAL;
 
   const missionCalendarEndDay = missionWindowEndDate(String(m.departure_date || ""), m.return_date) || undefined;
+  const plannedDepartureDate = String(m.departure_date || "").slice(0, 10) || undefined;
 
   const r = evaluateTripReadiness(db, {
     organizationId: input.organizationId,
@@ -113,6 +114,7 @@ export function evaluateReadinessForMissionLinkedTrip(
     /** Approved mission unchanged: operational + driver checklist only (no extra mechanical gate here). */
     skipMechanicalInspection: true,
     missionCalendarEndDay,
+    plannedDepartureDate,
   });
 
   return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile };

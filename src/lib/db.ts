@@ -676,7 +676,12 @@ function initializeSchema(db: Database.Database): void {
       checkin_at TEXT,
       issues_observed TEXT DEFAULT '',
       distance INTEGER,
-      source TEXT NOT NULL DEFAULT 'manual'
+      source TEXT NOT NULL DEFAULT 'manual',
+      planned_departure_date TEXT DEFAULT NULL,
+      departed_at TEXT DEFAULT NULL,
+      departure_confirmed_by_id TEXT DEFAULT '',
+      departure_confirmed_by_name TEXT DEFAULT '',
+      departure_discrepancy TEXT DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS trip_stops (
@@ -1373,6 +1378,8 @@ function migrateDriverVehicleChecksSchema(db: Database.Database): void {
     ["overall_pass", "INTEGER NOT NULL DEFAULT 1"],
     ["created_at", "TEXT NOT NULL DEFAULT ''"],
     ["updated_at", "TEXT NOT NULL DEFAULT ''"],
+    ["valid_for_departure_on", "TEXT DEFAULT NULL"],
+    ["passenger_manifest", "TEXT NOT NULL DEFAULT '[]'"],
   ];
 
   for (const [col, def] of additions) {
@@ -1453,6 +1460,11 @@ function migrateTripsPhase1(db: Database.Database): void {
     ["am_allocation_ids", "TEXT DEFAULT '[]'"],
     ["mission_profile", "TEXT NOT NULL DEFAULT 'local'"],
     ["trip_shape", "TEXT NOT NULL DEFAULT 'one_way'"],
+    ["planned_departure_date", "TEXT DEFAULT NULL"],
+    ["departed_at", "TEXT DEFAULT NULL"],
+    ["departure_confirmed_by_id", "TEXT DEFAULT ''"],
+    ["departure_confirmed_by_name", "TEXT DEFAULT ''"],
+    ["departure_discrepancy", "TEXT DEFAULT NULL"],
   ];
 
   for (const [col, def] of additions) {
@@ -1542,6 +1554,14 @@ function createPhase1Tables(db: Database.Database): void {
       -- Overall
       overall_pass INTEGER NOT NULL DEFAULT 1,
 
+      -- Optional: date this check is intended to cover (e.g. evening check for next-day departure).
+      valid_for_departure_on TEXT DEFAULT NULL,
+
+      -- Passenger manifest: JSON array of { employee_id, name, department, country }
+      -- referencing HR directory records. Canonical reference is employee_id; the
+      -- name snapshot is kept for display/audit history.
+      passenger_manifest TEXT NOT NULL DEFAULT '[]',
+
       -- Timestamps
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1550,6 +1570,7 @@ function createPhase1Tables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dvc_vehicle ON driver_vehicle_checks(vehicle_id);
     CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id);
     CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date);
+    CREATE INDEX IF NOT EXISTS idx_dvc_valid_for ON driver_vehicle_checks(valid_for_departure_on);
 
     CREATE TABLE IF NOT EXISTS vehicle_requests (
       id TEXT PRIMARY KEY,

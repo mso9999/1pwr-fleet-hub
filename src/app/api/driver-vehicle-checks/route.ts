@@ -27,6 +27,40 @@ function camelToSnake(s: string): string {
   return s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
 }
 
+interface ManifestPassenger {
+  employee_id: string;
+  name: string;
+  department?: string | null;
+  country?: string | null;
+}
+
+/**
+ * Normalize the incoming passenger manifest into a stable JSON shape.
+ * The canonical reference is `employee_id` (from the HR directory); a name
+ * snapshot is kept for display/audit history. Free-text entries without an
+ * employee_id are rejected so the manifest can never contain ambiguous names.
+ */
+function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ManifestPassenger[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const employeeId = String(o.employee_id ?? o.employeeId ?? "").trim();
+    if (!employeeId) continue;
+    if (seen.has(employeeId)) continue;
+    seen.add(employeeId);
+    out.push({
+      employee_id: employeeId,
+      name: String(o.name ?? "").trim(),
+      department: o.department != null ? String(o.department) : null,
+      country: o.country != null ? String(o.country) : null,
+    });
+  }
+  return out;
+}
+
 export function GET(request: NextRequest): NextResponse {
   try {
   const db = getDb();
@@ -94,6 +128,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN trip_id TEXT DEFAULT NULL");
       db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id)");
     }
+    if (!dvcCols.some((c) => c.name === "passenger_manifest")) {
+      db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN passenger_manifest TEXT NOT NULL DEFAULT '[]'");
+    }
 
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -118,6 +155,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const failureDescriptions = body.failureDescriptions || {};
 
+    const passengerManifest = normalizePassengerManifest(body.passengerManifest);
+
     const cols = [
       "id", "organization_id", "vehicle_id", "trip_id", "driver_id", "driver_name",
       "mileage_km", "check_date", "route_from", "route_to", "direction",
@@ -126,7 +165,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ...EQUIP_FIELDS,
       "has_exceptions", "exception_items", "exception_approved",
       "approved_by", "approved_at", "approval_method",
-      "overall_pass", "created_at", "updated_at",
+      "overall_pass", "passenger_manifest", "created_at", "updated_at",
     ];
 
     const placeholders = cols.map(() => "?").join(", ");
@@ -154,6 +193,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       body.approvedAt || null,
       body.approvalMethod || "",
       overallPass ? 1 : 0,
+      JSON.stringify(passengerManifest),
       now,
       now,
     ];

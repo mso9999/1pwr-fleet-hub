@@ -37,6 +37,10 @@ interface TripRow {
   load_in: string;
   checkout_at: string;
   checkin_at: string | null;
+  planned_departure_date?: string | null;
+  departed_at?: string | null;
+  departure_confirmed_by_name?: string | null;
+  departure_discrepancy?: string | null;
   issues_observed: string;
   distance: number | null;
   source: string;
@@ -60,6 +64,24 @@ function tripShapeLabel(shape?: string): string {
   if (s === "multi_stop") return "Multi-stop";
   return "One-way";
 }
+
+interface ParsedDiscrepancy {
+  discrepancy: boolean;
+  detail: string;
+  firstMovedAt: string | null;
+  trackerAvailable: boolean;
+}
+
+function parseDepartureDiscrepancy(raw: string | null | undefined): ParsedDiscrepancy | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ParsedDiscrepancy;
+    if (parsed && typeof parsed.detail === "string") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
 function TripsPageContent(): React.ReactElement {
   const { active, trackId, stepIndex } = useTutorial();
   const searchParams = useSearchParams();
@@ -75,6 +97,8 @@ function TripsPageContent(): React.ReactElement {
   const [expandedTrip, setExpandedTrip] = useState<string | null>(null);
   const [editingTrip, setEditingTrip] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [departTrip, setDepartTrip] = useState<TripRow | null>(null);
+  const [isDeparting, setIsDeparting] = useState(false);
 
   const loadTrips = useCallback(() => {
     fetch(`/api/trips?org=${organizationId}&includeStops=true`)
@@ -144,6 +168,41 @@ function TripsPageContent(): React.ReactElement {
       body: JSON.stringify(payload),
     });
     if (res.ok) loadTrips();
+  }
+
+  async function confirmDepart(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (!departTrip) return;
+    setIsDeparting(true);
+    const fd = new FormData(e.currentTarget);
+    const body: Record<string, unknown> = {};
+    const odoRaw = String(fd.get("actualOdoStart") || "").trim();
+    if (odoRaw) body.actualOdoStart = Number(odoRaw);
+    const overrideReason = String(fd.get("overrideReason") || "").trim();
+    if (overrideReason) body.overrideReason = overrideReason;
+    const res = await fetch(`/api/trips/${departTrip.id}/depart`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setIsDeparting(false);
+    if (res.ok) {
+      setDepartTrip(null);
+      loadTrips();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      const gates = Array.isArray((data as Record<string, unknown>).gates)
+        ? ((data as Record<string, unknown>).gates as Array<{ label: string; detail: string }>)
+        : [];
+      const gateText = gates.length
+        ? gates.map((g) => `• ${g.label}: ${g.detail}`).join("\n")
+        : "";
+      window.alert(
+        `Could not register departure:\n${String((data as Record<string, unknown>).error || "Unknown error")}${
+          gateText ? `\n\n${gateText}` : ""
+        }`
+      );
+    }
   }
 
   const activeTrips = trips.filter((t) => !t.checkin_at);
@@ -237,6 +296,15 @@ function TripsPageContent(): React.ReactElement {
         />
       )}
 
+      {departTrip && (
+        <DepartureForm
+          trip={departTrip}
+          isSubmitting={isDeparting}
+          onSubmit={confirmDepart}
+          onCancel={() => setDepartTrip(null)}
+        />
+      )}
+
       {activeTrips.length > 0 && (
         <Card>
           <CardHeader><CardTitle>Active Trips</CardTitle></CardHeader>
@@ -273,12 +341,39 @@ function TripsPageContent(): React.ReactElement {
                       <div className="text-xs text-zinc-400 mt-1">
                         Driver: {trip.driver_name || "—"}
                         {trip.odo_start != null ? ` · ODO: ${Number(trip.odo_start).toLocaleString()} km` : ""}
-                        · Out: {new Date(trip.checkout_at).toLocaleString()}
+                        · Checked out: {new Date(trip.checkout_at).toLocaleString()}
+                        {trip.departed_at
+                          ? ` · Departed: ${new Date(trip.departed_at).toLocaleString()}`
+                          : " · Departed: pending"}
+                        {trip.planned_departure_date ? ` · Planned: ${trip.planned_departure_date}` : ""}
                         {trip.source !== "manual" && <Badge variant="secondary" className="ml-2 text-[10px]">{trip.source}</Badge>}
                       </div>
+                      {(() => {
+                        const discrepancy = parseDepartureDiscrepancy(trip.departure_discrepancy);
+                        if (!discrepancy) return null;
+                        return (
+                          <div
+                            className={`mt-2 rounded border px-2.5 py-1.5 text-xs ${
+                              discrepancy.discrepancy
+                                ? "border-amber-300 bg-amber-50 text-amber-900"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            }`}
+                          >
+                            <span className="font-medium">Tracker cross-check: </span>
+                            {discrepancy.detail}
+                          </div>
+                        );
+                      })()}
                     </div>
                     {trip.vehicle_code ? (
-                      <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!trip.departed_at && (
+                          <Button size="sm" variant="outline" onClick={() => setDepartTrip(trip)}>
+                            Start trip
+                          </Button>
+                        )}
+                        <Button size="sm" onClick={() => setCheckinTrip(trip)}>Check In</Button>
+                      </div>
                     ) : (
                       <span className="text-xs text-zinc-500">Awaiting fleet allocation</span>
                     )}
@@ -461,6 +556,64 @@ function CheckinForm({ trip, sites, onComplete, onCancel }: {
   );
 }
 
+function DepartureForm({
+  trip,
+  isSubmitting,
+  onSubmit,
+  onCancel,
+}: {
+  trip: TripRow;
+  isSubmitting: boolean;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  onCancel: () => void;
+}): React.ReactElement {
+  return (
+    <Card className="border-blue-200 bg-blue-50/30">
+      <CardHeader>
+        <CardTitle>Start trip / Depart now: {trip.vehicle_code ?? "—"}</CardTitle>
+        <p className="text-sm text-zinc-500">
+          {trip.departure_location} → {trip.destination}
+          {trip.planned_departure_date ? ` · Planned departure: ${trip.planned_departure_date}` : ""}
+          {trip.odo_start != null ? ` · Checkout ODO: ${Number(trip.odo_start).toLocaleString()} km` : ""}
+        </p>
+        <p className="text-xs text-zinc-500 mt-1">
+          Records the actual date and time of departure. If a pre-departure checklist is older than
+          24 hours, the readiness gate will block this until an approver provides an override reason.
+          For tracked vehicles, the system will cross-check the tracker history against the planned
+          departure date and flag any discrepancy.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+          <Input
+            name="actualOdoStart"
+            label="Actual ODO at departure (km)"
+            type="number"
+            placeholder={trip.odo_start != null ? String(trip.odo_start) : "e.g. 154200"}
+            defaultValue={trip.odo_start != null ? String(trip.odo_start) : ""}
+            min={0}
+          />
+          <div>
+            <label className="text-sm font-medium text-zinc-700">Override reason (optional)</label>
+            <textarea
+              name="overrideReason"
+              rows={2}
+              className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              placeholder="Only if the readiness gate is blocked and an approver is authorizing the departure."
+            />
+          </div>
+          <div className="sm:col-span-2 flex gap-3">
+            <Button type="submit" disabled={isSubmitting} size="lg">
+              {isSubmitting ? "Recording departure..." : "Confirm departure"}
+            </Button>
+            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving, sites, missionTypes, onToggle, onEdit, onCancelEdit, onSave, onDelete }: {
   trip: TripRow;
   organizationId: string;
@@ -589,9 +742,29 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
                       <div>{new Date(trip.checkout_at).toLocaleString()}</div>
                     </div>
                     <div>
+                      <div className="text-xs text-zinc-500 uppercase font-medium">Departed</div>
+                      <div>{trip.departed_at ? new Date(trip.departed_at).toLocaleString() : "—"}</div>
+                    </div>
+                    <div>
                       <div className="text-xs text-zinc-500 uppercase font-medium">Check In</div>
                       <div>{trip.checkin_at ? new Date(trip.checkin_at).toLocaleString() : "—"}</div>
                     </div>
+                    {(() => {
+                      const discrepancy = parseDepartureDiscrepancy(trip.departure_discrepancy);
+                      if (!discrepancy) return null;
+                      return (
+                        <div className="sm:col-span-2">
+                          <div className="text-xs text-zinc-500 uppercase font-medium">Tracker cross-check</div>
+                          <div
+                            className={
+                              discrepancy.discrepancy ? "text-amber-700" : "text-emerald-700"
+                            }
+                          >
+                            {discrepancy.detail}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {trip.passengers && (
                       <div>
                         <div className="text-xs text-zinc-500 uppercase font-medium">Passengers</div>

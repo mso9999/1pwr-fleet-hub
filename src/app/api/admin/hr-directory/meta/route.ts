@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchHrEmployeeDirectory } from "@/lib/hr-directory-client";
+import { fetchHrEmployeeMeta } from "@/lib/hr-directory-client";
 import {
   verifyFleetUser,
   isFleetManagementRole,
@@ -23,13 +23,18 @@ function explain(reason: AuthFailure | undefined): string {
   }
 }
 
+/**
+ * GET /api/admin/hr-directory/meta
+ * Returns the list of countries and departments the HR directory can be filtered
+ * by, so the passenger manifest picker can populate its filter dropdowns
+ * dynamically instead of hardcoding them. Same access gate as the directory
+ * itself (PII-adjacent).
+ */
 export async function GET(request: Request): Promise<NextResponse> {
   const { user, reason } = await verifyFleetUser(request);
   if (!user) {
     return NextResponse.json({ error: explain(reason), reason }, { status: 401 });
   }
-  // Gate HR directory access (contains PII) to: fleet management, EHS, or anyone who
-  // already has Fleet Mechanics edit rights (DPO / HR / IT / Fleet department).
   const allowed =
     isFleetManagementRole(user.role) ||
     canViewEhsApprovedDrivers(user.role, user.department) ||
@@ -43,10 +48,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       { status: 403 }
     );
   }
-  const sp = new URL(request.url).searchParams;
-  const country = sp.get("country") || undefined;
-  const department = sp.get("department") || undefined;
-  const result = await fetchHrEmployeeDirectory({ country, department });
+  const result = await fetchHrEmployeeMeta();
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }

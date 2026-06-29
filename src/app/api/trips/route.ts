@@ -197,8 +197,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const mission = db
-    .prepare("SELECT destination, trip_shape FROM missions WHERE id = ?")
-    .get(missionIdRaw) as { destination?: string; trip_shape?: string } | undefined;
+    .prepare("SELECT destination, trip_shape, departure_date FROM missions WHERE id = ?")
+    .get(missionIdRaw) as { destination?: string; trip_shape?: string; departure_date?: string } | undefined;
   const missionStops = rollout
     ? (db
         .prepare(
@@ -288,9 +288,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       trip_shape,
       authorized_driver_verified, approved_drivers, loadout_manifest,
       expected_return_at, mission_priority, approval_status, approved_by, am_allocation_ids,
-      mission_id
+      mission_id, planned_departure_date
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     organizationId,
@@ -315,7 +315,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.approvalStatus || defaultApprovalStatus,
     body.approvedBy || "",
     JSON.stringify(body.amAllocationIds || []),
-    missionIdRaw
+    missionIdRaw,
+    (mission && String(mission.departure_date || "").slice(0, 10)) || null
   );
 
   db.prepare("UPDATE missions SET trip_id = ?, updated_at = ? WHERE id = ?").run(id, now, missionIdRaw);
