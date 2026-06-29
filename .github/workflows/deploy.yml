@@ -38,11 +38,14 @@ jobs:
           HR_API_KEY: ${{ secrets.HR_API_KEY }}
           FLEET_INTEGRATION_API_KEY: ${{ secrets.FLEET_INTEGRATION_API_KEY }}
           DRAFT_CLEANUP_SECRET: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+          FLEET_HR_API_KEY: ${{ secrets.FLEET_HR_API_KEY }}
+          FLEET_HR_API_ALLOWED_IPS: ${{ secrets.FLEET_HR_API_ALLOWED_IPS }}
+          FLEET_PUBLIC_BASE_URL: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET
+          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET,FLEET_HR_API_KEY,FLEET_HR_API_ALLOWED_IPS,FLEET_PUBLIC_BASE_URL
           script: |
             set -e
             cd /var/www/fleet-hub
@@ -55,7 +58,7 @@ jobs:
             # Dedupe any prior HR_API_* lines before appending so re-runs
             # stay idempotent and rotations land cleanly.
             touch /var/www/fleet-hub/.env
-            sed -i.bak '/^HR_API_BASE_URL=/d; /^HR_API_KEY=/d; /^FLEET_INTEGRATION_API_KEY=/d; /^DRAFT_CLEANUP_SECRET=/d' /var/www/fleet-hub/.env
+            sed -i.bak '/^HR_API_BASE_URL=/d; /^HR_API_KEY=/d; /^FLEET_INTEGRATION_API_KEY=/d; /^DRAFT_CLEANUP_SECRET=/d; /^FLEET_HR_API_KEY=/d; /^FLEET_HR_API_ALLOWED_IPS=/d; /^FLEET_PUBLIC_BASE_URL=/d' /var/www/fleet-hub/.env
             if [ -n "$HR_API_BASE_URL" ] && [ -n "$HR_API_KEY" ]; then
               printf 'HR_API_BASE_URL=%s\n' "$HR_API_BASE_URL" >> /var/www/fleet-hub/.env
               printf 'HR_API_KEY=%s\n'      "$HR_API_KEY"      >> /var/www/fleet-hub/.env
@@ -74,6 +77,24 @@ jobs:
               echo "DRAFT_CLEANUP_SECRET written to .env (length: ${#DRAFT_CLEANUP_SECRET})"
             else
               echo "NOTE: DRAFT_CLEANUP_SECRET not set in GH secrets — scheduled draft cleanup endpoint auth will fail"
+            fi
+            if [ -n "$FLEET_HR_API_KEY" ]; then
+              printf 'FLEET_HR_API_KEY=%s\n' "$FLEET_HR_API_KEY" >> /var/www/fleet-hub/.env
+              echo "FLEET_HR_API_KEY written to .env (length: ${#FLEET_HR_API_KEY})"
+            else
+              echo "NOTE: FLEET_HR_API_KEY not set in GH secrets — HR-facing /api/deployments/* will 401 until set"
+            fi
+            if [ -n "$FLEET_HR_API_ALLOWED_IPS" ]; then
+              printf 'FLEET_HR_API_ALLOWED_IPS=%s\n' "$FLEET_HR_API_ALLOWED_IPS" >> /var/www/fleet-hub/.env
+              echo "FLEET_HR_API_ALLOWED_IPS written to .env"
+            else
+              echo "NOTE: FLEET_HR_API_ALLOWED_IPS not set — HR API accepts the key from any IP (allow-list disabled)"
+            fi
+            if [ -n "$FLEET_PUBLIC_BASE_URL" ]; then
+              printf 'FLEET_PUBLIC_BASE_URL=%s\n' "$FLEET_PUBLIC_BASE_URL" >> /var/www/fleet-hub/.env
+              echo "FLEET_PUBLIC_BASE_URL written to .env ($FLEET_PUBLIC_BASE_URL)"
+            else
+              echo "NOTE: FLEET_PUBLIC_BASE_URL not set — inspection_url falls back to https://fm.1pwrafrica.com"
             fi
 
             # --update-env re-reads process env; Next.js itself also picks
