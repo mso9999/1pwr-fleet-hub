@@ -1,0 +1,94 @@
+name: HR API smoke test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Smoke test HR <-> Fleet Hub API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH to EC2 and run smoke tests
+        uses: appleboy/ssh-action@v1.0.0
+        env:
+          HR_API_BASE_URL: ${{ secrets.HR_API_BASE_URL }}
+          HR_API_KEY: ${{ secrets.HR_API_KEY }}
+          FLEET_HR_API_KEY: ${{ secrets.FLEET_HR_API_KEY }}
+          FLEET_PUBLIC_BASE_URL: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_HR_API_KEY,FLEET_PUBLIC_BASE_URL
+          script: |
+            set -e
+            echo "=== HR -> Fleet Hub consumer check ==="
+            if [ -z "$HR_API_KEY" ]; then
+              echo "FAIL: HR_API_KEY not set in GH secrets"
+              exit 1
+            fi
+            HR_BASE="${HR_API_BASE_URL:-https://hr.1pwrafrica.com}"
+            echo "HR base: $HR_BASE"
+            echo "HR key length: ${#HR_API_KEY}"
+
+            echo ""
+            echo "--- 1) HR /api/employees/directory?country=LS with valid key (expect 200) ---"
+            code=$(curl -s -o /tmp/dir.json -w "%{http_code}" -H "X-API-Key: $HR_API_KEY" "$HR_BASE/api/employees/directory?country=LS")
+            echo "HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "FAIL: expected 200, got $code"
+              head -c 400 /tmp/dir.json; echo
+              exit 1
+            fi
+            count=$(node -e "const d=require('/tmp/dir.json');console.log(d.count??d.employees?.length??0)" 2>/dev/null || echo "?")
+            first=$(node -e "const d=require('/tmp/dir.json');const e=(d.employees||[])[0]||{};console.log([e.employee_id,e.name,e.country,e.department].filter(Boolean).join(' | '))" 2>/dev/null || echo "?")
+            echo "count=$count"
+            echo "first row (employee_id | name | country | department): $first"
+
+            echo ""
+            echo "--- 2) HR /api/employees/directory with bad key (expect 401) ---"
+            badcode=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: not-a-real-key" "$HR_BASE/api/employees/directory")
+            echo "HTTP $badcode"
+            if [ "$badcode" != "401" ]; then
+              echo "WARN: expected 401, got $badcode"
+            fi
+
+            echo ""
+            echo "--- 3) HR /api/employees/meta with valid key (expect 200) ---"
+            metacode=$(curl -s -o /tmp/meta.json -w "%{http_code}" -H "X-API-Key: $HR_API_KEY" "$HR_BASE/api/employees/meta")
+            echo "HTTP $metacode"
+            if [ "$metacode" = "200" ]; then
+              node -e "const m=require('/tmp/meta.json');console.log('countries:',(m.countries||[]).join(','));console.log('departments:',(m.departments||[]).length,'depts')"
+            fi
+
+            echo ""
+            echo "=== Fleet Hub -> HR-facing API check ==="
+            FM_BASE="${FLEET_PUBLIC_BASE_URL:-https://fm.1pwrafrica.com}"
+            echo "FM base: $FM_BASE"
+            if [ -z "$FLEET_HR_API_KEY" ]; then
+              echo "FAIL: FLEET_HR_API_KEY not set in GH secrets"
+              exit 1
+            fi
+            echo "FM HR key length: ${#FLEET_HR_API_KEY}"
+
+            echo ""
+            echo "--- 4) FM /api/deployments/current?employee_id=1PWR0159F with valid key (expect 200 or 404) ---"
+            fmcode=$(curl -s -o /tmp/fm.json -w "%{http_code}" -H "X-API-Key: $FLEET_HR_API_KEY" "$FM_BASE/api/deployments/current?employee_id=1PWR0159F")
+            echo "HTTP $fmcode"
+            head -c 400 /tmp/fm.json; echo
+            if [ "$fmcode" != "200" ] && [ "$fmcode" != "404" ]; then
+              echo "FAIL: expected 200 or 404, got $fmcode"
+              exit 1
+            fi
+
+            echo ""
+            echo "--- 5) FM /api/deployments/current with bad key (expect 401) ---"
+            fmbad=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: not-a-real-key" "$FM_BASE/api/deployments/current?employee_id=1PWR0159F")
+            echo "HTTP $fmbad"
+            if [ "$fmbad" != "401" ]; then
+              echo "WARN: expected 401, got $fmbad"
+            fi
+
+            echo ""
+            echo "=== SMOKE TEST PASSED ==="
