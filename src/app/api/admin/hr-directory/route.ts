@@ -46,7 +46,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   const sp = new URL(request.url).searchParams;
   const country = sp.get("country") || undefined;
   const department = sp.get("department") || undefined;
-  const result = await fetchHrEmployeeDirectory({ country, department });
+  const since = sp.get("since") || undefined;
+  const result = await fetchHrEmployeeDirectory({ country, department, since });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 502 });
   }

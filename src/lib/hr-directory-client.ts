@@ -20,6 +20,8 @@ export interface HrDirectoryEmployee {
   phone: string | null;
   headshot: string | null;
   status: string;
+  /** ISO 8601 timestamp of the underlying user row's last update; cursor for `since`-based incremental syncs. May be null on legacy rows. */
+  last_updated_at: string | null;
 }
 
 export interface HrDirectoryResult {
@@ -51,6 +53,7 @@ interface HrDirectoryRawEmployee {
   phone?: string | null;
   headshot?: string | null;
   status?: string;
+  last_updated_at?: string | null;
 }
 
 function normalizeEmployee(raw: HrDirectoryRawEmployee): HrDirectoryEmployee {
@@ -69,6 +72,7 @@ function normalizeEmployee(raw: HrDirectoryRawEmployee): HrDirectoryEmployee {
     phone: raw.phone ?? null,
     headshot: raw.headshot ?? null,
     status: String(raw.status ?? ""),
+    last_updated_at: raw.last_updated_at ?? null,
   };
 }
 
@@ -87,12 +91,15 @@ function hrConfig(): { base: string; key: string } | { error: string } {
 export async function fetchHrEmployeeDirectory(params?: {
   country?: string;
   department?: string;
+  /** ISO 8601 date/datetime; narrows to employees updated at/after this timestamp (incremental sync). */
+  since?: string;
 }): Promise<HrDirectoryResult> {
   const cfg = hrConfig();
   if ("error" in cfg) return { ok: false, error: cfg.error };
   const url = new URL(`${cfg.base}/api/employees/directory`);
   if (params?.country) url.searchParams.set("country", params.country);
   if (params?.department) url.searchParams.set("department", params.department);
+  if (params?.since) url.searchParams.set("since", params.since);
   try {
     const res = await fetch(url.toString(), {
       headers: { "X-API-Key": cfg.key },
