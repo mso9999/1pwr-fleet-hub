@@ -85,6 +85,44 @@ export async function POST(
   const overrideReason = String(body.overrideReason || "").trim();
 
   if (!readiness.ok) {
+    // The mission_approval gate is policy-hard: vehicles must not be deployed
+    // without the mission getting logged and approved. An approver cannot
+    // override a non-approved mission — they have to approve the mission
+    // first. Other gates (DVC freshness, mechanical, etc.) keep their
+    // override path because those are operational checks where a reasoned
+    // bypass is legitimate.
+    const missionApprovalGate = readiness.gates.find(
+      (g) => g.id === "mission_approval" && g.status !== "satisfied"
+    );
+    if (missionApprovalGate) {
+      return NextResponse.json(
+        {
+          error:
+            "Mission is not approved. Approve the mission before departing — this gate cannot be overridden.",
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+          reason: "mission_not_approved_no_override",
+        },
+        { status: 403 }
+      );
+    }
+    // mission_lifecycle and mission (not-found) gates are also policy-hard.
+    const missionBlocked = String(readiness.missionBlockedReason || "");
+    if (missionBlocked && missionBlocked !== "vehicle_mismatch") {
+      return NextResponse.json(
+        {
+          error:
+            missionBlocked === "not_found"
+              ? "Mission not found for this organization. Dispatch must log a mission before departure."
+              : `Mission lifecycle is ${missionBlocked}. Only active missions can deploy — this gate cannot be overridden.`,
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+          reason: `mission_${missionBlocked}_no_override`,
+        },
+        { status: 403 }
+      );
+    }
+
     if (overrideReason.length === 0) {
       return NextResponse.json(
         {

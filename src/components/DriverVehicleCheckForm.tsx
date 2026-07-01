@@ -21,6 +21,18 @@ import {
   type ManifestPassenger,
 } from "@/components/PassengerManifestPicker";
 
+interface EligibleTrip {
+  id: string;
+  mission_id: string;
+  mission_title: string | null;
+  departure_location: string;
+  destination: string;
+  planned_departure_date: string | null;
+  checkout_at: string | null;
+  mission_departure_date: string | null;
+  vehicle_code: string | null;
+}
+
 interface ApprovedDriverOption {
   id: string;
   email: string;
@@ -303,6 +315,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [passengerManifest, setPassengerManifest] = useState<ManifestPassenger[]>([]);
+  const [selectedTripId, setSelectedTripId] = useState<string>("");
+  const [eligibleTrips, setEligibleTrips] = useState<EligibleTrip[]>([]);
+  const [eligibleTripsLoading, setEligibleTripsLoading] = useState(false);
+  const [eligibleTripsError, setEligibleTripsError] = useState<string>("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
@@ -364,6 +380,63 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       cancelled = true;
     };
   }, [organizationId]);
+
+  useEffect(() => {
+    // Fetch approved-mission trips for the selected vehicle whenever the
+    // driver is filling a departing check. The picker is the policy gate's
+    // user-facing surface: if this list is empty, the driver can't submit
+    // and is told to ask dispatch to log and approve a mission. We don't
+    // fetch for returning direction (no trip required) or when no vehicle
+    // is selected yet.
+    if (direction !== "departing" || !selectedVehicleId) {
+      setEligibleTrips([]);
+      setEligibleTripsError("");
+      return;
+    }
+    let cancelled = false;
+    setEligibleTripsLoading(true);
+    setEligibleTripsError("");
+    (async () => {
+      try {
+        const url = `/api/trips/eligible-for-departure?vehicleId=${encodeURIComponent(
+          selectedVehicleId
+        )}&org=${encodeURIComponent(organizationId)}`;
+        const res = await fetch(url, { headers: await jsonHeadersWithBearer() });
+        if (!res.ok) {
+          if (!cancelled) {
+            setEligibleTrips([]);
+            setEligibleTripsError(
+              `Could not load approved missions for this vehicle (HTTP ${res.status}).`
+            );
+          }
+          return;
+        }
+        const data = (await res.json()) as { trips?: EligibleTrip[] };
+        if (!cancelled) {
+          const list = Array.isArray(data.trips) ? data.trips : [];
+          setEligibleTrips(list);
+          // If the previously-selected trip is no longer in the eligible
+          // list (e.g. it was started by another session, or the mission
+          // was unapproved), clear the selection so we don't submit a
+          // stale tripId.
+          if (selectedTripId && !list.some((t) => t.id === selectedTripId)) {
+            setSelectedTripId("");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setEligibleTrips([]);
+          setEligibleTripsError("Could not load approved missions for this vehicle.");
+        }
+      } finally {
+        if (!cancelled) setEligibleTripsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, selectedVehicleId, organizationId]);
 
   const matchedDriver = useMemo(() => {
     const needle = driverName.trim().toLowerCase();
@@ -467,6 +540,19 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       return;
     }
 
+    // Policy gate (2026-07-01): a departing check must reference an
+    // approved-mission trip. The server re-validates this, but we block
+    // here too so the driver gets a clear in-form message rather than a
+    // 400 after the photo upload attempt.
+    if (direction === "departing" && !selectedTripId) {
+      setFormError(
+        eligibleTrips.length === 0
+          ? "No approved mission for this vehicle today. Ask dispatch to log and approve a mission before departing."
+          : "Pick the mission / trip you are departing on. This anchors HR's field-deployment clock on an approved mission."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     const typedDriverName = (fd.get("driverName") as string | null)?.trim() || "";
@@ -488,6 +574,11 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       travelPhoneNumber: (fd.get("travelPhoneNumber") as string) || "",
       failureDescriptions: failureDescs,
       passengerManifest,
+      // For departing checks, tripId is the anchor to an approved mission —
+      // the server validates the trip + mission approval state. For
+      // returning checks, tripId is omitted (the server doesn't require it
+      // and returning checks don't anchor a deployment clock).
+      ...(direction === "departing" ? { tripId: selectedTripId } : {}),
     };
 
     for (const item of STATUS_ITEMS) {
@@ -706,6 +797,49 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               ))}
             </datalist>
           </div>
+
+          {direction === "departing" && (
+            <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+              <div>
+                <label className="text-sm font-medium text-zinc-700">Mission / Trip *</label>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Pick the approved mission you are departing on. This anchors the
+                  field-deployment clock on a manager-approved mission — a vehicle
+                  cannot deploy without one. If the list is empty, ask dispatch to
+                  log and approve a mission for this vehicle first.
+                </p>
+              </div>
+
+              {eligibleTripsLoading ? (
+                <p className="text-[11px] text-zinc-500">Loading approved missions for this vehicle…</p>
+              ) : eligibleTripsError ? (
+                <p className="text-[11px] text-red-700">{eligibleTripsError}</p>
+              ) : eligibleTrips.length === 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  No approved mission for this vehicle today. Ask dispatch to log
+                  and approve a mission before you depart.
+                </div>
+              ) : (
+                <select
+                  value={selectedTripId}
+                  onChange={(e) => setSelectedTripId(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                >
+                  <option value="">Select a mission…</option>
+                  {eligibleTrips.map((t) => {
+                    const planned = t.planned_departure_date || t.mission_departure_date || "";
+                    const title = t.mission_title || "(untitled mission)";
+                    const route = `${t.departure_location || "?"} → ${t.destination || "?"}`;
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {title} · {route}{planned ? ` · planned ${planned.slice(0, 10)}` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+          )}
 
           {direction === "departing" && (
             <div className="rounded-xl border border-zinc-200 bg-white p-4">

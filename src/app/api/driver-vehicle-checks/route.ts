@@ -132,6 +132,102 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN passenger_manifest TEXT NOT NULL DEFAULT '[]'");
     }
 
+    const direction = String(body.direction || "departing").toLowerCase();
+
+    // Policy gate (2026-07-01): vehicles must not be deployed without the
+    // mission getting logged and approved. A departing DVC is the moment the
+    // driver documents who is on board and anchors HR's field-deployment
+    // clock, so it must reference an approved-mission trip. Returning checks
+    // are not deployments and stay ungated.
+    //
+    // We require an explicit tripId (no auto-link) and validate:
+    //   - the trip exists
+    //   - the trip's vehicle matches this DVC's vehicle
+    //   - the trip has a linked mission whose approval_status = 'approved'
+    //   - the trip has not yet departed (departed_at IS NULL)
+    //   - the trip has not been checked in (checkin_at IS NULL)
+    // If any check fails we return 400 with a clear reason so the driver /
+    // dispatch can fix the upstream step (create+approve the mission, or
+    // create+link the trip) before re-submitting.
+    if (direction === "departing") {
+      const tripId = String(body.tripId || "").trim();
+      if (!tripId) {
+        return NextResponse.json(
+          {
+            error:
+              "An approved mission / trip is required for a departing check. Pick one from the list, or ask dispatch to log and approve a mission for this vehicle first.",
+            reason: "missing_trip",
+          },
+          { status: 400 }
+        );
+      }
+      const trip = db
+        .prepare(
+          `SELECT t.id, t.vehicle_id, t.mission_id, t.departed_at, t.checkin_at,
+                  m.approval_status  AS mission_approval_status,
+                  m.lifecycle_status AS mission_lifecycle_status
+             FROM trips t
+             LEFT JOIN missions m ON t.mission_id = m.id
+            WHERE t.id = ?`
+        )
+        .get(tripId) as
+        | {
+            id: string;
+            vehicle_id: string;
+            mission_id: string | null;
+            departed_at: string | null;
+            checkin_at: string | null;
+            mission_approval_status: string | null;
+            mission_lifecycle_status: string | null;
+          }
+        | undefined;
+      if (!trip) {
+        return NextResponse.json(
+          { error: "Selected trip no longer exists. Refresh and pick again.", reason: "trip_not_found" },
+          { status: 400 }
+        );
+      }
+      if (String(trip.vehicle_id || "") !== String(body.vehicleId)) {
+        return NextResponse.json(
+          { error: "Selected trip is for a different vehicle. Pick a trip matching this vehicle.", reason: "vehicle_mismatch" },
+          { status: 400 }
+        );
+      }
+      if (!trip.mission_id) {
+        return NextResponse.json(
+          { error: "Selected trip is not linked to a mission. Dispatch must attach an approved mission before departure.", reason: "missing_mission" },
+          { status: 400 }
+        );
+      }
+      if (String(trip.mission_approval_status || "").toLowerCase() !== "approved") {
+        return NextResponse.json(
+          {
+            error: `Mission is ${trip.mission_approval_status || "pending"} — not approved. A manager must approve the mission before this vehicle can deploy.`,
+            reason: "mission_not_approved",
+          },
+          { status: 400 }
+        );
+      }
+      if (String(trip.mission_lifecycle_status || "active").toLowerCase() !== "active") {
+        return NextResponse.json(
+          { error: `Mission lifecycle is ${trip.mission_lifecycle_status}. Only active missions can deploy.`, reason: "mission_not_active" },
+          { status: 400 }
+        );
+      }
+      if (trip.departed_at) {
+        return NextResponse.json(
+          { error: "Selected trip has already departed. Pick the next pending trip for this vehicle.", reason: "trip_already_departed" },
+          { status: 400 }
+        );
+      }
+      if (trip.checkin_at) {
+        return NextResponse.json(
+          { error: "Selected trip has already been checked in. Pick the next pending trip for this vehicle.", reason: "trip_already_checked_in" },
+          { status: 400 }
+        );
+      }
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
@@ -201,34 +297,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const insertCheckAndMaybeWo = db.transaction(() => {
       db.prepare(`INSERT INTO driver_vehicle_checks (${cols.join(", ")}) VALUES (${placeholders})`).run(...vals);
 
-      // Auto-link the DVC to a governing trip when the caller didn't supply
-      // one explicitly. The HR /api/deployments/current endpoint requires
-      // dvc.trip_id -> trips.departed_at to derive status="active", so
-      // without this link a departing DVC with passengers still wouldn't
-      // surface to HR. We match on vehicle + check_date + not-yet-checked-in
-      // (still active) — a unique enough combination for the field workflow,
-      // and we only auto-link when exactly one candidate exists to avoid
-      // silently binding to the wrong trip.
-      const explicitTripId = body.tripId || null;
-      if (!explicitTripId) {
-        const candidates = db
-          .prepare(`
-            SELECT t.id
-              FROM trips t
-             WHERE t.vehicle_id = ?
-               AND date(t.checkout_at) = ?
-               AND t.checkin_at IS NULL
-             ORDER BY t.checkout_at DESC
-             LIMIT 1
-          `)
-          .all(body.vehicleId, body.checkDate || today) as Array<{ id: string }>;
-        if (candidates.length === 1) {
-          db.prepare("UPDATE driver_vehicle_checks SET trip_id = ? WHERE id = ?").run(
-            candidates[0].id,
-            id
-          );
-        }
-      }
+      // Note: no auto-link to a trip. As of 2026-07-01 the policy is that
+      // departing DVCs must reference an explicitly-selected, approved-mission
+      // trip (validated above). Returning DVCs may carry a tripId if the
+      // caller supplies one (e.g. the returning check links back to the same
+      // trip), but we never silently bind a DVC to a trip the driver didn't
+      // pick — that was the failure mode that left HR blind to the LS SEH
+      // deployment on 13/06.
 
       if (hasFail) {
         const failItems = Object.entries(statusValues)
