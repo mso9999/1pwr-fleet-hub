@@ -98,8 +98,13 @@ export function evaluateReadinessForMissionLinkedTrip(
     };
   }
 
-  const profile = String(m.mission_profile || MISSION_PROFILE.LOCAL).toLowerCase();
-  const skipDvc = profile === MISSION_PROFILE.LOCAL;
+  // Policy (2026-07-01): every deployment must have a departing DVC on
+  // record — the passenger manifest is the canonical "who is on board"
+  // record HR anchors the field-deployment clock on. Previously LOCAL
+  // profile missions skipped this gate; that left HR blind to local
+  // deployments and let vehicles physically leave without a documented
+  // manifest. The gate now applies uniformly to all mission profiles.
+  const skipDvc = false;
 
   const missionCalendarEndDay = missionWindowEndDate(String(m.departure_date || ""), m.return_date) || undefined;
   const plannedDepartureDate = String(m.departure_date || "").slice(0, 10) || undefined;

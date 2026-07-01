@@ -19,6 +19,9 @@ import { useTutorial } from "@/components/tutorial/tutorial-context";
 interface TripRow {
   id: string;
   mission_id?: string | null;
+  mission_title?: string | null;
+  mission_approval_status?: string | null;
+  mission_lifecycle_status?: string | null;
   vehicle_id: string | null;
   vehicle_code: string | null;
   vehicle_make: string | null;
@@ -81,6 +84,51 @@ function parseDepartureDiscrepancy(raw: string | null | undefined): ParsedDiscre
   } catch {
     return null;
   }
+}
+
+/**
+ * Mission-gate badge for the Start trip button. Reflects the policy-hard
+ * gate from /api/trips/[id]/depart + evaluateReadinessForMissionLinkedTrip:
+ * the mission must be linked, approved, and active before a vehicle can
+ * depart. DVC freshness / mechanical gates stay override-able and are
+ * surfaced inside the Start trip modal instead — this badge is the cheap
+ * at-a-glance status so dispatch sees whether the mission paperwork is
+ * done before clicking in.
+ */
+function missionGateBadge(trip: TripRow): {
+  label: string;
+  className: string;
+  title: string;
+} | null {
+  if (trip.departed_at) return null; // already departed — no badge needed
+  if (!trip.mission_id) {
+    return {
+      label: "Mission not linked",
+      className: "border-red-200 bg-red-50 text-red-800",
+      title: "Trip has no linked mission. Dispatch must attach an approved mission before this vehicle can deploy.",
+    };
+  }
+  const approval = String(trip.mission_approval_status || "").toLowerCase();
+  const lifecycle = String(trip.mission_lifecycle_status || "active").toLowerCase();
+  if (approval !== "approved") {
+    return {
+      label: `Mission ${approval || "pending"}`,
+      className: "border-red-200 bg-red-50 text-red-800",
+      title: `Mission approval_status = '${approval || "pending"}'. A manager must approve the mission before departure (this gate cannot be overridden).`,
+    };
+  }
+  if (lifecycle !== "active") {
+    return {
+      label: `Mission ${lifecycle}`,
+      className: "border-red-200 bg-red-50 text-red-800",
+      title: `Mission lifecycle_status = '${lifecycle}'. Only active missions can deploy.`,
+    };
+  }
+  return {
+    label: "Mission approved",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    title: "Mission is approved and active. Operational gates (DVC, mechanical) will be checked when you click Start trip.",
+  };
 }
 function TripsPageContent(): React.ReactElement {
   const { active, trackId, stepIndex } = useTutorial();
@@ -367,6 +415,14 @@ function TripsPageContent(): React.ReactElement {
                     </div>
                     {trip.vehicle_code ? (
                       <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!trip.departed_at && (() => {
+                          const b = missionGateBadge(trip);
+                          return b ? (
+                            <Badge variant="secondary" className={`text-[10px] ${b.className}`} title={b.title}>
+                              {b.label}
+                            </Badge>
+                          ) : null;
+                        })()}
                         {!trip.departed_at && (
                           <Button size="sm" variant="outline" onClick={() => setDepartTrip(trip)}>
                             Start trip

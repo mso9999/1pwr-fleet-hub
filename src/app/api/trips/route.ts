@@ -51,9 +51,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   let query = `
-    SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model
+    SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model,
+           m.title AS mission_title,
+           m.approval_status AS mission_approval_status,
+           m.lifecycle_status AS mission_lifecycle_status
     FROM trips t
     LEFT JOIN vehicles v ON t.vehicle_id = v.id
+    LEFT JOIN missions m ON t.mission_id = m.id
     WHERE ${allOrgs ? "t.vehicle_id = ?" : "t.organization_id = ?"}
   `;
   const params: string[] = allOrgs ? [vehicleId as string] : [org];
