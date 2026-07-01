@@ -453,6 +453,20 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       }
     }
 
+    // Departing checks must list at least one passenger — the HR portal
+    // consumes this manifest as the canonical record of who is on site and
+    // when their field deployment started (the 6-week clock anchor). An
+    // empty manifest means HR can't see the deployment and the employee's
+    // Saturday OT gets flagged "unapproved" instead of "Field Allowance",
+    // blocking their timecard. Returning checks legitimately have no
+    // manifest, so the gate only applies to departing direction.
+    if (direction === "departing" && passengerManifest.length === 0) {
+      setFormError(
+        "Passenger manifest is required for departing checks. Add at least one passenger from the HR directory so HR can link this deployment to the employees on board."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     const typedDriverName = (fd.get("driverName") as string | null)?.trim() || "";

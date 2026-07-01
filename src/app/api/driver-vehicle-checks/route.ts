@@ -201,6 +201,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const insertCheckAndMaybeWo = db.transaction(() => {
       db.prepare(`INSERT INTO driver_vehicle_checks (${cols.join(", ")}) VALUES (${placeholders})`).run(...vals);
 
+      // Auto-link the DVC to a governing trip when the caller didn't supply
+      // one explicitly. The HR /api/deployments/current endpoint requires
+      // dvc.trip_id -> trips.departed_at to derive status="active", so
+      // without this link a departing DVC with passengers still wouldn't
+      // surface to HR. We match on vehicle + check_date + not-yet-checked-in
+      // (still active) — a unique enough combination for the field workflow,
+      // and we only auto-link when exactly one candidate exists to avoid
+      // silently binding to the wrong trip.
+      const explicitTripId = body.tripId || null;
+      if (!explicitTripId) {
+        const candidates = db
+          .prepare(`
+            SELECT t.id
+              FROM trips t
+             WHERE t.vehicle_id = ?
+               AND date(t.checkout_at) = ?
+               AND t.checkin_at IS NULL
+             ORDER BY t.checkout_at DESC
+             LIMIT 1
+          `)
+          .all(body.vehicleId, body.checkDate || today) as Array<{ id: string }>;
+        if (candidates.length === 1) {
+          db.prepare("UPDATE driver_vehicle_checks SET trip_id = ? WHERE id = ?").run(
+            candidates[0].id,
+            id
+          );
+        }
+      }
+
       if (hasFail) {
         const failItems = Object.entries(statusValues)
           .filter(([, v]) => v === "fail")

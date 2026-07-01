@@ -15,6 +15,41 @@ function dvcAudit(r: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+interface ManifestPassenger {
+  employee_id: string;
+  name: string;
+  department?: string | null;
+  country?: string | null;
+}
+
+/**
+ * Normalize the incoming passenger manifest into a stable JSON shape.
+ * Mirrors the normalization in POST /api/driver-vehicle-checks so PATCH
+ * edits land in the same canonical form. Free-text entries without an
+ * employee_id are rejected so the manifest can never contain ambiguous
+ * names — the HR deployments API joins on employee_id exact match.
+ */
+function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ManifestPassenger[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const o = entry as Record<string, unknown>;
+    const employeeId = String(o.employee_id ?? o.employeeId ?? "").trim();
+    if (!employeeId) continue;
+    if (seen.has(employeeId)) continue;
+    seen.add(employeeId);
+    out.push({
+      employee_id: employeeId,
+      name: String(o.name ?? "").trim(),
+      department: o.department != null ? String(o.department) : null,
+      country: o.country != null ? String(o.country) : null,
+    });
+  }
+  return out;
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -108,6 +143,18 @@ export async function PATCH(
       fields.push(`${dbCol} = ?`);
       values.push(val);
     }
+  }
+
+  // Passenger manifest is a normalized JSON array, handled separately from
+  // the allowedFields map (which covers scalar columns). Edits land in the
+  // same canonical shape as POST so the HR deployments API can join on
+  // employee_id without surprises. Empty arrays are allowed (a returning
+  // check legitimately has no passengers), but entries without an
+  // employee_id are silently dropped by the normalizer.
+  if (body.passengerManifest !== undefined) {
+    const manifest = normalizePassengerManifest(body.passengerManifest);
+    fields.push("passenger_manifest = ?");
+    values.push(JSON.stringify(manifest));
   }
 
   if (fields.length === 0) {
