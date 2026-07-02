@@ -2,6 +2,10 @@
 
 Next.js fleet operations app (vehicles, trips, work orders, map, etc.).
 
+## API documentation
+
+All API surfaces (Fleet Hub as provider and consumer) are documented under [`API/`](API/README.md) — start at [`API/README.md`](API/README.md) for the master index, auth schemes, env var reference, and per-integration contract docs.
+
 ## Local development
 
 ```bash
@@ -31,7 +35,7 @@ Expect JSON with `vehicles`, `sites`, and per-vehicle `refTimeUnix`, `historyTra
 ## Deployment (EC2)
 
 - Workflow: [.github/workflows/deploy.yml](.github/workflows/deploy.yml) — runs on push to `main` and manual dispatch.
-- GitHub secrets: `EC2_HOST`, `EC2_SSH_KEY` (SSH user `ec2-user`). Optional: `HR_API_BASE_URL`, `HR_API_KEY`, **`FLEET_INTEGRATION_API_KEY`** (written into `/var/www/fleet-hub/.env` on each deploy for [PR ↔ WO integration](docs/INTEGRATIONS.md)).
+- GitHub secrets: `EC2_HOST`, `EC2_SSH_KEY` (SSH user `ec2-user`). Optional: `HR_API_BASE_URL`, `HR_API_KEY`, **`FLEET_INTEGRATION_API_KEY`** (written into `/var/www/fleet-hub/.env` on each deploy for [PR ↔ WO integration](API/INTEGRATIONS.md)).
 - Server: app lives at `/var/www/fleet-hub`; process managed with `pm2` (`fleet-hub`). Node typically listens on **3100**; **Apache on port 80** often reverse-proxies to it (public checks use **80**, not 3100, when the security group blocks 3100).
 - Post-deploy health (from CI): tries `http://$EC2_HOST/api/health` first, then `:3100/api/health`.
 
@@ -60,7 +64,7 @@ Fleet Hub now accepts direct PR fanout for sites:
 - Auth: `X-API-Key: SITE_SYNC_FANOUT_API_KEY` (or admin bearer fallback)
 - Upsert target: SQLite `reference_data` (`type=site`) with GPS-preserving `meta` merge
 
-Details and env vars: [`docs/SITE_SYNC_INGEST.md`](docs/SITE_SYNC_INGEST.md).
+Details and env vars: [`API/SITE_SYNC_INGEST.md`](API/SITE_SYNC_INGEST.md).
 
 ## Mission/Trip Drafts
 

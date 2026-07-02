@@ -6,7 +6,7 @@ runtime:
 
 | Name | Example | Where it's consumed |
 | ---- | ------- | ------------------- |
-| `HR_API_BASE_URL` | `https://hr.1pwrafrica.com` | [`src/lib/hr-directory-client.ts`](../../src/lib/hr-directory-client.ts) |
+| `HR_API_BASE_URL` | `https://hr.1pwrafrica.com` | [`src/lib/hr-directory-client.ts`](../src/lib/hr-directory-client.ts) |
 | `HR_API_KEY` | opaque 48+ bytes base64url | Sent as `X-API-Key` header |
 
 Both are **server-side** secrets. They must never end up in `NEXT_PUBLIC_*` envs, the
@@ -137,6 +137,6 @@ If it still fails, check, in order:
 A past deploy wiped the PM2 env without re-planting `HR_API_*` (and also
 `FIREBASE_SERVICE_ACCOUNT_PATH`). The Firebase side is now self-healing (token
 verification falls back to Google JWKS with no local credential needed, see
-[`src/lib/verify-firebase-id-token.ts`](../../src/lib/verify-firebase-id-token.ts));
+[`src/lib/verify-firebase-id-token.ts`](../src/lib/verify-firebase-id-token.ts));
 the HR side still needs a secret we can't synthesize from public info. Path B
 above closes that loop.

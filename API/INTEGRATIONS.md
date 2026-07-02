@@ -83,5 +83,5 @@ PR stores `purchaseRequests.vehicle` = `fmVehicleId`. Run PR `scripts/migrate-pr
 
 ## Related scripts
 
-- Phase 0 Excel paths: **`FLEET_DATA_DIR`** — see [PHASE0-MIGRATION.md](./PHASE0-MIGRATION.md).
+- Phase 0 Excel paths: **`FLEET_DATA_DIR`** — see [PHASE0-MIGRATION.md](../docs/PHASE0-MIGRATION.md).
 - Firestore sync scripts (users/vehicles) use local service account JSON paths — keep secrets out of git.

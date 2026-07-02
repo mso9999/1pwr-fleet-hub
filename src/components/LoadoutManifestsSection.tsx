@@ -28,7 +28,7 @@ const AM_MANIFEST_VIEW =
   "https://am.1pwrafrica.com/loadout/view.php";
 const COLLECTION = "am_core_loadout_manifests";
 
-/** AM Manager+ per shared Firestore rules; see docs/FM_LOADOUT_MANIFEST_INTEGRATION.md */
+/** AM Manager+ per shared Firestore rules; see API/FM_LOADOUT_MANIFEST_INTEGRATION.md */
 const MANAGER_PERMISSION_LEVEL = 3;
 
 export interface LoadoutManifestRow {
