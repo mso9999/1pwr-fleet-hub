@@ -124,7 +124,7 @@ export async function POST(
       typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
     const overrideUsable =
       overrideReasonRaw.length >= 8 &&
-      canOverridePrerequisite(db, fromOrganizationId, user.email, user.role);
+      (await canOverridePrerequisite(db, fromOrganizationId, user.email, user.role));
     const bypassedGates: Array<{ id: string; detail: string }> = [];
 
     if (!effectiveDate) {

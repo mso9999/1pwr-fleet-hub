@@ -104,7 +104,7 @@ export async function POST(
   const discBlocked = registrationDiscMissionBlocked(endDate, vehicle.registration_disc_expiry_date);
   let discOverrideUsed = false;
   if (discBlocked) {
-    if (!registrationDiscOverrideAllowed(db, orgId, user.email, user.role, overrideReason)) {
+    if (!(await registrationDiscOverrideAllowed(db, orgId, user.email, user.role, overrideReason))) {
       const discExpiry = String(vehicle.registration_disc_expiry_date || "").slice(0, 10);
       return NextResponse.json(
         {

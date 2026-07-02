@@ -327,6 +327,8 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       hr_sync_source TEXT DEFAULT NULL,
       hr_source_updated_at TEXT DEFAULT NULL,
       approval_source TEXT DEFAULT NULL,
+      transport_mode TEXT NOT NULL DEFAULT 'company_vehicle',
+      public_transport_justification TEXT NOT NULL DEFAULT '',
       created_by_id TEXT NOT NULL DEFAULT '',
       created_by_name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -347,6 +349,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
     CREATE INDEX IF NOT EXISTS idx_missions_org ON missions(organization_id);
     CREATE INDEX IF NOT EXISTS idx_missions_org_status ON missions(organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
+    CREATE INDEX IF NOT EXISTS idx_missions_transport_mode ON missions(transport_mode);
   `);
 
   ensureMissionsRowShape(db);
@@ -364,6 +367,52 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
 
   migrateMissionsApprovalColumns(db);
   migrateMissionsCentricAndReservations(db);
+  migratePublicTransportSentinelVehicles(db);
+}
+
+/**
+ * Scenario B (2026-07): public-transport missions have no company vehicle,
+ * but the trips table's `vehicle_id` column is NOT NULL with an FK to
+ * vehicles(id). Rather than rebuild the trips table (risky — multiple
+ * tables FK to trips.id with ON DELETE CASCADE), we seed one sentinel
+ * "PUBLIC-TRANSPORT" vehicle per org. Public-transport trips reference
+ * the sentinel; UI listings filter vehicles with code='PUBLIC-TRANSPORT'
+ * out of operational vehicle pickers.
+ *
+ * The sentinel is seeded idempotently: re-running the migration is a
+ * no-op once the row exists.
+ */
+function migratePublicTransportSentinelVehicles(db: Database.Database): void {
+  const vExists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vehicles' LIMIT 1")
+    .get();
+  if (!vExists) return;
+
+  // Add the `is_synthetic` flag column for older DBs. Fresh DBs get it
+  // directly in the CREATE TABLE; existing DBs need ALTER. Do this BEFORE
+  // the INSERT so the column is present when we write to it.
+  const vCols = db.prepare("PRAGMA table_info(vehicles)").all() as Array<{ name: string }>;
+  const vHas = (col: string) => vCols.some((c) => c.name === col);
+  if (!vHas("is_synthetic")) {
+    db.exec(`ALTER TABLE vehicles ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const orgs = db
+    .prepare("SELECT id, country FROM organizations")
+    .all() as Array<{ id: string; country?: string | null }>;
+  const insertSentinel = db.prepare(`
+    INSERT OR IGNORE INTO vehicles (
+      id, organization_id, code, make, model, license_plate, status,
+      registration_disc_expiry_date, asset_class, is_synthetic,
+      created_at, updated_at
+    ) VALUES (?, ?, 'PUBLIC-TRANSPORT', '(public transport)', '(public transport)', 'N/A',
+              'operational', NULL, 'synthetic', 1,
+              datetime('now'), datetime('now'))
+  `);
+  for (const org of orgs) {
+    const sentinelId = `public_transport_${org.id}`;
+    insertSentinel.run(sentinelId, org.id);
+  }
 }
 
 /** Mission-centric workflow: columns on missions + vehicle_reservations + trips.mission_id; backfill from vehicle_requests. */
@@ -388,6 +437,11 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
     ["assigned_by_id", "TEXT NOT NULL DEFAULT ''"],
     ["assigned_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"],
+    /** Scenario B (2026-07): public-transport missions skip vehicle gates.
+     *  `transport_mode` defaults to 'company_vehicle' so all pre-existing
+     *  rows behave exactly as before. */
+    ["transport_mode", "TEXT NOT NULL DEFAULT 'company_vehicle'"],
+    ["public_transport_justification", "TEXT NOT NULL DEFAULT ''"],
   ];
   for (const [col, def] of missionAdds) {
     if (!mHas(col)) {
@@ -674,6 +728,7 @@ function initializeSchema(db: Database.Database): void {
       tracker_install_date TEXT DEFAULT '',
       tracker_status TEXT DEFAULT 'unknown',
       registration_disc_expiry_date TEXT DEFAULT NULL,
+      is_synthetic INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(organization_id, code)

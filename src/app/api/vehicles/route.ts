@@ -39,7 +39,7 @@ export function GET(request: NextRequest): NextResponse {
 
   const org = searchParams.get("org") || "1pwr_lesotho";
 
-  let query = "SELECT * FROM vehicles WHERE organization_id = ?";
+  let query = "SELECT * FROM vehicles WHERE organization_id = ? AND COALESCE(is_synthetic, 0) = 0";
   const params: string[] = [org];
 
   if (status) {

@@ -89,7 +89,7 @@ export async function PATCH(
 
   const canFull = canFullyManageVehicleRequests(user.role);
   const orgId = String((existing as Record<string, unknown>).organization_id || "");
-  const canMission = canApproveMissionRequests(db, orgId, user.email, user.role);
+  const canMission = await canApproveMissionRequests(db, orgId, user.email, user.role);
   const isRequestor = String((existing as Record<string, unknown>).requested_by_id || "") === user.id;
   const onlyRr = allowedKeys.length === 1 && allowedKeys[0] === "rrStatus";
 

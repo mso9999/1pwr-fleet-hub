@@ -64,6 +64,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(existing);
   }
 
+  // Scenario B: HR per-diem may flag the trip as public_transport.
+  const transportModeRaw = String(body.transportMode || body.transport_mode || "company_vehicle").toLowerCase();
+  const transportMode: "company_vehicle" | "public_transport" =
+    transportModeRaw === "public_transport" ? "public_transport" : "company_vehicle";
+  const publicTransportJustification = String(
+    body.publicTransportJustification || body.public_transport_justification || "",
+  ).trim();
+  if (transportMode === "public_transport" && publicTransportJustification.length < 20) {
+    return NextResponse.json(
+      {
+        error:
+          "Public-transport missions require a justification of at least 20 characters.",
+        field: "publicTransportJustification",
+      },
+      { status: 422 },
+    );
+  }
+
   const id = insertPlannedMission(db, {
     organizationId,
     title: String(body.title || `Per diem ${hrRequestId}`),
@@ -85,6 +103,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     hrRequestStatus: String(body.hrRequestStatus || "submitted"),
     hrSyncSource: String(body.syncSource || "hr_portal"),
     hrSourceUpdatedAt: String(body.sourceUpdatedAt || new Date().toISOString()),
+    transportMode,
+    publicTransportJustification,
   });
 
   const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;

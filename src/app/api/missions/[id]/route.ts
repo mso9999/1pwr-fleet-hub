@@ -179,7 +179,7 @@ export async function PATCH(
   const existingStops = getMissionStops(db, id);
 
   if (action === "approve" || action === "reject" || action === "revise") {
-    if (!canApproveMissionRequests(db, orgId, user.email, user.role)) {
+    if (!(await canApproveMissionRequests(db, orgId, user.email, user.role))) {
       return NextResponse.json(
         { error: "Only PR-credentialed approvers or fleet management can approve missions." },
         { status: 403 }
@@ -323,7 +323,7 @@ export async function PATCH(
   }
 
   if (action === "defer" || action === "cancel_capacity" || action === "reactivate") {
-    if (!canArbitrateMissionCapacity(db, orgId, user.email, user.role)) {
+    if (!(await canArbitrateMissionCapacity(db, orgId, user.email, user.role))) {
       return NextResponse.json(
         { error: "Only management (not fleet lead alone) may defer or cancel missions for capacity." },
         { status: 403 }
@@ -407,6 +407,8 @@ export async function PATCH(
     tripShape: "trip_shape",
     requiredVehicleClass: "required_vehicle_class",
     rrStatus: "rr_status",
+    transportMode: "transport_mode",
+    publicTransportJustification: "public_transport_justification",
   };
 
   for (const [js, col] of Object.entries(map)) {
@@ -423,6 +425,34 @@ export async function PATCH(
         const r = String(v).toLowerCase();
         v = r === "pending" || r === "approved" ? r : "na";
       }
+      if (js === "transportMode") {
+        const raw = String(v ?? "company_vehicle").toLowerCase();
+        v = raw === "public_transport" ? "public_transport" : "company_vehicle";
+        // If switching to public_transport, clear required_vehicle_class.
+        // Justification must be present (validated below).
+        if (v === "public_transport") {
+          const existingJust = String(
+            (row as Record<string, unknown>)?.public_transport_justification ?? "",
+          ).trim();
+          const incomingJust = String(body.publicTransportJustification ?? "").trim();
+          if (existingJust.length < 20 && incomingJust.length < 20) {
+            return NextResponse.json(
+              {
+                error:
+                  "Public-transport missions require a justification of at least 20 characters.",
+                field: "publicTransportJustification",
+              },
+              { status: 400 },
+            );
+          }
+          // Force required_vehicle_class to '' in the same PATCH.
+          fields.push("required_vehicle_class = ?");
+          values.push("");
+        }
+      }
+      if (js === "publicTransportJustification") {
+        v = String(v ?? "").trim().slice(0, 1000);
+      }
       if (js === "crewSize") {
         const n = parseInt(String(v ?? ""), 10);
         if (!Number.isFinite(n) || n < 1) {
@@ -438,12 +468,22 @@ export async function PATCH(
         v = JSON.stringify(
           arr
             .filter((p) => p && typeof p === "object")
-            .map((p) => ({
-              employee_id: String((p as Record<string, unknown>).employee_id || ""),
-              name: String((p as Record<string, unknown>).name || ""),
-              department: (p as Record<string, unknown>).department ?? null,
-              country: (p as Record<string, unknown>).country ?? null,
-            }))
+            .map((p) => {
+              const rawMode = String((p as Record<string, unknown>).travel_mode ?? "on_vehicle").toLowerCase();
+              const travelMode =
+                rawMode === "straggler_public_transport" ? "straggler_public_transport" : "on_vehicle";
+              const notesRaw = (p as Record<string, unknown>).notes;
+              const notes =
+                typeof notesRaw === "string" ? notesRaw.trim().slice(0, 200) : "";
+              return {
+                employee_id: String((p as Record<string, unknown>).employee_id || ""),
+                name: String((p as Record<string, unknown>).name || ""),
+                department: (p as Record<string, unknown>).department ?? null,
+                country: (p as Record<string, unknown>).country ?? null,
+                travel_mode: travelMode,
+                ...(notes ? { notes } : {}),
+              };
+            })
         );
       }
       fields.push(`${col} = ?`);

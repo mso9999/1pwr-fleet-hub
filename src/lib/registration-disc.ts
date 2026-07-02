@@ -34,15 +34,16 @@ export function registrationDiscMissionBlocked(missionEndDay: string, discExpiry
 }
 
 /** PR-credentialed approvers / fleet management + 8+ char reason (same cohort as mission approval). */
-export function registrationDiscOverrideAllowed(
+export async function registrationDiscOverrideAllowed(
   db: Database,
   organizationId: string,
   userEmail: string,
   userRole: string,
   overrideReason: string
-): boolean {
+): Promise<boolean> {
   const r = overrideReason.trim();
-  return r.length >= 8 && canApproveMissionRequests(db, organizationId, userEmail, userRole);
+  if (r.length < 8) return false;
+  return canApproveMissionRequests(db, organizationId, userEmail, userRole);
 }
 
 /** Whole UTC days from todayYmd to expiryYmd (negative = already expired). */

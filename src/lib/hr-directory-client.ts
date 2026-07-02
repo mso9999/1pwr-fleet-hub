@@ -5,6 +5,13 @@
  * the browser.
  */
 
+export interface HrToolsetApproval {
+  toolset: string;
+  approval_role: string;
+  scope_country_code: string | null;
+  scope_organization_id: string | null;
+}
+
 export interface HrDirectoryEmployee {
   id: number;
   employee_id: string | null;
@@ -22,6 +29,12 @@ export interface HrDirectoryEmployee {
   status: string;
   /** ISO 8601 timestamp of the underlying user row's last update; cursor for `since`-based incremental syncs. May be null on legacy rows. */
   last_updated_at: string | null;
+  /**
+   * Canonical cross-toolset approval authority (FM / PR / HR / AM / CC).
+   * Other toolsets consume this list to authorize actions within their own
+   * workflows. See API/CROSS_TOOLSET_APPROVAL_AUTHORITY_SPEC.md.
+   */
+  toolset_approvals?: HrToolsetApproval[];
 }
 
 export interface HrDirectoryResult {
@@ -54,6 +67,7 @@ interface HrDirectoryRawEmployee {
   headshot?: string | null;
   status?: string;
   last_updated_at?: string | null;
+  toolset_approvals?: HrToolsetApproval[];
 }
 
 function normalizeEmployee(raw: HrDirectoryRawEmployee): HrDirectoryEmployee {
@@ -73,6 +87,14 @@ function normalizeEmployee(raw: HrDirectoryRawEmployee): HrDirectoryEmployee {
     headshot: raw.headshot ?? null,
     status: String(raw.status ?? ""),
     last_updated_at: raw.last_updated_at ?? null,
+    toolset_approvals: Array.isArray(raw.toolset_approvals)
+      ? raw.toolset_approvals.map((a) => ({
+          toolset: String(a.toolset ?? ""),
+          approval_role: String(a.approval_role ?? ""),
+          scope_country_code: a.scope_country_code ?? null,
+          scope_organization_id: a.scope_organization_id ?? null,
+        }))
+      : [],
   };
 }
 

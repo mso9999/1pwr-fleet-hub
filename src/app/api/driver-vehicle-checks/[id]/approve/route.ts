@@ -29,7 +29,7 @@ export async function POST(
 
   const orgId = String(existing.organization_id ?? "1pwr_lesotho");
   if (
-    !canApproveVehicleCheckExceptions(db, orgId, user.email, user.role)
+    !(await canApproveVehicleCheckExceptions(db, orgId, user.email, user.role))
   ) {
     return NextResponse.json(
       { error: "Not authorized to approve vehicle check exceptions" },

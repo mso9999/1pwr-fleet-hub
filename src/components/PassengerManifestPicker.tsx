@@ -4,11 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 
+export type PassengerTravelMode = "on_vehicle" | "straggler_public_transport";
+
 export interface ManifestPassenger {
   employee_id: string;
   name: string;
   department: string | null;
   country: string | null;
+  /**
+   * Per-passenger travel mode. Default `on_vehicle` for back-compat with
+   * pre-2026-07 manifests. `straggler_public_transport` is set when this
+   * person missed the company-vehicle departure and is travelling to the
+   * site separately via public transport, but is still associated with the
+   * same mission. See FM Scenario A in
+   * API/CROSS_TOOLSET_APPROVAL_AUTHORITY_SPEC.md.
+   */
+  travel_mode?: PassengerTravelMode;
+  /** Optional short note (e.g. "missed HQ departure; took public taxi to site"). */
+  notes?: string;
 }
 
 interface HrEmployee {
@@ -153,6 +166,7 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
         name: emp.name,
         department: emp.department ?? null,
         country: emp.country ?? null,
+        travel_mode: "on_vehicle",
       },
     ]);
     setQuery("");
@@ -160,6 +174,22 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
 
   function removePassenger(employeeId: string): void {
     onChange(value.filter((p) => p.employee_id !== employeeId));
+  }
+
+  function setTravelMode(employeeId: string, mode: PassengerTravelMode): void {
+    onChange(
+      value.map((p) =>
+        p.employee_id === employeeId ? { ...p, travel_mode: mode } : p,
+      ),
+    );
+  }
+
+  function setNotes(employeeId: string, notes: string): void {
+    onChange(
+      value.map((p) =>
+        p.employee_id === employeeId ? { ...p, notes } : p,
+      ),
+    );
   }
 
   return (
@@ -283,32 +313,68 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
       {error && <p className="text-[11px] text-red-700">{error}</p>}
 
       {value.length > 0 ? (
-        <ul className="flex flex-wrap gap-2">
-          {value.map((p) => (
-            <li
-              key={p.employee_id}
-              className="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs"
-            >
-              <span className="font-medium text-zinc-900">{p.name}</span>
-              <span className="text-zinc-500">
-                {[
-                  p.employee_id,
-                  p.department,
-                  p.country,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove ${p.name} from manifest`}
-                onClick={() => removePassenger(p.employee_id)}
-                className="ml-1 text-zinc-400 hover:text-red-600"
+        <ul className="flex flex-col gap-2">
+          {value.map((p) => {
+            const isStraggler = (p.travel_mode ?? "on_vehicle") === "straggler_public_transport";
+            return (
+              <li
+                key={p.employee_id}
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  isStraggler
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-zinc-200 bg-zinc-50"
+                }`}
               >
-                ✕
-              </button>
-            </li>
-          ))}
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-zinc-900">{p.name}</span>
+                  <span className="text-zinc-500">
+                    {[
+                      p.employee_id,
+                      p.department,
+                      p.country,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${p.name} from manifest`}
+                    onClick={() => removePassenger(p.employee_id)}
+                    className="ml-auto text-zinc-400 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <label className="text-[10px] font-medium uppercase text-zinc-500">
+                    Travel mode
+                  </label>
+                  <select
+                    value={p.travel_mode ?? "on_vehicle"}
+                    onChange={(e) =>
+                      setTravelMode(p.employee_id, e.target.value as PassengerTravelMode)
+                    }
+                    className="h-7 rounded border border-zinc-200 bg-white px-1.5 text-[11px]"
+                  >
+                    <option value="on_vehicle">On company vehicle</option>
+                    <option value="straggler_public_transport">
+                      Straggler — public transport
+                    </option>
+                  </select>
+                  {isStraggler && (
+                    <input
+                      type="text"
+                      value={p.notes ?? ""}
+                      onChange={(e) => setNotes(p.employee_id, e.target.value)}
+                      placeholder="Note: e.g. missed HQ departure; took public taxi to site"
+                      className="h-7 min-w-[12rem] flex-1 rounded border border-amber-300 bg-white px-2 text-[11px]"
+                      maxLength={200}
+                    />
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="text-[11px] text-zinc-500">

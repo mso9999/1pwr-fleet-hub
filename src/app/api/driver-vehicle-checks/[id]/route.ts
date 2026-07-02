@@ -15,11 +15,15 @@ function dvcAudit(r: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+type PassengerTravelMode = "on_vehicle" | "straggler_public_transport";
+
 interface ManifestPassenger {
   employee_id: string;
   name: string;
   department?: string | null;
   country?: string | null;
+  travel_mode?: PassengerTravelMode;
+  notes?: string;
 }
 
 /**
@@ -28,6 +32,10 @@ interface ManifestPassenger {
  * edits land in the same canonical form. Free-text entries without an
  * employee_id are rejected so the manifest can never contain ambiguous
  * names — the HR deployments API joins on employee_id exact match.
+ *
+ * `travel_mode` defaults to `on_vehicle` for back-compat with pre-2026-07
+ * manifests; `straggler_public_transport` marks a passenger who missed the
+ * company-vehicle departure and is travelling to the site separately.
  */
 function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
   if (!Array.isArray(raw)) return [];
@@ -40,11 +48,17 @@ function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
     if (!employeeId) continue;
     if (seen.has(employeeId)) continue;
     seen.add(employeeId);
+    const rawMode = String(o.travel_mode ?? "on_vehicle").toLowerCase();
+    const travelMode: PassengerTravelMode =
+      rawMode === "straggler_public_transport" ? "straggler_public_transport" : "on_vehicle";
+    const notesRaw = typeof o.notes === "string" ? o.notes.trim().slice(0, 200) : "";
     out.push({
       employee_id: employeeId,
       name: String(o.name ?? "").trim(),
       department: o.department != null ? String(o.department) : null,
       country: o.country != null ? String(o.country) : null,
+      travel_mode: travelMode,
+      notes: notesRaw || undefined,
     });
   }
   return out;

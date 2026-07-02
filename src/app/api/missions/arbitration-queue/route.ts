@@ -16,7 +16,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const date = request.nextUrl.searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
-  if (!canArbitrateMissionCapacity(db, org, user.email, user.role)) {
+  if (!(await canArbitrateMissionCapacity(db, org, user.email, user.role))) {
     return NextResponse.json(
       { error: "Only management (not fleet lead alone) may view the arbitration queue." },
       { status: 403 }

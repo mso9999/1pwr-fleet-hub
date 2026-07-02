@@ -20,9 +20,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   const org = new URL(request.url).searchParams.get("org") || "1pwr_lesotho";
   const db = getDb();
-  const canApprove = canApproveMissionRequests(db, org, user.email, user.role);
+  const canApprove = await canApproveMissionRequests(db, org, user.email, user.role);
   const canFullEdit = canFullyManageVehicleRequests(user.role);
   const canAllocateVehicle = canAllocateFleetVehicle(user.role);
-  const canArbitrateCapacity = canArbitrateMissionCapacity(db, org, user.email, user.role);
+  const canArbitrateCapacity = await canArbitrateMissionCapacity(db, org, user.email, user.role);
   return NextResponse.json({ canApprove, canFullEdit, canAllocateVehicle, canArbitrateCapacity });
 }

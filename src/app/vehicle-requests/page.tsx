@@ -1794,6 +1794,12 @@ function RequestForm({
   const [vrFormError, setVrFormError] = useState("");
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  // Scenario B: when true, this mission is a public-transport mission
+  // (team travels by public transport, no company vehicle). Hides the
+  // required-vehicle-class picker and shows a mandatory justification
+  // textarea instead.
+  const [publicTransport, setPublicTransport] = useState(false);
+  const [publicTransportJustification, setPublicTransportJustification] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
@@ -2051,8 +2057,16 @@ function RequestForm({
       setMissionFormError("Departure date is required for the mission.");
       return;
     }
-    const reqClass = String(fd.get("cmRequiredVehicleClass") || "").trim();
-    if (!reqClass) {
+    if (publicTransport && publicTransportJustification.trim().length < 20) {
+      setMissionFormError(
+        "Public-transport missions require a justification of at least 20 characters (e.g. 'no vehicles available for this date range').",
+      );
+      return;
+    }
+    const reqClass = publicTransport
+      ? ""
+      : String(fd.get("cmRequiredVehicleClass") || "").trim();
+    if (!publicTransport && !reqClass) {
       setMissionFormError("Select the vehicle type / asset class required for this mission.");
       return;
     }
@@ -2099,6 +2113,10 @@ function RequestForm({
       stops: multiStopEnabled ? finalStops : [],
       requiredVehicleClass: reqClass,
       rrStatus: String(fd.get("cmRrStatus") || "na"),
+      transportMode: publicTransport ? "public_transport" : "company_vehicle",
+      publicTransportJustification: publicTransport
+        ? publicTransportJustification.trim()
+        : "",
     };
     const headers = await jsonHeadersWithBearer();
     let res: Response;
@@ -2367,6 +2385,40 @@ function RequestForm({
               <Input name="cmPassengers" label="Passenger names / notes" placeholder="Optional — names or notes" />
               <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
             </div>
+            <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={publicTransport}
+                onChange={(e) => setPublicTransport(e.target.checked)}
+                className="mt-0.5 h-4 w-4"
+              />
+              <span>
+                <span className="font-medium text-amber-900">Team travelling by public transport</span>
+                <span className="block text-xs text-amber-800">
+                  Use when no company vehicle is available and the team will deploy by public
+                  transport (e.g. taxi / bus). Requires management approval and a written
+                  justification. Vehicle allocation, DVC and trip-readiness gates are skipped.
+                </span>
+              </span>
+            </label>
+            {publicTransport && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  Public-transport justification *
+                </label>
+                <textarea
+                  value={publicTransportJustification}
+                  onChange={(e) => setPublicTransportJustification(e.target.value)}
+                  placeholder="e.g. No 4WD vehicles available for the Maseru–Mokhotlong route on this date; team to deploy via shared taxi."
+                  rows={3}
+                  maxLength={1000}
+                  className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-zinc-500">
+                  Minimum 20 characters. This is audited and visible to approvers.
+                </p>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-zinc-700">Mission profile *</label>
@@ -2384,15 +2436,18 @@ function RequestForm({
                 </select>
                 <p className="text-xs text-zinc-500">Local affects pre-trip readiness rules vs field deployments.</p>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-zinc-700">Vehicle type needed *</label>
+              <div className={`flex flex-col gap-1.5 ${publicTransport ? "opacity-50" : ""}`}>
+                <label className="text-sm font-medium text-zinc-700">
+                  Vehicle type needed {publicTransport ? "" : "*"}
+                </label>
                 <select
                   name="cmRequiredVehicleClass"
-                  required
-                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  disabled={publicTransport}
+                  required={!publicTransport}
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-100"
                 >
                   <option value="" disabled>
-                    Select type…
+                    {publicTransport ? "Not required (public transport)" : "Select type…"}
                   </option>
                   {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
                     <option key={c} value={c}>
@@ -2400,6 +2455,11 @@ function RequestForm({
                     </option>
                   ))}
                 </select>
+                {publicTransport && (
+                  <p className="text-xs text-zinc-500">
+                    Skipped — no company vehicle on this mission.
+                  </p>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-zinc-700">R&amp;R status</label>

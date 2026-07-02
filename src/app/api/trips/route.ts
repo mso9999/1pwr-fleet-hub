@@ -176,7 +176,50 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     typeof body.routeChangeReason === "string" ? body.routeChangeReason.trim() : "";
   const rollout = isMultiStopRolloutEnabledServer();
 
-  if (!hasVehicle) {
+  // Scenario B (2026-07): public-transport missions have no company vehicle.
+  // We allow vehicle-less trip checkout when the linked mission is marked
+  // transport_mode = 'public_transport'. The trip still records the
+  // departure / return timestamps so HR's deployment detection has a
+  // clock; the DVC is skipped entirely.
+  let missionTransportMode: "company_vehicle" | "public_transport" = "company_vehicle";
+  if (missionIdRaw) {
+    const tmRow = db
+      .prepare("SELECT transport_mode FROM missions WHERE id = ?")
+      .get(missionIdRaw) as { transport_mode?: string | null } | undefined;
+    const tm = String(tmRow?.transport_mode || "company_vehicle").toLowerCase();
+    missionTransportMode = tm === "public_transport" ? "public_transport" : "company_vehicle";
+  }
+  const isPublicTransportMission = missionTransportMode === "public_transport";
+
+  // For public-transport missions, the trips table still requires a
+  // vehicle_id (NOT NULL with FK to vehicles). We use a per-org sentinel
+  // vehicle (id=`public_transport_<org>`, code='PUBLIC-TRANSPORT') seeded
+  // by migratePublicTransportSentinelVehicles. Downstream consumers
+  // (deployments.ts, UI) recognize the sentinel and treat the trip as
+  // vehicle-less.
+  let effectiveVehicleId = rawVehicleId;
+  if (isPublicTransportMission && !hasVehicle) {
+    effectiveVehicleId = `public_transport_${organizationId}`;
+    // Ensure the sentinel exists for this org (defensive: the migration
+    // should have created it, but a brand-new org added after init would
+    // not have one yet).
+    const sentinelExists = db
+      .prepare("SELECT 1 FROM vehicles WHERE id = ? LIMIT 1")
+      .get(effectiveVehicleId);
+    if (!sentinelExists) {
+      db.prepare(`
+        INSERT OR IGNORE INTO vehicles (
+          id, organization_id, code, make, model, license_plate, status,
+          registration_disc_expiry_date, asset_class, is_synthetic,
+          created_at, updated_at
+        ) VALUES (?, ?, 'PUBLIC-TRANSPORT', '(public transport)', '(public transport)', 'N/A',
+                  'operational', NULL, 'synthetic', 1,
+                  datetime('now'), datetime('now'))
+      `).run(effectiveVehicleId, organizationId);
+    }
+  }
+
+  if (!hasVehicle && !isPublicTransportMission) {
     return NextResponse.json(
       {
         error:
@@ -235,7 +278,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   missionReadiness = evaluateReadinessForMissionLinkedTrip(db, {
     organizationId,
     missionId: missionIdRaw,
-    vehicleId: rawVehicleId,
+    vehicleId: effectiveVehicleId,
     checkDate: now.slice(0, 10),
     referenceNow: new Date(now),
   });
@@ -251,7 +294,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    if (!canOverridePrerequisite(db, organizationId, user.email, user.role)) {
+    if (!(await canOverridePrerequisite(db, organizationId, user.email, user.role))) {
       return NextResponse.json(
         {
           error:
@@ -298,7 +341,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   `).run(
     id,
     organizationId,
-    rawVehicleId,
+    effectiveVehicleId,
     body.driverId || "",
     body.driverName || "",
     odoStart,

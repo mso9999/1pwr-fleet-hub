@@ -26,6 +26,9 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 ## Data
 
 - **missions**: `approval_status`, `mission_profile`, `required_vehicle_class`, `assigned_vehicle_id`, `rr_status`, `lifecycle_status` (`active` | `deferred` | `capacity_cancelled`), optional `trip_id`.
+  - **Scenario A (2026-07)**: `personnel_manifest[].travel_mode` — `'on_vehicle'` (default) or `'straggler_public_transport'` (passenger missed the company-vehicle departure and is travelling separately by public transport; optional `notes`).
+  - **Scenario B (2026-07)**: `transport_mode` — `'company_vehicle'` (default) or `'public_transport'` (entire team travels by public transport, no 1PWR vehicle). When `'public_transport'`, `public_transport_justification` (≥20 chars) is required, `required_vehicle_class` is forced empty, vehicle / DVC / mechanical-inspection / registration-disc gates are skipped, and the trip references a per-org sentinel vehicle (`public_transport_<org>`, `code='PUBLIC-TRANSPORT'`, `is_synthetic=1`) so the trips NOT NULL + FK constraint is satisfied.
+- **vehicles**: `is_synthetic` (2026-07) — `1` for public-transport sentinel vehicles, `0` for real fleet vehicles. Filtered out of `GET /api/vehicles` listings.
 - **vehicle_reservations**: interval per `vehicle_id` / `mission_id`; `status` (`active` | `superseded` | …); overlap enforced in app + transaction.
 - **vehicle_requests**: `mission_id` for new inserts; must reference a mission with `approval_status = approved` (unless override). List view may show assigned vehicle from mission via join.
 - **ehs_approved_drivers**: Org + email gate for `POST /api/vehicle-requests`.
@@ -49,3 +52,17 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 ## UI
 
 - **Vehicle requests** page: create mission (profile, class, R&R); pending missions for approvers; optional driver logistics form; fleet block to reserve on approved missions; management arbitration card for a chosen departure date; request detail modal uses mission reserve API when the row is mission-linked.
+- **Vehicle requests → Create mission form (2026-07)**: a "Team travelling by public transport" toggle switches the mission to `transport_mode = 'public_transport'`. When on, the required-vehicle-class dropdown is disabled and a mandatory justification textarea (≥20 chars) appears. Submits `transportMode` + `publicTransportJustification` to `POST /api/missions`.
+- **Driver vehicle check form → passenger manifest (2026-07)**: per-passenger dropdown to mark someone as a straggler (`travel_mode = 'straggler_public_transport'`), visible only on the departing DVC. Optional notes field appears when straggler is selected.
+
+## HR deployment detection (deployments.ts)
+
+Three sources are merged to surface field deployments to HR (newest first):
+
+| Source | Trigger | Vehicle | Anchored on |
+|--------|---------|---------|-------------|
+| `driver_vehicle_check` | Passenger on a departing DVC's manifest (`travel_mode = 'on_vehicle'` or absent) | Real vehicle | `trips.departed_at` |
+| `straggler_public_transport` | Passenger on a mission manifest with `travel_mode = 'straggler_public_transport'` (Scenario A) | Linked mission's reserved vehicle (may be null if vehicle not yet assigned) | `trips.departed_at` of the linked mission's trip, else `missions.departure_date` |
+| `public_transport_mission` | Passenger on a mission with `transport_mode = 'public_transport'` (Scenario B) | None | `trips.departed_at` of the linked mission's trip, else `missions.departure_date` |
+
+Each deployment record carries `source`, `mission_id` (for straggler / public-transport), and `notes` (for straggler) so HR can distinguish them.

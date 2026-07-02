@@ -135,7 +135,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (!canOverridePrerequisite(db, organizationId, user.email, user.role)) {
+    if (!(await canOverridePrerequisite(db, organizationId, user.email, user.role))) {
       return NextResponse.json(
         {
           error:

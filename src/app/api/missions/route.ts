@@ -218,6 +218,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   const personnelManifest = Array.isArray(body.personnelManifest) ? body.personnelManifest : [];
 
+  // Scenario B: public-transport missions. The team travels by public
+  // transport instead of a 1PWR vehicle (e.g. no vehicles available).
+  // Requires management approval (already gated by approval_status flow)
+  // and a written justification of at least 20 characters.
+  const transportModeRaw = String(body.transportMode || body.transport_mode || "company_vehicle").toLowerCase();
+  const transportMode: "company_vehicle" | "public_transport" =
+    transportModeRaw === "public_transport" ? "public_transport" : "company_vehicle";
+  const publicTransportJustification = String(
+    body.publicTransportJustification || body.public_transport_justification || "",
+  ).trim();
+  if (transportMode === "public_transport") {
+    if (publicTransportJustification.length < 20) {
+      return NextResponse.json(
+        {
+          error:
+            "Public-transport missions require a justification of at least 20 characters (e.g. 'no vehicles available for this date range').",
+          field: "publicTransportJustification",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const id = insertPlannedMission(db, {
     organizationId,
     title: String(body.title || ""),
@@ -237,6 +260,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     stops,
     requiredVehicleClass: String(body.requiredVehicleClass || ""),
     rrStatus: String(body.rrStatus || "na"),
+    transportMode,
+    publicTransportJustification,
     initialApprovalStatus,
   });
 

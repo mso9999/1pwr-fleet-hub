@@ -27,11 +27,15 @@ function camelToSnake(s: string): string {
   return s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
 }
 
+type PassengerTravelMode = "on_vehicle" | "straggler_public_transport";
+
 interface ManifestPassenger {
   employee_id: string;
   name: string;
   department?: string | null;
   country?: string | null;
+  travel_mode?: PassengerTravelMode;
+  notes?: string;
 }
 
 /**
@@ -39,6 +43,10 @@ interface ManifestPassenger {
  * The canonical reference is `employee_id` (from the HR directory); a name
  * snapshot is kept for display/audit history. Free-text entries without an
  * employee_id are rejected so the manifest can never contain ambiguous names.
+ *
+ * `travel_mode` defaults to `on_vehicle` for back-compat with pre-2026-07
+ * manifests; `straggler_public_transport` marks a passenger who missed the
+ * company-vehicle departure and is travelling to the site separately.
  */
 function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
   if (!Array.isArray(raw)) return [];
@@ -51,11 +59,17 @@ function normalizePassengerManifest(raw: unknown): ManifestPassenger[] {
     if (!employeeId) continue;
     if (seen.has(employeeId)) continue;
     seen.add(employeeId);
+    const rawMode = String(o.travel_mode ?? "on_vehicle").toLowerCase();
+    const travelMode: PassengerTravelMode =
+      rawMode === "straggler_public_transport" ? "straggler_public_transport" : "on_vehicle";
+    const notesRaw = typeof o.notes === "string" ? o.notes.trim().slice(0, 200) : "";
     out.push({
       employee_id: employeeId,
       name: String(o.name ?? "").trim(),
       department: o.department != null ? String(o.department) : null,
       country: o.country != null ? String(o.country) : null,
+      travel_mode: travelMode,
+      notes: notesRaw || undefined,
     });
   }
   return out;
@@ -165,7 +179,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .prepare(
           `SELECT t.id, t.vehicle_id, t.mission_id, t.departed_at, t.checkin_at,
                   m.approval_status  AS mission_approval_status,
-                  m.lifecycle_status AS mission_lifecycle_status
+                  m.lifecycle_status AS mission_lifecycle_status,
+                  m.transport_mode   AS mission_transport_mode
              FROM trips t
              LEFT JOIN missions m ON t.mission_id = m.id
             WHERE t.id = ?`
@@ -179,11 +194,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             checkin_at: string | null;
             mission_approval_status: string | null;
             mission_lifecycle_status: string | null;
+            mission_transport_mode: string | null;
           }
         | undefined;
       if (!trip) {
         return NextResponse.json(
           { error: "Selected trip no longer exists. Refresh and pick again.", reason: "trip_not_found" },
+          { status: 400 }
+        );
+      }
+      // Scenario B: public-transport missions skip the DVC entirely — the
+      // trip checkout IS the deployment record. There's no real vehicle to
+      // inspect.
+      if (String(trip.mission_transport_mode || "company_vehicle").toLowerCase() === "public_transport") {
+        return NextResponse.json(
+          {
+            error:
+              "This trip is on a public-transport mission — no driver-vehicle-check is required or allowed. The trip checkout is the deployment record.",
+            reason: "public_transport_mission_no_dvc",
+          },
           { status: 400 }
         );
       }

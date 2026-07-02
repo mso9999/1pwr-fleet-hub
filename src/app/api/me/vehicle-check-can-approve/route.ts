@@ -10,6 +10,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   const org = new URL(request.url).searchParams.get("org") || "1pwr_lesotho";
   const db = getDb();
-  const canApprove = canApproveVehicleCheckExceptions(db, org, user.email, user.role);
+  const canApprove = await canApproveVehicleCheckExceptions(db, org, user.email, user.role);
   return NextResponse.json({ canApprove });
 }

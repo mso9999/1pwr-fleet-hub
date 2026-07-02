@@ -7,10 +7,20 @@ export interface MissionTripReadinessResult {
   gates: ReadinessGate[];
   missionProfile: string;
   missionBlockedReason?: string;
+  /** Scenario B: 'public_transport' = team travelling by public transport
+   *  (no company vehicle). 'company_vehicle' (default) = standard flow.
+   *  Callers branch on this to decide whether a vehicleId is required. */
+  transportMode: "company_vehicle" | "public_transport";
 }
 
 /**
  * Readiness when starting a trip linked to an approved mission with an assigned vehicle.
+ *
+ * Scenario B (2026-07): when the mission's `transport_mode` is
+ * `public_transport`, vehicle-related gates (mission_vehicle, vehicle
+ * operational, driver checklist, mechanical inspection, registration disc)
+ * are skipped — the team is travelling by public transport, not a 1PWR
+ * vehicle. The mission's approval + lifecycle gates still apply.
  */
 export function evaluateReadinessForMissionLinkedTrip(
   db: Database.Database,
@@ -25,7 +35,7 @@ export function evaluateReadinessForMissionLinkedTrip(
   const m = db
     .prepare(
       `SELECT id, approval_status, assigned_vehicle_id, mission_profile, lifecycle_status,
-              departure_date, return_date
+              departure_date, return_date, transport_mode
        FROM missions WHERE id = ? AND organization_id = ?`
     )
     .get(input.missionId, input.organizationId) as
@@ -37,6 +47,7 @@ export function evaluateReadinessForMissionLinkedTrip(
         lifecycle_status: string;
         departure_date: string;
         return_date: string;
+        transport_mode?: string | null;
       }
     | undefined;
 
@@ -48,8 +59,19 @@ export function evaluateReadinessForMissionLinkedTrip(
       status: "blocked",
       detail: "Mission not found for this organization.",
     });
-    return { ok: false, gates, missionProfile: MISSION_PROFILE.LOCAL, missionBlockedReason: "not_found" };
+    return {
+      ok: false,
+      gates,
+      missionProfile: MISSION_PROFILE.LOCAL,
+      missionBlockedReason: "not_found",
+      transportMode: "company_vehicle",
+    };
   }
+
+  const transportMode: "company_vehicle" | "public_transport" =
+    String(m.transport_mode || "company_vehicle").toLowerCase() === "public_transport"
+      ? "public_transport"
+      : "company_vehicle";
 
   const life = String(m.lifecycle_status || "active").toLowerCase();
   if (life !== "active") {
@@ -64,6 +86,7 @@ export function evaluateReadinessForMissionLinkedTrip(
       gates,
       missionProfile: String(m.mission_profile || MISSION_PROFILE.LOCAL),
       missionBlockedReason: life,
+      transportMode,
     };
   }
 
@@ -79,6 +102,28 @@ export function evaluateReadinessForMissionLinkedTrip(
       gates,
       missionProfile: String(m.mission_profile || MISSION_PROFILE.LOCAL),
       missionBlockedReason: "not_approved",
+      transportMode,
+    };
+  }
+
+  // Public-transport missions skip all vehicle-related gates. The team is
+  // travelling by public transport, not a 1PWR vehicle, so:
+  //   - no assigned vehicle to match
+  //   - no vehicle operational / driver checklist / mechanical inspection /
+  //     registration disc gates apply
+  // The trip itself records the departure / return timestamps (vehicle-less).
+  if (transportMode === "public_transport") {
+    gates.push({
+      id: "transport_mode",
+      label: "Transport mode",
+      status: "satisfied",
+      detail: "Public-transport mission — vehicle gates skipped (justification on file).",
+    });
+    return {
+      ok: true,
+      gates,
+      missionProfile: String(m.mission_profile || MISSION_PROFILE.LOCAL),
+      transportMode,
     };
   }
 
@@ -95,6 +140,7 @@ export function evaluateReadinessForMissionLinkedTrip(
       gates,
       missionProfile: String(m.mission_profile || MISSION_PROFILE.LOCAL),
       missionBlockedReason: "vehicle_mismatch",
+      transportMode,
     };
   }
 
@@ -122,5 +168,5 @@ export function evaluateReadinessForMissionLinkedTrip(
     plannedDepartureDate,
   });
 
-  return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile };
+  return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile, transportMode };
 }

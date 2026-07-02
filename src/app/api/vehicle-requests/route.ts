@@ -62,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const orgId = String(body.organizationId || "1pwr_lesotho");
   const overrideReasonRaw = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
-  const hasOverridePermission = canOverridePrerequisite(db, orgId, user.email, user.role);
+  const hasOverridePermission = await canOverridePrerequisite(db, orgId, user.email, user.role);
   const wantsOverride = overrideReasonRaw.length > 0;
   const overrideUsable = wantsOverride && hasOverridePermission && overrideReasonRaw.length >= 8;
   const bypassedGates: Array<{ id: string; detail: string }> = [];
