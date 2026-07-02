@@ -16,6 +16,8 @@ export function insertPlannedMission(
     returnDate: string;
     missionType: string;
     passengers: string;
+    crewSize?: number;
+    personnelManifest?: Array<{ employee_id: string; name: string; department?: string | null; country?: string | null }>;
     loadoutSummary: string;
     notes: string;
     createdById: string;
@@ -42,16 +44,34 @@ export function insertPlannedMission(
   const rrNorm = rr === "pending" || rr === "approved" ? rr : "na";
   const initialApprovalStatus =
     input.initialApprovalStatus === "draft" ? "draft" : "pending";
+  const crewSizeRaw = typeof input.crewSize === "number" ? input.crewSize : parseInt(String(input.crewSize ?? ""), 10);
+  const crewSize = Number.isFinite(crewSizeRaw) && crewSizeRaw > 0 ? crewSizeRaw : 1;
+  const manifestJson = (() => {
+    try {
+      const arr = Array.isArray(input.personnelManifest) ? input.personnelManifest : [];
+      const clean = arr
+        .filter((p) => p && typeof p === "object")
+        .map((p) => ({
+          employee_id: String(p.employee_id || ""),
+          name: String(p.name || ""),
+          department: p.department ?? null,
+          country: p.country ?? null,
+        }));
+      return JSON.stringify(clean);
+    } catch {
+      return "[]";
+    }
+  })();
 
   const tx = db.transaction((routeStops: RouteStopNormalized[]) => {
     db.prepare(`
       INSERT INTO missions (
         id, organization_id, title, destination, departure_date, return_date,
-        mission_type, passengers, loadout_summary, notes, status, approval_status,
+        mission_type, passengers, crew_size, personnel_manifest, loadout_summary, notes, status, approval_status,
         mission_profile, trip_shape, required_vehicle_class, rr_status,
         hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
         created_by_id, created_by_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.organizationId,
@@ -61,6 +81,8 @@ export function insertPlannedMission(
       input.returnDate,
       input.missionType || "other",
       input.passengers,
+      crewSize,
+      manifestJson,
       input.loadoutSummary,
       input.notes,
       initialApprovalStatus,

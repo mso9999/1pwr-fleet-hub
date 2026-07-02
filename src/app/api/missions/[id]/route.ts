@@ -24,6 +24,7 @@ const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string
   ["required_vehicle_class", "requiredVehicleClass"],
   ["mission_type", "missionType"],
   ["passengers", "passengers"],
+  ["crew_size", "crewSize"],
   ["loadout_summary", "loadoutSummary"],
 ];
 
@@ -398,6 +399,8 @@ export async function PATCH(
     returnDate: "return_date",
     missionType: "mission_type",
     passengers: "passengers",
+    crewSize: "crew_size",
+    personnelManifest: "personnel_manifest",
     loadoutSummary: "loadout_summary",
     notes: "notes",
     missionProfile: "mission_profile",
@@ -408,7 +411,6 @@ export async function PATCH(
 
   for (const [js, col] of Object.entries(map)) {
     if (body[js] !== undefined) {
-      fields.push(`${col} = ?`);
       let v = body[js];
       if (js === "missionProfile") {
         v = String(v).toLowerCase() === "field" ? "field" : "local";
@@ -421,6 +423,30 @@ export async function PATCH(
         const r = String(v).toLowerCase();
         v = r === "pending" || r === "approved" ? r : "na";
       }
+      if (js === "crewSize") {
+        const n = parseInt(String(v ?? ""), 10);
+        if (!Number.isFinite(n) || n < 1) {
+          return NextResponse.json(
+            { error: "Crew size must be a whole number of at least 1." },
+            { status: 400 }
+          );
+        }
+        v = n;
+      }
+      if (js === "personnelManifest") {
+        const arr = Array.isArray(v) ? v : [];
+        v = JSON.stringify(
+          arr
+            .filter((p) => p && typeof p === "object")
+            .map((p) => ({
+              employee_id: String((p as Record<string, unknown>).employee_id || ""),
+              name: String((p as Record<string, unknown>).name || ""),
+              department: (p as Record<string, unknown>).department ?? null,
+              country: (p as Record<string, unknown>).country ?? null,
+            }))
+        );
+      }
+      fields.push(`${col} = ?`);
       values.push(v);
     }
   }

@@ -198,6 +198,8 @@ export function ensureMissionsRowShape(db: Database.Database): void {
     ["return_date", "TEXT NOT NULL DEFAULT ''"],
     ["mission_type", "TEXT NOT NULL DEFAULT 'other'"],
     ["passengers", "TEXT DEFAULT ''"],
+    ["crew_size", "INTEGER NOT NULL DEFAULT 1"],
+    ["personnel_manifest", "TEXT NOT NULL DEFAULT '[]'"],
     ["loadout_summary", "TEXT DEFAULT ''"],
     ["notes", "TEXT DEFAULT ''"],
     ["status", "TEXT NOT NULL DEFAULT 'planned'"],
@@ -244,6 +246,38 @@ export function ensureMissionsRowShape(db: Database.Database): void {
   }
 }
 
+/** Backfill crew_size from legacy free-text passengers (leading digits), default 1. Idempotent. */
+export function migrateMissionsPersonnelManifest(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='missions' LIMIT 1")
+    .get();
+  if (!exists) return;
+  const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "crew_size")) return;
+
+  // Reset any NULL/0 crew_size to a sane default derived from passengers text, else 1.
+  const rows = db
+    .prepare(`SELECT id, passengers, crew_size FROM missions WHERE crew_size IS NULL OR crew_size < 1`)
+    .all() as Array<{ id: string; passengers: string | null; crew_size: number | null }>;
+  if (rows.length === 0) return;
+
+  const parseCrew = (text: string | null): number => {
+    const m = String(text || "").match(/\d+/);
+    if (!m) return 1;
+    const n = parseInt(m[0], 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  };
+  const upd = db.prepare("UPDATE missions SET crew_size = ? WHERE id = ?");
+  const tx = db.transaction(() => {
+    for (const r of rows) upd.run(parseCrew(r.passengers), r.id);
+  });
+  try {
+    tx();
+  } catch (e) {
+    console.warn("[db] migrateMissionsPersonnelManifest backfill (non-fatal):", e);
+  }
+}
+
 /** Mission list JOINs `vehicles.code`; very old DBs may lack `code`. */
 export function ensureVehiclesCodeColumn(db: Database.Database): void {
   const exists = db
@@ -268,6 +302,8 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       return_date TEXT NOT NULL DEFAULT '',
       mission_type TEXT NOT NULL DEFAULT 'other',
       passengers TEXT DEFAULT '',
+      crew_size INTEGER NOT NULL DEFAULT 1,
+      personnel_manifest TEXT NOT NULL DEFAULT '[]',
       loadout_summary TEXT DEFAULT '',
       notes TEXT DEFAULT '',
       status TEXT NOT NULL DEFAULT 'planned',
@@ -314,6 +350,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
   `);
 
   ensureMissionsRowShape(db);
+  migrateMissionsPersonnelManifest(db);
 
   // Ensure vehicle_requests.mission_id exists BEFORE migrateMissionsApprovalColumns, because its
   // back-fill UPDATE references vr.mission_id. On legacy DBs the old order threw here, the rest

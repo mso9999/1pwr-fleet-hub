@@ -82,7 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   let sql = `
     SELECT m.id, m.organization_id, m.title, m.destination, m.departure_date, m.return_date, m.mission_type,
-           m.passengers, m.loadout_summary, m.notes, m.status, m.trip_id,
+           m.passengers, m.crew_size, m.personnel_manifest, m.loadout_summary, m.notes, m.status, m.trip_id,
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
            m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
@@ -205,6 +205,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: routeValidationError }, { status: 400 });
   }
 
+  // Enforce a numeric crew size — the mission is the canonical source of "how many people"
+  // for downstream consumers (e.g. PR field-camp provisioning). Free-text passengers is
+  // retained as optional names/notes only.
+  const crewSizeRaw = body.crewSize === undefined ? body.crew_size : body.crewSize;
+  const crewParsed = parseInt(String(crewSizeRaw ?? ""), 10);
+  if (!Number.isFinite(crewParsed) || crewParsed < 1) {
+    return NextResponse.json(
+      { error: "Crew size is required and must be a whole number of at least 1." },
+      { status: 400 }
+    );
+  }
+  const personnelManifest = Array.isArray(body.personnelManifest) ? body.personnelManifest : [];
+
   const id = insertPlannedMission(db, {
     organizationId,
     title: String(body.title || ""),
@@ -213,6 +226,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "other"),
     passengers: String(body.passengers || ""),
+    crewSize: crewParsed,
+    personnelManifest,
     loadoutSummary: String(body.loadoutSummary || ""),
     notes: String(body.notes || ""),
     createdById: user.id,
@@ -239,6 +254,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       mission_profile: row.mission_profile,
       trip_shape: row.trip_shape,
       required_vehicle_class: row.required_vehicle_class,
+      crew_size: row.crew_size,
+      personnel_manifest_count: Array.isArray(personnelManifest) ? personnelManifest.length : 0,
       stop_count: stops.length,
     },
   });

@@ -179,6 +179,8 @@ interface PlannedMissionRow {
   departure_date: string;
   return_date: string;
   passengers: string;
+  crew_size?: number;
+  personnel_manifest?: string;
   loadout_summary: string;
   title: string;
   status: string;
@@ -939,11 +941,24 @@ export default function VehicleRequestsPage() {
                             m.required_vehicle_class}
                         </Badge>
                       )}
-                      {m.passengers && (
-                        <Badge variant="secondary">
-                          {m.passengers} pax
-                        </Badge>
-                      )}
+                      {(() => {
+                        const crew = typeof m.crew_size === "number" && m.crew_size > 0 ? m.crew_size : null;
+                        if (crew != null) {
+                          return (
+                            <Badge variant="secondary">
+                              {crew} pax
+                            </Badge>
+                          );
+                        }
+                        if (m.passengers) {
+                          return (
+                            <Badge variant="secondary">
+                              {m.passengers} pax
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
                 </button>
@@ -1949,6 +1964,7 @@ function RequestForm({
     setValue("cmTitle", String(m.title || ""));
     setValue("cmDepartureDate", String(m.departure_date || ""));
     setValue("cmReturnDate", String(m.return_date || ""));
+    setValue("cmCrewSize", String(m.crew_size ?? 1));
     setValue("cmPassengers", String(m.passengers || ""));
     setValue("cmLoadout", String(m.loadout_summary || ""));
     setValue("cmNotes", String(m.notes || ""));
@@ -2040,6 +2056,11 @@ function RequestForm({
       setMissionFormError("Select the vehicle type / asset class required for this mission.");
       return;
     }
+    const crewParsed = parseInt(String(fd.get("cmCrewSize") || ""), 10);
+    if (!Number.isFinite(crewParsed) || crewParsed < 1) {
+      setMissionFormError("Crew size is required and must be a whole number of at least 1.");
+      return;
+    }
     const normalizedStops = routeStops
       .map((s) => ({
         location: s.location.trim(),
@@ -2069,6 +2090,7 @@ function RequestForm({
       departureDate,
       returnDate: String(fd.get("cmReturnDate") || ""),
       passengers: String(fd.get("cmPassengers") || ""),
+      crewSize: crewParsed,
       loadoutSummary: String(fd.get("cmLoadout") || ""),
       missionType: "other",
       notes: String(fd.get("cmNotes") || ""),
@@ -2341,7 +2363,8 @@ function RequestForm({
               </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input name="cmPassengers" label="Passengers" placeholder="Number or names" />
+              <Input name="cmCrewSize" label="Crew size *" type="number" min={1} step={1} required placeholder="Number of people on this mission" />
+              <Input name="cmPassengers" label="Passenger names / notes" placeholder="Optional — names or notes" />
               <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

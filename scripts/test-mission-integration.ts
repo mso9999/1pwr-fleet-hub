@@ -15,6 +15,8 @@ function main(): void {
     "hr_sync_source",
     "hr_source_updated_at",
     "approval_source",
+    "crew_size",
+    "personnel_manifest",
   ];
   const missing = required.filter((r) => !names.has(r));
   if (missing.length > 0) {

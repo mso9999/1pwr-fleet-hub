@@ -19,9 +19,14 @@ export function GET(request: NextRequest): NextResponse {
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const hrRequestId = request.nextUrl.searchParams.get("hrRequestId");
   const approvalStatus = request.nextUrl.searchParams.get("approvalStatus");
+  const id = request.nextUrl.searchParams.get("id");
 
   let sql = `SELECT * FROM missions WHERE organization_id = ?`;
   const params: string[] = [org];
+  if (id) {
+    sql += " AND id = ?";
+    params.push(id);
+  }
   if (hrRequestId) {
     sql += " AND hr_request_id = ?";
     params.push(hrRequestId);
@@ -32,7 +37,10 @@ export function GET(request: NextRequest): NextResponse {
   }
   sql += " ORDER BY created_at DESC LIMIT 200";
 
-  const rows = db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  if (id) {
+    return NextResponse.json(rows[0] ?? null);
+  }
   return NextResponse.json(rows);
 }
 
@@ -64,6 +72,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "per_diem"),
     passengers: String(body.passengers || ""),
+    crewSize: typeof body.crewSize === "number" ? body.crewSize : parseInt(String(body.crewSize ?? body.crew_size ?? ""), 10) || 1,
+    personnelManifest: Array.isArray(body.personnelManifest) ? body.personnelManifest : [],
     loadoutSummary: String(body.loadoutSummary || ""),
     notes: String(body.notes || ""),
     createdById: "integration",
