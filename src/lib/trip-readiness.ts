@@ -52,6 +52,14 @@ export interface TripReadinessInput {
    * satisfying the gate even if `checkDate` (today) differs.
    */
   plannedDepartureDate?: string;
+  /**
+   * When true, the mission flagged that assets/equipment are being moved and
+   * the loadout-manifest gate runs: it blocks checkout until at least one AM
+   * manifest is linked. `linkedManifestIds` provides the linked manifest doc
+   * ids stored on the mission pre-checkout.
+   */
+  assetsBeingMoved?: boolean;
+  linkedManifestIds?: string[];
 }
 
 function normalizeProfile(raw: string | undefined): MissionProfile {
@@ -214,6 +222,25 @@ export function evaluateTripReadiness(
       detail: inspOk
         ? `Detailed inspection on file (${insp.type}, ${insp.created_at.slice(0, 10)}).`
         : `Field deployments require a passing detailed mechanical inspection within the last ${MECHANICAL_INSPECTION_MAX_AGE_DAYS} days. Record one on Inspections for ${vehicle.code}.`,
+    });
+  }
+
+  // Loadout manifest gate: when the mission flagged assets being moved, at
+  // least one AM loadout manifest must be linked (by doc id on the mission)
+  // before checkout. The manifest content lives in AM; FM only enforces the
+  // link exists. See API/FM_LOADOUT_MANIFEST_INTEGRATION.md.
+  if (input.assetsBeingMoved) {
+    const linkedIds = Array.isArray(input.linkedManifestIds)
+      ? input.linkedManifestIds.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim())
+      : [];
+    const manifestOk = linkedIds.length > 0;
+    gates.push({
+      id: "loadout_manifest",
+      label: "Loadout manifest (assets moved)",
+      status: manifestOk ? "satisfied" : "blocked",
+      detail: manifestOk
+        ? `${linkedIds.length} AM loadout manifest${linkedIds.length === 1 ? "" : "s"} linked.`
+        : `This mission moves assets/equipment. Link at least one AM loadout manifest (paste the manifest document id on the mission) before checkout. Open AM at https://am.1pwrafrica.com/loadout to create one.`,
     });
   }
 

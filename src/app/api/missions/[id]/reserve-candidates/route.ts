@@ -6,6 +6,7 @@ import {
   FUTURE_MISSION_RESERVABLE_STATUSES,
   isMissionDepartureToday,
 } from "@/lib/mission-reservations";
+import { localityGateRequired } from "@/lib/locality-gate";
 
 /**
  * GET /api/missions/[id]/reserve-candidates
@@ -52,9 +53,22 @@ export async function GET(
   sql += " ORDER BY pool, code";
 
   const rows = db.prepare(sql).all(...p) as Array<Record<string, unknown>>;
+  const destinationCode = String(m.destination || "").trim();
+  const candidates = destinationCode
+    ? rows.map((r) => {
+        const gate = localityGateRequired(db, orgId, String(r.id), destinationCode);
+        return {
+          ...r,
+          localityRequired: gate.required,
+          localityDistanceKm: gate.distanceKm,
+          mechanicalInspectionOnFile: gate.inspectionOnFile,
+          localityReason: gate.reason,
+        };
+      })
+    : rows;
   return NextResponse.json({
     missionDeparture: dep,
     reservationMode: today ? "today_operational_only" : "future_extended_statuses",
-    candidates: rows,
+    candidates,
   });
 }

@@ -323,6 +323,8 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       assigned_by_id TEXT NOT NULL DEFAULT '',
       assigned_by_name TEXT NOT NULL DEFAULT '',
       lifecycle_status TEXT NOT NULL DEFAULT 'active',
+      assets_being_moved INTEGER NOT NULL DEFAULT 0,
+      linked_manifest_ids TEXT NOT NULL DEFAULT '[]',
       hr_request_id TEXT DEFAULT NULL,
       hr_request_status TEXT DEFAULT NULL,
       hr_sync_source TEXT DEFAULT NULL,
@@ -439,6 +441,8 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
     ["assigned_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"],
     ["departure_location", "TEXT NOT NULL DEFAULT ''"],
+    ["assets_being_moved", "INTEGER NOT NULL DEFAULT 0"],
+    ["linked_manifest_ids", "TEXT NOT NULL DEFAULT '[]'"],
     /** Scenario B (2026-07): public-transport missions skip vehicle gates.
      *  `transport_mode` defaults to 'company_vehicle' so all pre-existing
      *  rows behave exactly as before. */
@@ -621,6 +625,25 @@ function ensureWhatsNewSeenTable(db: Database.Database): void {
       PRIMARY KEY (user_id, entry_slug)
     );
     CREATE INDEX IF NOT EXISTS idx_whats_new_seen_user ON whats_new_seen(user_id);
+
+    CREATE TABLE IF NOT EXISTS transport_mode_change_requests (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+      organization_id TEXT NOT NULL,
+      requested_mode TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      requested_by_id TEXT NOT NULL DEFAULT '',
+      requested_by_name TEXT NOT NULL DEFAULT '',
+      reviewed_by_id TEXT NOT NULL DEFAULT '',
+      reviewed_by_name TEXT NOT NULL DEFAULT '',
+      reviewed_at TEXT DEFAULT NULL,
+      review_reason TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tmcr_mission ON transport_mode_change_requests(mission_id);
+    CREATE INDEX IF NOT EXISTS idx_tmcr_org_status ON transport_mode_change_requests(organization_id, status);
   `);
 }
 

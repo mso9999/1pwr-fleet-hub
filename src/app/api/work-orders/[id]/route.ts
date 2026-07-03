@@ -63,6 +63,37 @@ export async function GET(
     "SELECT * FROM parts WHERE work_order_id = ? ORDER BY rowid"
   ).all(id);
 
+  // Surface Firestore-synced PR approval status (pr_cost_cache) keyed by
+  // pr_number so the UI can render the live PR status next to each PO link
+  // and an "Open in PR" deep link.
+  const prNumbers = (poLinks as Array<{ pr_number?: string | null }>)
+    .map((p) => String(p.pr_number || "").trim())
+    .filter(Boolean);
+  let prCacheByNumber: Record<string, { pr_status?: string | null; approved_amount?: number | null; currency?: string | null; description?: string | null; pr_system_url?: string | null }> = {};
+  if (prNumbers.length > 0) {
+    const placeholders = prNumbers.map(() => "?").join(", ");
+    const cacheRows = db
+      .prepare(`SELECT * FROM pr_cost_cache WHERE pr_number IN (${placeholders})`)
+      .all(...prNumbers) as Array<{
+        pr_number?: string | null;
+        pr_status?: string | null;
+        approved_amount?: number | null;
+        currency?: string | null;
+        description?: string | null;
+      }>;
+    prCacheByNumber = {};
+    for (const c of cacheRows) {
+      if (c.pr_number) {
+        prCacheByNumber[String(c.pr_number)] = {
+          pr_status: c.pr_status,
+          approved_amount: c.approved_amount,
+          currency: c.currency,
+          description: c.description,
+        };
+      }
+    }
+  }
+
   return NextResponse.json({
     ...wo,
     days_open: daysOpen,
@@ -70,6 +101,8 @@ export async function GET(
     labor,
     po_links: poLinks,
     parts,
+    pr_cache_by_number: prCacheByNumber,
+    pr_system_base_url: process.env.PR_SYSTEM_BASE_URL || "https://pr.1pwrafrica.com",
   });
 }
 

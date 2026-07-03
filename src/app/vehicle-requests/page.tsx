@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,10 @@ import { lPer100kmToUsMpg } from "@/lib/vehicle-fuel-lookup";
 import { useOverrideCapability } from "@/lib/useOverrideCapability";
 import { cn } from "@/lib/utils";
 import { isMultiStopRolloutEnabled } from "@/lib/feature-flags";
+import {
+  MissionPipelineStepper,
+  MissionLifecycleTimeline,
+} from "@/components/MissionPipeline";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -201,6 +205,8 @@ interface PlannedMissionRow {
   assigned_vehicle_id?: string | null;
   assigned_vehicle_code?: string | null;
   assigned_vehicle_status?: string;
+  assigned_at?: string | null;
+  assigned_by_name?: string | null;
   lifecycle_status?: string;
   rr_status?: string;
   notes?: string;
@@ -209,9 +215,17 @@ interface PlannedMissionRow {
   created_at?: string;
   approved_by_name?: string;
   approved_at?: string;
-  rejection_reason?: string;
-  created_by_id?: string;
   updated_at?: string;
+  rejection_reason?: string;
+  trip_id?: string | null;
+  trip_checkout_at?: string | null;
+  trip_departed_at?: string | null;
+  trip_checkin_at?: string | null;
+  trip_destination?: string | null;
+  trip_departure_location?: string | null;
+  assets_being_moved?: number | null;
+  linked_manifest_ids?: string | null;
+  created_by_id?: string;
 }
 
 interface RouteStopInput {
@@ -274,6 +288,203 @@ function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): R
   );
 }
 
+function MissionManifestLinker({ mission, onChanged }: { mission: PlannedMissionRow; onChanged: () => void }): React.ReactElement {
+  const [manifestId, setManifestId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const linked = useMemo<string[]>(() => {
+    try {
+      const parsed = JSON.parse(String(mission.linked_manifest_ids || "[]")) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === "string") : [];
+    } catch {
+      return [];
+    }
+  }, [mission.linked_manifest_ids]);
+
+  async function addLink(): Promise<void> {
+    const id = manifestId.trim();
+    if (!id) return;
+    if (linked.includes(id)) {
+      setErr("That manifest is already linked.");
+      return;
+    }
+    setSaving(true);
+    setErr("");
+    const res = await fetch(`/api/missions/${mission.id}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ linkedManifestIds: [...linked, id] }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setManifestId("");
+      onChanged();
+    } else {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setErr(j.error || "Could not link manifest.");
+    }
+  }
+
+  async function removeLink(id: string): Promise<void> {
+    setSaving(true);
+    setErr("");
+    const res = await fetch(`/api/missions/${mission.id}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ linkedManifestIds: linked.filter((x) => x !== id) }),
+    });
+    setSaving(false);
+    if (res.ok) onChanged();
+  }
+
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50/40 px-3 py-2 space-y-2">
+      <div className="text-xs font-semibold text-zinc-700 uppercase tracking-wide">AM loadout manifest</div>
+      <p className="text-[11px] text-zinc-600">
+        This mission moves assets. Link at least one AM loadout manifest (paste the manifest document
+        id from <a href="https://am.1pwrafrica.com/loadout" target="_blank" rel="noreferrer" className="text-blue-700 underline">AM</a>) before trip checkout.
+      </p>
+      {linked.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {linked.map((id) => (
+            <li key={id} className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-xs">
+              <a href={`https://am.1pwrafrica.com/loadout/view.php?id=${encodeURIComponent(id)}`} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                {id}
+              </a>
+              <button type="button" aria-label={`Unlink ${id}`} onClick={() => void removeLink(id)} disabled={saving} className="text-zinc-400 hover:text-red-600">✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={manifestId}
+          onChange={(e) => setManifestId(e.target.value)}
+          placeholder="AM manifest document id"
+          className="h-9 flex-1 rounded-lg border border-zinc-200 px-2 text-sm"
+        />
+        <Button type="button" size="sm" disabled={!manifestId.trim() || saving} onClick={() => void addLink()}>
+          {saving ? "Saving…" : "Link"}
+        </Button>
+      </div>
+      {err && <p className="text-[11px] text-red-700">{err}</p>}
+    </div>
+  );
+}
+
+function TransportModeChangePanel({ mission, canApprove, onChanged }: { mission: PlannedMissionRow; canApprove: boolean; onChanged: () => void }): React.ReactElement {
+  const [requests, setRequests] = useState<Array<{ id: string; requested_mode: string; reason: string; status: string; created_at: string; reviewed_by_name?: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"public_transport" | "third_party" | "personal_vehicle">("public_transport");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/missions/${mission.id}/transport-mode-change`, { headers: await jsonHeadersWithBearer() });
+    const j = (await res.json().catch(() => ({}))) as { requests?: typeof requests };
+    setRequests(Array.isArray(j.requests) ? j.requests : []);
+    setLoading(false);
+  }, [mission.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function submit(): Promise<void> {
+    if (reason.trim().length < 20) {
+      setErr("Reason must be at least 20 characters.");
+      return;
+    }
+    setSaving(true);
+    setErr("");
+    const res = await fetch(`/api/missions/${mission.id}/transport-mode-change`, {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action: "request", requestedMode: mode, reason: reason.trim() }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setReason("");
+      void load();
+      onChanged();
+    } else {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setErr(j.error || "Could not submit request.");
+    }
+  }
+
+  async function review(reqId: string, action: "approve" | "reject"): Promise<void> {
+    const reviewReason = window.prompt(action === "approve" ? "Approval note (optional)" : "Rejection reason (optional)") || "";
+    const res = await fetch(`/api/missions/${mission.id}/transport-mode-change`, {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action, requestId: reqId, reviewReason }),
+    });
+    if (res.ok) {
+      void load();
+      onChanged();
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 space-y-2">
+      <div className="text-xs font-semibold text-zinc-700 uppercase tracking-wide">Alternate transport</div>
+      <p className="text-[11px] text-zinc-600">
+        No vehicle available for this mission? Request a switch to public / third-party / personal
+        transport. Management must approve before the mission's transport mode changes.
+      </p>
+      {requests.length > 0 && (
+        <ul className="space-y-1">
+          {requests.map((r) => (
+            <li key={r.id} className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium capitalize">{r.requested_mode.replace("_", " ")}</span>
+                <Badge variant={r.status === "approved" ? "success" : r.status === "rejected" ? "destructive" : "warning"} className="text-[10px] capitalize">
+                  {r.status}
+                </Badge>
+              </div>
+              <div className="text-zinc-600 mt-0.5">{r.reason}</div>
+              {r.status === "pending" && canApprove && (
+                <div className="flex gap-2 mt-1">
+                  <Button type="button" size="sm" className="h-6 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => void review(r.id, "approve")}>Approve</Button>
+                  <Button type="button" size="sm" variant="outline" className="h-6 text-[11px] text-red-700 border-red-200" onClick={() => void review(r.id, "reject")}>Reject</Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid gap-2 sm:grid-cols-3">
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as typeof mode)}
+          className="h-9 rounded-lg border border-zinc-200 bg-white px-2 text-xs"
+        >
+          <option value="public_transport">Public transport</option>
+          <option value="third_party">Third-party</option>
+          <option value="personal_vehicle">Personal vehicle</option>
+        </select>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Why alternate transport is needed (min 20 chars)…"
+          rows={2}
+          className="sm:col-span-2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <Button type="button" size="sm" disabled={saving || reason.trim().length < 20} onClick={() => void submit()}>
+          {saving ? "Submitting…" : "Request change"}
+        </Button>
+        {err && <span className="text-[11px] text-red-700">{err}</span>}
+        {loading && <span className="text-[11px] text-zinc-400">Loading…</span>}
+      </div>
+    </div>
+  );
+}
+
 function FleetMissionReserveRow({
   mission: m,
   onReserved,
@@ -282,7 +493,19 @@ function FleetMissionReserveRow({
   onReserved: () => void;
 }) {
   const [candidates, setCandidates] = useState<
-    Array<{ id: string; code: string; make: string; model: string; status?: string; pool?: string; current_location?: string }>
+    Array<{
+      id: string;
+      code: string;
+      make: string;
+      model: string;
+      status?: string;
+      pool?: string;
+      current_location?: string;
+      localityRequired?: boolean;
+      localityDistanceKm?: number | null;
+      mechanicalInspectionOnFile?: boolean;
+      localityReason?: string;
+    }>
   >([]);
   const [loading, setLoading] = useState(true);
   const [vehicleId, setVehicleId] = useState("");
@@ -366,13 +589,39 @@ function FleetMissionReserveRow({
             className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
           >
             <option value="">{loading ? "Loading candidates…" : "Select vehicle…"}</option>
-            {candidates.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.code} — {v.make} {v.model}
-                {v.status ? ` (${v.status})` : ""}
-              </option>
-            ))}
+            {candidates.map((v) => {
+              const needsInsp = v.localityRequired && !v.mechanicalInspectionOnFile;
+              const inspOk = v.localityRequired && v.mechanicalInspectionOnFile;
+              return (
+                <option key={v.id} value={v.id}>
+                  {v.code} — {v.make} {v.model}
+                  {v.status ? ` (${v.status})` : ""}
+                  {needsInsp ? " · mechanical inspection required" : ""}
+                  {inspOk ? " · inspection on file" : ""}
+                </option>
+              );
+            })}
           </select>
+          {(() => {
+            const sel = candidates.find((c) => c.id === vehicleId);
+            if (!sel) return null;
+            if (sel.localityRequired && !sel.mechanicalInspectionOnFile) {
+              return (
+                <p className="mt-1 text-[11px] text-amber-800">
+                  {sel.localityReason ||
+                    `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km away (>50 km locality). A passing detailed mechanical inspection within the last 14 days is required, or enter an override reason below.`}
+                </p>
+              );
+            }
+            if (sel.localityRequired && sel.mechanicalInspectionOnFile) {
+              return (
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {sel.localityReason}
+                </p>
+              );
+            }
+            return null;
+          })()}
         </div>
         <Button type="button" size="sm" disabled={!vehicleId || saving} onClick={() => void reserve()} className="touch-manipulation">
           {saving ? "Saving…" : "Reserve"}
@@ -386,7 +635,7 @@ function FleetMissionReserveRow({
           type="text"
           value={overrideReason}
           onChange={(e) => setOverrideReason(e.target.value)}
-          placeholder="Required when: overlapping reservation, or mission extends past the vehicle’s registration disc expiry"
+          placeholder="Required when: overlapping reservation, registration disc past mission end, or vehicle allocated >50km from destination without a fresh mechanical inspection"
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
       </div>
@@ -935,6 +1184,9 @@ export default function VehicleRequestsPage() {
                       <div className="text-xs text-zinc-600 mt-1">
                         <span className="font-medium">Route:</span> {missionRouteSummary(m)}
                       </div>
+                      <div className="mt-1.5">
+                        <MissionPipelineStepper mission={m} />
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1 shrink-0">
                       <Badge variant="secondary">{tripShapeLabel(m.trip_shape)}</Badge>
@@ -972,7 +1224,42 @@ export default function VehicleRequestsPage() {
                 </button>
                 {expandedPendingMissionId === m.id && (
                   <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
-                    <MissionApprovalTimeline mission={m} />
+                    <MissionLifecycleTimeline mission={m} />
+                    {!!m.assets_being_moved && (
+                      <MissionManifestLinker
+                        mission={m}
+                        onChanged={() => {
+                          void (async () => {
+                            const headers = await jsonHeadersWithBearer();
+                            const res = await fetch(
+                              `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+                              { headers }
+                            );
+                            if (!res.ok) return;
+                            const j = (await res.json()) as PlannedMissionRow[];
+                            setPendingMissions(Array.isArray(j) ? j : []);
+                            void refetchApprovedMissionsFleet();
+                          })();
+                        }}
+                      />
+                    )}
+                    <TransportModeChangePanel
+                      mission={m}
+                      canApprove={canApproveMission}
+                      onChanged={() => {
+                        void (async () => {
+                          const headers = await jsonHeadersWithBearer();
+                          const res = await fetch(
+                            `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+                            { headers }
+                          );
+                          if (!res.ok) return;
+                          const j = (await res.json()) as PlannedMissionRow[];
+                          setPendingMissions(Array.isArray(j) ? j : []);
+                          void refetchApprovedMissionsFleet();
+                        })();
+                      }}
+                    />
                     <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">Created by</dt>
@@ -1804,6 +2091,7 @@ function RequestForm({
   onCancel: () => void;
 }) {
   const multiStopEnabled = isMultiStopRolloutEnabled();
+  const returnTo = useSearchParams().get("returnTo") || "";
   const [vrSubmitting, setVrSubmitting] = useState(false);
   const [missionSubmitting, setMissionSubmitting] = useState(false);
   const [missionFormError, setMissionFormError] = useState("");
@@ -1814,8 +2102,10 @@ function RequestForm({
   // (team travels by public transport, no company vehicle). Hides the
   // required-vehicle-class picker and shows a mandatory justification
   // textarea instead.
-  const [publicTransport, setPublicTransport] = useState(false);
+  const [transportMode, setTransportMode] = useState<"company_vehicle" | "public_transport" | "third_party" | "personal_vehicle">("company_vehicle");
+  const publicTransport = transportMode !== "company_vehicle";
   const [publicTransportJustification, setPublicTransportJustification] = useState("");
+  const [assetsBeingMoved, setAssetsBeingMoved] = useState(false);
   const { canOverride } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
@@ -2131,10 +2421,11 @@ function RequestForm({
       stops: multiStopEnabled ? finalStops : [],
       requiredVehicleClass: reqClass,
       rrStatus: String(fd.get("cmRrStatus") || "na"),
-      transportMode: publicTransport ? "public_transport" : "company_vehicle",
+      transportMode,
       publicTransportJustification: publicTransport
         ? publicTransportJustification.trim()
         : "",
+      assetsBeingMoved,
     };
     const headers = await jsonHeadersWithBearer();
     let res: Response;
@@ -2253,6 +2544,16 @@ function RequestForm({
 
   return (
     <div className="space-y-6" data-tutorial="tutorial-vr-form">
+      {returnTo && (
+        <div className="text-sm">
+          <Link
+            href={returnTo}
+            className="text-blue-600 hover:underline"
+          >
+            ← Back to {returnTo}
+          </Link>
+        </div>
+      )}
       <Card className="border-sky-200 bg-sky-50/30">
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
@@ -2416,31 +2717,55 @@ function RequestForm({
               <Input name="cmPassengers" label="Passenger names / notes" placeholder="Optional — names or notes" />
               <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
             </div>
-            <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+            <label className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-sm">
               <input
                 type="checkbox"
-                checked={publicTransport}
-                onChange={(e) => setPublicTransport(e.target.checked)}
+                checked={assetsBeingMoved}
+                onChange={(e) => setAssetsBeingMoved(e.target.checked)}
                 className="mt-0.5 h-4 w-4"
               />
-              <span>
-                <span className="font-medium text-amber-900">Team travelling by public transport</span>
-                <span className="block text-xs text-amber-800">
-                  Use when no company vehicle is available and the team will deploy by public
-                  transport (e.g. taxi / bus). Requires management approval and a written
-                  justification. Vehicle allocation, DVC and trip-readiness gates are skipped.
+              <span className="text-zinc-700">
+                <span className="font-medium">Assets / equipment being moved</span>
+                <span className="block text-xs text-zinc-500 mt-0.5">
+                  When checked, the mission requires at least one AM loadout manifest to be linked
+                  before trip checkout. Create the manifest in AM, then paste its document id on the
+                  mission card after submission.
                 </span>
               </span>
             </label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-zinc-700">Transport mode *</label>
+              <select
+                value={transportMode}
+                onChange={(e) => setTransportMode(e.target.value as typeof transportMode)}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="company_vehicle">Company vehicle (default)</option>
+                <option value="public_transport">Public transport (taxi / bus)</option>
+                <option value="third_party">Third-party / hired transport</option>
+                <option value="personal_vehicle">Personal vehicle (reimbursement separate)</option>
+              </select>
+              <p className="text-[11px] text-zinc-500">
+                Non-company modes require management approval and a written justification. Vehicle
+                allocation, DVC and trip-readiness gates are skipped; the trip is still lodged for
+                HR/deployment tracking.
+              </p>
+            </div>
             {publicTransport && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-zinc-700">
-                  Public-transport justification *
+                  {transportMode === "personal_vehicle" ? "Personal-vehicle justification *" : transportMode === "third_party" ? "Third-party transport justification *" : "Public-transport justification *"}
                 </label>
                 <textarea
                   value={publicTransportJustification}
                   onChange={(e) => setPublicTransportJustification(e.target.value)}
-                  placeholder="e.g. No 4WD vehicles available for the Maseru–Mokhotlong route on this date; team to deploy via shared taxi."
+                  placeholder={
+                    transportMode === "personal_vehicle"
+                      ? "e.g. No fleet vehicles available for this date; using personal vehicle, reimbursement claim to follow."
+                      : transportMode === "third_party"
+                        ? "e.g. No fleet vehicles available; hired transport arranged with vendor X for the route."
+                        : "e.g. No 4WD vehicles available for the Maseru–Mokhotlong route on this date; team to deploy via shared taxi."
+                  }
                   rows={3}
                   maxLength={1000}
                   className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm"

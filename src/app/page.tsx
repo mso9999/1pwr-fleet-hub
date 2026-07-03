@@ -35,6 +35,7 @@ interface DashboardData {
   grounded: number;
   writtenOff: number;
   openWorkOrders: number;
+  workOrderStatusCounts?: Array<{ status: string; count: number }>;
   avgRepairDays: number;
   fleetUptimePct: number;
   mtbfDays: number;
@@ -316,6 +317,23 @@ export default function DashboardPage(): React.ReactElement {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {data.workOrderStatusCounts && data.workOrderStatusCounts.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-zinc-100">
+                <div className="text-xs font-medium text-zinc-500 uppercase mb-2">Pipeline by status</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {data.workOrderStatusCounts.map((s) => (
+                    <Link
+                      key={s.status}
+                      href={`/work-orders?status=${encodeURIComponent(s.status)}`}
+                      className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs hover:border-blue-300 hover:bg-blue-50"
+                    >
+                      <span className="capitalize text-zinc-700">{s.status.replace(/-/g, " ")}</span>
+                      <span className="font-semibold text-zinc-900">{s.count}</span>
+                    </Link>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>

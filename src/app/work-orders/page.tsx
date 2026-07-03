@@ -27,6 +27,7 @@ import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
 
 interface WorkOrderRow {
   id: string;
+  organization_id?: string;
   vehicle_id: string;
   vehicle_code: string;
   vehicle_make: string;
@@ -85,7 +86,10 @@ interface WorkOrderDetail extends WorkOrderRow {
   status_history: StatusHistoryEntry[];
   labor: LaborEntry[];
   po_links: POLinkEntry[];
-  parts: Array<{ id: string; description: string; quantity: number; unit_cost: number; supplier: string; pr_status: string }>;
+  parts: Array<{ id: string; description: string; quantity: number; unit_cost: number; supplier: string; pr_status: string; delivery_eta?: string }>;
+  closing_inspection_id?: string | null;
+  pr_cache_by_number?: Record<string, { pr_status?: string | null; approved_amount?: number | null; currency?: string | null; description?: string | null }>;
+  pr_system_base_url?: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -112,6 +116,7 @@ function WorkOrdersPageContent(): React.ReactElement {
   const [filterStatus, setFilterStatus] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "board">("list");
 
   useEffect(() => {
     const open = searchParams.get("open");
@@ -183,7 +188,25 @@ function WorkOrdersPageContent(): React.ReactElement {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3" data-tutorial="tutorial-work-orders-header">
-        <span className="text-sm text-zinc-500">{activeOrders.length} active · {closedOrders.length} done</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-zinc-500">{activeOrders.length} active · {closedOrders.length} done</span>
+          <div className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={`px-2.5 py-1 rounded-md ${viewMode === "list" ? "bg-zinc-900 text-white" : "text-zinc-600"}`}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("board")}
+              className={`px-2.5 py-1 rounded-md ${viewMode === "board" ? "bg-zinc-900 text-white" : "text-zinc-600"}`}
+            >
+              Board
+            </button>
+          </div>
+        </div>
         <span data-tutorial="tutorial-work-orders-create-btn">
           <Button onClick={() => setShowCreate(!showCreate)}>+ New Work Order</Button>
         </span>
@@ -209,6 +232,8 @@ function WorkOrdersPageContent(): React.ReactElement {
 
       {isLoading ? (
         <div className="text-zinc-500 text-center py-12">Loading...</div>
+      ) : viewMode === "board" ? (
+        <WorkOrderBoard orders={orders} onPick={(id) => setSelectedId(id)} />
       ) : (
         <div className="space-y-3">
           {activeOrders.map((wo) => (
@@ -237,6 +262,69 @@ export default function WorkOrdersPage(): React.ReactElement {
     <Suspense fallback={<div className="text-zinc-500 text-center py-12">Loading...</div>}>
       <WorkOrdersPageContent />
     </Suspense>
+  );
+}
+
+const BOARD_COLUMNS = [
+  "submitted",
+  "queued",
+  "in-progress",
+  "needs-parts",
+  "pr-submitted",
+  "awaiting-parts",
+  "completed",
+  "closed",
+] as const;
+
+function WorkOrderBoard({ orders, onPick }: { orders: WorkOrderRow[]; onPick: (id: string) => void }): React.ReactElement {
+  const byStatus: Record<string, WorkOrderRow[]> = {};
+  for (const o of orders) {
+    const key = o.status || "submitted";
+    (byStatus[key] ??= []).push(o);
+  }
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex gap-3 min-w-max pb-2">
+        {BOARD_COLUMNS.map((col) => {
+          const items = byStatus[col] || [];
+          return (
+            <div key={col} className="w-60 shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium capitalize ${STATUS_COLORS[col] || "bg-zinc-100 text-zinc-600"}`}>
+                  {col.replace(/-/g, " ")}
+                </span>
+                <span className="text-xs text-zinc-400">{items.length}</span>
+              </div>
+              <div className="space-y-2">
+                {items.map((wo) => (
+                  <button
+                    key={wo.id}
+                    type="button"
+                    onClick={() => onPick(wo.id)}
+                    className="w-full text-left rounded-lg border border-zinc-200 bg-white p-2.5 hover:border-blue-300 hover:shadow-sm transition"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="secondary" className="text-[10px]">{wo.vehicle_code}</Badge>
+                      <span className="text-xs text-zinc-400">{wo.priority}</span>
+                    </div>
+                    <div className="text-sm font-medium text-zinc-900 mt-1 line-clamp-2">{wo.title}</div>
+                    <div className="text-[11px] text-zinc-500 mt-1">
+                      {wo.assigned_to ? `· ${wo.assigned_to}` : "· unassigned"}
+                      {typeof wo.total_cost === "number" && wo.total_cost > 0 ? ` · R${wo.total_cost.toFixed(0)}` : ""}
+                    </div>
+                  </button>
+                ))}
+                {items.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-zinc-200 p-3 text-center text-[11px] text-zinc-400">
+                    empty
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -306,7 +394,10 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
   const [error, setError] = useState<string | null>(null);
   const [showAddLabor, setShowAddLabor] = useState(false);
   const [showAddPO, setShowAddPO] = useState(false);
+  const [showAddPart, setShowAddPart] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
+  const [closingInspectionId, setClosingInspectionId] = useState("");
+  const [recentInspections, setRecentInspections] = useState<Array<{ id: string; type: string; created_at: string; overall_pass: number }>>([]);
   const [updates, setUpdates] = useState<Array<{ id: string; note: string; posted_by_name: string; has_photos: number; photo_count: number; created_at: string; photos: Array<{ id: string; file_name: string; entity_type: string; entity_id: string; mime_type: string }> }>>([]);
   const [showAddUpdate, setShowAddUpdate] = useState(false);
   const [isPostingUpdate, setIsPostingUpdate] = useState(false);
@@ -328,17 +419,40 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
 
   useEffect(() => { loadDetail(); loadUpdates(); }, [loadDetail, loadUpdates]);
 
+  // When the work order is `completed` (i.e. `closed` is a valid next status),
+  // load recent inspections for the vehicle so the user can attach a closing
+  // inspection (the API requires it on completed -> closed).
+  useEffect(() => {
+    if (!detail || detail.status !== "completed") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/inspections?org=${encodeURIComponent(detail.organization_id || organizationId)}&vehicleId=${encodeURIComponent(detail.vehicle_id)}`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as Array<{ id: string; type: string; created_at: string; overall_pass: number }>;
+        if (!cancelled) setRecentInspections(Array.isArray(rows) ? rows.slice(0, 20) : []);
+      } catch {
+        /* non-fatal */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [detail, organizationId]);
+
   async function transitionStatus(newStatus: string): Promise<void> {
     setError(null);
+    const body: Record<string, unknown> = {
+      status: newStatus,
+      changedById: user?.id || "",
+      changedByName: user?.name || "",
+      reason: transitionReason || `Status changed to ${newStatus}`,
+    };
+    if (newStatus === "closed" && closingInspectionId) {
+      body.closingInspectionId = closingInspectionId;
+    }
     const res = await fetch(`/api/work-orders/${workOrderId}`, {
       method: "PATCH",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({
-        status: newStatus,
-        changedById: user?.id || "",
-        changedByName: user?.name || "",
-        reason: transitionReason || `Status changed to ${newStatus}`,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const data = await res.json();
@@ -346,6 +460,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
       return;
     }
     setTransitionReason("");
+    setClosingInspectionId("");
     loadDetail();
     onUpdated();
   }
@@ -398,6 +513,39 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
     setShowAddPO(false);
     loadDetail();
     onUpdated();
+  }
+
+  async function addPart(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const res = await fetch(`/api/work-orders/${workOrderId}/parts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description: fd.get("description"),
+        quantity: parseInt(fd.get("quantity") as string, 10) || 1,
+        unitCost: parseFloat(fd.get("unitCost") as string) || 0,
+        supplier: fd.get("supplier"),
+        prStatus: fd.get("prStatus"),
+        deliveryEta: fd.get("deliveryEta"),
+      }),
+    });
+    if (res.ok) {
+      setShowAddPart(false);
+      loadDetail();
+      onUpdated();
+    }
+  }
+
+  async function removePart(partId: string): Promise<void> {
+    if (!confirm("Remove this part line?")) return;
+    const res = await fetch(`/api/work-orders/${workOrderId}/parts?partId=${encodeURIComponent(partId)}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      loadDetail();
+      onUpdated();
+    }
   }
 
   async function postUpdate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -491,6 +639,31 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                     </Button>
                   ))}
                 </div>
+                {allowedTransitions.includes("closed") && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+                    <div className="text-xs font-medium text-emerald-900">
+                      Closing inspection required to close this work order.
+                    </div>
+                    <select
+                      value={closingInspectionId}
+                      onChange={(e) => setClosingInspectionId(e.target.value)}
+                      className="h-9 w-full max-w-md rounded-lg border border-zinc-200 bg-white px-2 text-sm"
+                    >
+                      <option value="">Select a recent inspection for this vehicle…</option>
+                      {recentInspections.map((insp) => (
+                        <option key={insp.id} value={insp.id}>
+                          {insp.type} · {insp.created_at?.slice(0, 10)} · {insp.overall_pass === 1 ? "pass" : "fail"}
+                        </option>
+                      ))}
+                    </select>
+                    {!closingInspectionId && (
+                      <p className="text-[11px] text-amber-800">
+                        Pick an inspection above before clicking <strong>→ closed</strong>, or record a
+                        closing inspection on the Inspections page first.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <Input
                   placeholder="Reason for status change (optional)"
                   value={transitionReason}
@@ -600,9 +773,31 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
         </div>
 
         {/* Parts */}
-        {detail.parts.length > 0 && (
-          <div>
-            <div className="text-xs font-medium text-zinc-500 uppercase mb-2">Parts ({detail.parts.length})</div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-medium text-zinc-500 uppercase">Parts ({detail.parts.length})</div>
+            <Button size="sm" variant="outline" onClick={() => setShowAddPart(!showAddPart)}>+ Add part</Button>
+          </div>
+          {showAddPart && (
+            <form onSubmit={addPart} className="grid gap-2 sm:grid-cols-4 mb-3 p-3 bg-white rounded-lg border">
+              <Input name="description" label="Part / description" placeholder="What was replaced" className="sm:col-span-2" required />
+              <Input name="quantity" label="Qty" type="number" min={1} step={1} defaultValue={1} />
+              <Input name="unitCost" label="Unit cost (LSL)" type="number" step="0.01" placeholder="0" />
+              <Input name="supplier" label="Supplier" placeholder="Vendor name" />
+              <Select name="prStatus" label="PR status" defaultValue="needed">
+                <option value="needed">Needed</option>
+                <option value="ordered">Ordered</option>
+                <option value="received">Received</option>
+                <option value="n/a">N/A</option>
+              </Select>
+              <Input name="deliveryEta" label="Delivery ETA" type="date" />
+              <div className="flex items-end gap-1 sm:col-span-2">
+                <Button type="submit" size="sm">Add</Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => setShowAddPart(false)}>✕</Button>
+              </div>
+            </form>
+          )}
+          {detail.parts.length > 0 && (
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-zinc-50">
@@ -611,6 +806,8 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                     <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Qty</th>
                     <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Unit Cost</th>
                     <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">PR Status</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">ETA</th>
+                    <th className="w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -620,15 +817,26 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                       <td className="px-3 py-2 text-right">{p.quantity}</td>
                       <td className="px-3 py-2 text-right">R{(p.unit_cost || 0).toFixed(0)}</td>
                       <td className="px-3 py-2">
-                        <Badge variant="outline" className="text-xs">{p.pr_status}</Badge>
+                        <Badge variant="outline" className="text-xs capitalize">{p.pr_status}</Badge>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-zinc-500">{p.delivery_eta || "—"}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          aria-label="Remove part"
+                          onClick={() => void removePart(p.id)}
+                          className="text-zinc-400 hover:text-red-600 text-xs"
+                        >
+                          ✕
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* PO Links */}
         <div>
@@ -659,21 +867,55 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                     <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">PO #</th>
                     <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Vendor</th>
                     <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Amount</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Status</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Link status</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">PR approval</th>
+                    <th className="w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.po_links.map((po) => (
-                    <tr key={po.id} className="border-t">
-                      <td className="px-3 py-2 font-mono text-blue-600">{po.pr_number || "—"}</td>
-                      <td className="px-3 py-2 font-mono">{po.po_number || "—"}</td>
-                      <td className="px-3 py-2">{po.vendor || "—"}</td>
-                      <td className="px-3 py-2 text-right">R{po.amount.toFixed(0)}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant="outline" className="text-xs">{po.status}</Badge>
-                      </td>
-                    </tr>
-                  ))}
+                  {detail.po_links.map((po) => {
+                    const cache = detail.pr_cache_by_number?.[po.pr_number || ""];
+                    const prBaseUrl = detail.pr_system_base_url || "https://pr.1pwrafrica.com";
+                    return (
+                      <tr key={po.id} className="border-t">
+                        <td className="px-3 py-2 font-mono text-blue-600">
+                          {po.pr_number ? (
+                            <a href={`${prBaseUrl}/?pr=${encodeURIComponent(po.pr_number)}`} target="_blank" rel="noreferrer" className="hover:underline">
+                              {po.pr_number}
+                            </a>
+                          ) : "—"}
+                        </td>
+                        <td className="px-3 py-2 font-mono">{po.po_number || "—"}</td>
+                        <td className="px-3 py-2">{po.vendor || "—"}</td>
+                        <td className="px-3 py-2 text-right">R{po.amount.toFixed(0)}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline" className="text-xs capitalize">{po.status}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {cache?.pr_status ? (
+                            <span className="capitalize">
+                              {cache.pr_status}
+                              {cache.approved_amount != null ? ` · R${Number(cache.approved_amount).toFixed(0)}` : ""}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400">not synced</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {po.pr_number && (
+                            <a
+                              href={`${prBaseUrl}/?pr=${encodeURIComponent(po.pr_number)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] text-blue-600 hover:underline whitespace-nowrap"
+                            >
+                              Open in PR →
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

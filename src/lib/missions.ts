@@ -39,13 +39,17 @@ export function insertPlannedMission(
     hrRequestStatus?: string;
     hrSyncSource?: string;
     hrSourceUpdatedAt?: string;
-    /** Scenario B: 'public_transport' = team travelling by public transport
-     *  (no company vehicle). 'company_vehicle' (default) = standard flow. */
-    transportMode?: "company_vehicle" | "public_transport";
-    /** Required when transportMode = 'public_transport'. Free-text justification
+    /** Transport mode: 'company_vehicle' (default), 'public_transport'
+     *  (team on public transport), 'third_party' (hired third-party transport),
+     *  or 'personal_vehicle' (employee's own vehicle). Non-company modes have
+     *  no reserved vehicle and use a per-org sentinel at trip checkout. */
+    transportMode?: "company_vehicle" | "public_transport" | "third_party" | "personal_vehicle";
+    /** Required when transportMode != 'company_vehicle'. Free-text justification
      *  (e.g. "no vehicles available"). Enforced at the API layer. */
     publicTransportJustification?: string;
     initialApprovalStatus?: "draft" | "pending";
+    assetsBeingMoved?: boolean;
+    linkedManifestIds?: string[];
   }
 ): string {
   const id = uuidv4();
@@ -53,16 +57,18 @@ export function insertPlannedMission(
   const profile = String(input.missionProfile || "local").toLowerCase() === "field" ? "field" : "local";
   const tripShape = normalizeTripShape(input.tripShape);
   const stops = normalizeRouteStops(input.stops);
-  const transportMode: "company_vehicle" | "public_transport" =
-    String(input.transportMode || "company_vehicle").toLowerCase() === "public_transport"
-      ? "public_transport"
+  type TransportMode = "company_vehicle" | "public_transport" | "third_party" | "personal_vehicle";
+  const tmRaw = String(input.transportMode || "company_vehicle").toLowerCase();
+  const transportMode: TransportMode =
+    tmRaw === "public_transport" || tmRaw === "third_party" || tmRaw === "personal_vehicle"
+      ? (tmRaw as TransportMode)
       : "company_vehicle";
   const publicTransportJustification = String(input.publicTransportJustification || "").trim().slice(0, 1000);
-  // Public-transport missions have no company vehicle, so required_vehicle_class
+  // Non-company-vehicle missions have no company vehicle, so required_vehicle_class
   // is meaningless and would otherwise block trip-readiness gates. Force empty.
-  const reqClass = transportMode === "public_transport"
-    ? ""
-    : String(input.requiredVehicleClass || "").trim();
+  const reqClass = transportMode === "company_vehicle"
+    ? String(input.requiredVehicleClass || "").trim()
+    : "";
   const rr = String(input.rrStatus || "na").toLowerCase();
   const rrNorm = rr === "pending" || rr === "approved" ? rr : "na";
   const initialApprovalStatus =
@@ -75,13 +81,13 @@ export function insertPlannedMission(
       const clean = arr
         .filter((p) => p && typeof p === "object")
         .map((p) => {
-          // For public-transport missions, every passenger is by definition
-          // on public transport — there's no company vehicle to straggle
+          // For non-company-vehicle missions, every passenger is by definition
+          // on the chosen transport — there's no company vehicle to straggle
           // from. Coerce travel_mode to 'on_vehicle' so the straggler
           // deployment detector doesn't fire.
           const rawMode = String(p.travel_mode ?? "on_vehicle").toLowerCase();
           const travelMode =
-            transportMode === "public_transport"
+            transportMode !== "company_vehicle"
               ? "on_vehicle"
               : rawMode === "straggler_public_transport"
                 ? "straggler_public_transport"
@@ -111,8 +117,9 @@ export function insertPlannedMission(
         mission_profile, trip_shape, required_vehicle_class, rr_status,
         hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
         transport_mode, public_transport_justification,
+        assets_being_moved, linked_manifest_ids,
         created_by_id, created_by_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.organizationId,
@@ -138,6 +145,8 @@ export function insertPlannedMission(
       input.hrSourceUpdatedAt || null,
       transportMode,
       publicTransportJustification,
+      input.assetsBeingMoved ? 1 : 0,
+      JSON.stringify(Array.isArray(input.linkedManifestIds) ? input.linkedManifestIds : []),
       input.createdById,
       input.createdByName,
       now,

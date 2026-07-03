@@ -10,7 +10,7 @@ export function assertMissionEligibleForTripCheckout(
 ): { ok: true } | { ok: false; error: string; code: string } {
   const m = db
     .prepare(
-      `SELECT id, approval_status, assigned_vehicle_id, lifecycle_status, trip_id, organization_id
+      `SELECT id, approval_status, assigned_vehicle_id, lifecycle_status, trip_id, organization_id, transport_mode
        FROM missions WHERE id = ?`
     )
     .get(missionId) as
@@ -21,6 +21,7 @@ export function assertMissionEligibleForTripCheckout(
         lifecycle_status: string;
         trip_id: string | null;
         organization_id: string;
+        transport_mode?: string | null;
       }
     | undefined;
 
@@ -53,7 +54,15 @@ export function assertMissionEligibleForTripCheckout(
     };
   }
 
-  if (!String(m.assigned_vehicle_id || "").trim()) {
+  // Non-company-vehicle missions (public transport, third-party, personal
+  // vehicle) do NOT require a reserved vehicle — the trip is lodged against
+  // a sentinel/personal vehicle record. Only company_vehicle missions need
+  // an assigned_vehicle_id.
+  const transportMode = String(m.transport_mode || "company_vehicle").toLowerCase();
+  const needsReservedVehicle =
+    transportMode === "company_vehicle" || transportMode === "";
+
+  if (needsReservedVehicle && !String(m.assigned_vehicle_id || "").trim()) {
     return {
       ok: false,
       error: "Mission has no reserved vehicle. Fleet must reserve a vehicle first.",

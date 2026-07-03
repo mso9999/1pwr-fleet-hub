@@ -86,10 +86,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
            m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
+           m.assets_being_moved, m.linked_manifest_ids,
            m.created_by_id, m.created_by_name, m.created_at, m.updated_at,
-           v.code AS assigned_vehicle_code
+           v.code AS assigned_vehicle_code,
+           t.checkout_at AS trip_checkout_at, t.departed_at AS trip_departed_at, t.checkin_at AS trip_checkin_at,
+           t.destination AS trip_destination, t.departure_location AS trip_departure_location
     FROM missions m
     LEFT JOIN vehicles v ON m.assigned_vehicle_id = v.id
+    LEFT JOIN trips t ON m.trip_id = t.id
     WHERE m.organization_id = ?
   `;
   const params: string[] = [org];
@@ -108,7 +112,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (tripCheckoutEligible) {
     sql += ` AND lower(COALESCE(m.approval_status,'')) = 'approved'
              AND lower(COALESCE(m.lifecycle_status,'active')) = 'active'
-             AND trim(COALESCE(m.assigned_vehicle_id,'')) != ''
+             AND (
+               trim(COALESCE(m.assigned_vehicle_id,'')) != ''
+               OR lower(COALESCE(m.transport_mode,'company_vehicle')) IN ('public_transport','third_party','personal_vehicle')
+             )
              AND (
                m.trip_id IS NULL
                OR EXISTS (SELECT 1 FROM trips t WHERE t.id = m.trip_id AND t.checkin_at IS NOT NULL)
@@ -223,17 +230,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Requires management approval (already gated by approval_status flow)
   // and a written justification of at least 20 characters.
   const transportModeRaw = String(body.transportMode || body.transport_mode || "company_vehicle").toLowerCase();
-  const transportMode: "company_vehicle" | "public_transport" =
-    transportModeRaw === "public_transport" ? "public_transport" : "company_vehicle";
-  const publicTransportJustification = String(
-    body.publicTransportJustification || body.public_transport_justification || "",
+  type TransportMode = "company_vehicle" | "public_transport" | "third_party" | "personal_vehicle";
+  const transportMode: TransportMode =
+    transportModeRaw === "public_transport" ||
+    transportModeRaw === "third_party" ||
+    transportModeRaw === "personal_vehicle"
+      ? (transportModeRaw as TransportMode)
+      : "company_vehicle";
+  const transportJustification = String(
+    body.publicTransportJustification ||
+      body.transport_justification ||
+      body.public_transport_justification ||
+      "",
   ).trim();
-  if (transportMode === "public_transport") {
-    if (publicTransportJustification.length < 20) {
+  if (transportMode !== "company_vehicle") {
+    if (transportJustification.length < 20) {
       return NextResponse.json(
         {
           error:
-            "Public-transport missions require a justification of at least 20 characters (e.g. 'no vehicles available for this date range').",
+            "Non-company-vehicle missions (public transport, third-party, personal vehicle) require a justification of at least 20 characters (e.g. 'no vehicles available for this date range').",
           field: "publicTransportJustification",
         },
         { status: 400 },
@@ -262,7 +277,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     requiredVehicleClass: String(body.requiredVehicleClass || ""),
     rrStatus: String(body.rrStatus || "na"),
     transportMode,
-    publicTransportJustification,
+    publicTransportJustification: transportJustification,
+    assetsBeingMoved: !!body.assetsBeingMoved,
+    linkedManifestIds: Array.isArray(body.linkedManifestIds)
+      ? (body.linkedManifestIds as unknown[]).filter((s): s is string => typeof s === "string")
+      : [],
     initialApprovalStatus,
   });
 

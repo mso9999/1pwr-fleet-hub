@@ -112,6 +112,7 @@ export default function TriagePage(): React.ReactElement {
                 <tr className="border-b text-left text-zinc-500">
                   <th className="py-2 pr-2">Vehicle</th>
                   <th className="py-2 pr-2">Title</th>
+                  <th className="py-2 pr-2">Status</th>
                   <th className="py-2 pr-2">Score</th>
                   <th className="py-2 pr-2">Band</th>
                   <th className="py-2 pr-2">Days</th>
@@ -130,6 +131,11 @@ export default function TriagePage(): React.ReactElement {
                     <td className="py-2 pr-2 font-medium">{r.vehicleCode}</td>
                     <td className="py-2 pr-2 max-w-[200px] truncate" title={r.title}>
                       {r.title}
+                    </td>
+                    <td className="py-2 pr-2">
+                      <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-zinc-100 capitalize">
+                        {r.status.replace(/-/g, " ")}
+                      </span>
                     </td>
                     <td className="py-2 pr-2 font-mono">{r.score}</td>
                     <td className="py-2 pr-2">

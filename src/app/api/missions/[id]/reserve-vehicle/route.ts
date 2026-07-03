@@ -11,6 +11,10 @@ import {
   registrationDiscMissionBlocked,
   registrationDiscOverrideAllowed,
 } from "@/lib/registration-disc";
+import {
+  localityGateRequired,
+  LOCALITY_RADIUS_KM,
+} from "@/lib/locality-gate";
 
 /**
  * POST /api/missions/[id]/reserve-vehicle
@@ -99,6 +103,42 @@ export async function POST(
       },
       { status: 400 }
     );
+  }
+
+  // Locality gate: if the destination is > LOCALITY_RADIUS_KM from the vehicle's
+  // current location, require a passing detailed mechanical inspection within
+  // the max-age window — or a fleet-lead override reason (8+ chars).
+  const destinationCode = String(mission.destination || "").trim();
+  if (destinationCode) {
+    const gate = localityGateRequired(db, orgId, vehicleId, destinationCode);
+    if (gate.required && !gate.inspectionOnFile) {
+      const overrideOk = canAllocateFleetVehicle(user.role) && overrideReason.length >= 8;
+      if (!overrideOk) {
+        return NextResponse.json(
+          {
+            error: gate.reason,
+            reason: "needs_mechanical_inspection",
+            distanceKm: gate.distanceKm,
+            localityRadiusKm: LOCALITY_RADIUS_KM,
+          },
+          { status: 400 }
+        );
+      }
+      recordMutation(db, {
+        entityType: "mission",
+        entityId: missionId,
+        organizationId: orgId,
+        action: "prerequisite_override",
+        actor: actorFrom(user),
+        after: {
+          vehicleId,
+          vehicleCode: vehicle.code,
+          localityGate: { distanceKm: gate.distanceKm, radiusKm: LOCALITY_RADIUS_KM },
+          gatesBypassed: ["mechanical_inspection_locality"],
+        },
+        reason: overrideReason,
+      });
+    }
   }
 
   const discBlocked = registrationDiscMissionBlocked(endDate, vehicle.registration_disc_expiry_date);

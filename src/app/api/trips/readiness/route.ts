@@ -13,9 +13,6 @@ export function GET(request: NextRequest): NextResponse {
   const missionId = sp.get("missionId");
   const checkDate = sp.get("checkDate") || undefined;
 
-  if (!vehicleId) {
-    return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
-  }
   if (!missionId) {
     return NextResponse.json({ error: "missionId is required" }, { status: 400 });
   }
@@ -24,7 +21,7 @@ export function GET(request: NextRequest): NextResponse {
   const r = evaluateReadinessForMissionLinkedTrip(db, {
     organizationId,
     missionId,
-    vehicleId,
+    vehicleId: vehicleId || "",
     checkDate,
   });
 

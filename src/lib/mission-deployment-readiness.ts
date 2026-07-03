@@ -1,16 +1,37 @@
 import type Database from "better-sqlite3";
 import { evaluateTripReadiness, MISSION_PROFILE, type ReadinessGate } from "@/lib/trip-readiness";
 import { missionWindowEndDate } from "@/lib/registration-disc";
+import { localityGateRequired } from "@/lib/locality-gate";
 
 export interface MissionTripReadinessResult {
   ok: boolean;
   gates: ReadinessGate[];
   missionProfile: string;
   missionBlockedReason?: string;
-  /** Scenario B: 'public_transport' = team travelling by public transport
-   *  (no company vehicle). 'company_vehicle' (default) = standard flow.
-   *  Callers branch on this to decide whether a vehicleId is required. */
-  transportMode: "company_vehicle" | "public_transport";
+  /** Transport mode: 'company_vehicle' (default), 'public_transport',
+   *  'third_party', or 'personal_vehicle'. Non-company modes skip vehicle
+   *  gates and use a sentinel vehicle at checkout. */
+  transportMode: "company_vehicle" | "public_transport" | "third_party" | "personal_vehicle";
+}
+
+/**
+ * Whether a fleet-lead locality override was recorded for this mission within
+ * the last 7 days. When true, the mechanical-inspection gate at checkout is
+ * treated as satisfied — the fleet lead already authorized the allocation
+ * without a fresh inspection, so we don't force a second override at checkout.
+ */
+function hasRecentLocalityOverride(db: Database.Database, missionId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM record_mutation_log
+       WHERE entity_type = 'mission' AND entity_id = ?
+         AND action = 'prerequisite_override'
+         AND after_json LIKE '%mechanical_inspection_locality%'
+         AND datetime(created_at) >= datetime('now', '-7 days')
+       LIMIT 1`
+    )
+    .get(missionId) as { 1: number } | undefined;
+  return !!row;
 }
 
 /**
@@ -35,7 +56,8 @@ export function evaluateReadinessForMissionLinkedTrip(
   const m = db
     .prepare(
       `SELECT id, approval_status, assigned_vehicle_id, mission_profile, lifecycle_status,
-              departure_date, return_date, transport_mode
+              departure_date, return_date, transport_mode, destination,
+              assets_being_moved, linked_manifest_ids
        FROM missions WHERE id = ? AND organization_id = ?`
     )
     .get(input.missionId, input.organizationId) as
@@ -48,6 +70,9 @@ export function evaluateReadinessForMissionLinkedTrip(
         departure_date: string;
         return_date: string;
         transport_mode?: string | null;
+        destination?: string | null;
+        assets_being_moved?: number | null;
+        linked_manifest_ids?: string | null;
       }
     | undefined;
 
@@ -68,10 +93,13 @@ export function evaluateReadinessForMissionLinkedTrip(
     };
   }
 
-  const transportMode: "company_vehicle" | "public_transport" =
-    String(m.transport_mode || "company_vehicle").toLowerCase() === "public_transport"
-      ? "public_transport"
+  type TransportMode = "company_vehicle" | "public_transport" | "third_party" | "personal_vehicle";
+  const tmRaw = String(m.transport_mode || "company_vehicle").toLowerCase();
+  const transportMode: TransportMode =
+    tmRaw === "public_transport" || tmRaw === "third_party" || tmRaw === "personal_vehicle"
+      ? (tmRaw as TransportMode)
       : "company_vehicle";
+  const isNonCompany = transportMode !== "company_vehicle";
 
   const life = String(m.lifecycle_status || "active").toLowerCase();
   if (life !== "active") {
@@ -106,18 +134,25 @@ export function evaluateReadinessForMissionLinkedTrip(
     };
   }
 
-  // Public-transport missions skip all vehicle-related gates. The team is
-  // travelling by public transport, not a 1PWR vehicle, so:
+  // Non-company-vehicle missions skip all vehicle-related gates. The team is
+  // travelling by public / third-party / personal transport, not a 1PWR
+  // vehicle, so:
   //   - no assigned vehicle to match
   //   - no vehicle operational / driver checklist / mechanical inspection /
   //     registration disc gates apply
   // The trip itself records the departure / return timestamps (vehicle-less).
-  if (transportMode === "public_transport") {
+  if (isNonCompany) {
+    const label =
+      transportMode === "public_transport"
+        ? "Public-transport mission"
+        : transportMode === "third_party"
+          ? "Third-party transport mission"
+          : "Personal-vehicle mission";
     gates.push({
       id: "transport_mode",
       label: "Transport mode",
       status: "satisfied",
-      detail: "Public-transport mission — vehicle gates skipped (justification on file).",
+      detail: `${label} — vehicle gates skipped (justification on file).`,
     });
     return {
       ok: true,
@@ -155,6 +190,40 @@ export function evaluateReadinessForMissionLinkedTrip(
   const missionCalendarEndDay = missionWindowEndDate(String(m.departure_date || ""), m.return_date) || undefined;
   const plannedDepartureDate = String(m.departure_date || "").slice(0, 10) || undefined;
 
+  // Locality-aware mechanical inspection gate: re-enabled conditionally.
+  // The gate runs at checkout/departure only when the destination is beyond
+  // LOCALITY_RADIUS_KM from the vehicle's current location AND no passing
+  // detailed inspection is on file AND there's no recent fleet-lead locality
+  // override on the mission (which already authorized the allocation).
+  const destinationCode = String(m.destination || "").trim();
+  let skipMechanicalInspection = true;
+  let localityGateNote = "";
+  if (destinationCode) {
+    const gate = localityGateRequired(db, input.organizationId, input.vehicleId, destinationCode, input.referenceNow);
+    if (gate.required && !gate.inspectionOnFile) {
+      const overrideOnFile = hasRecentLocalityOverride(db, input.missionId);
+      if (!overrideOnFile) {
+        skipMechanicalInspection = false;
+      }
+      localityGateNote = overrideOnFile
+        ? `Mechanical inspection locality gate: ${Math.round(gate.distanceKm ?? 0)} km (beyond locality); satisfied by recent fleet-lead override.`
+        : gate.reason;
+    } else if (gate.required && gate.inspectionOnFile) {
+      localityGateNote = `Mechanical inspection locality gate: ${Math.round(gate.distanceKm ?? 0)} km (beyond locality); passing detailed inspection on file.`;
+    }
+  }
+
+  let linkedManifestIds: string[] = [];
+  try {
+    const parsed = JSON.parse(String(m.linked_manifest_ids || "[]")) as unknown;
+    if (Array.isArray(parsed)) {
+      linkedManifestIds = parsed.filter((s): s is string => typeof s === "string");
+    }
+  } catch {
+    linkedManifestIds = [];
+  }
+  const assetsBeingMoved = !!m.assets_being_moved;
+
   const r = evaluateTripReadiness(db, {
     organizationId: input.organizationId,
     vehicleId: input.vehicleId,
@@ -162,11 +231,23 @@ export function evaluateReadinessForMissionLinkedTrip(
     checkDate: input.checkDate,
     referenceNow: input.referenceNow,
     skipDriverChecklist: skipDvc,
-    /** Approved mission unchanged: operational + driver checklist only (no extra mechanical gate here). */
-    skipMechanicalInspection: true,
+    skipMechanicalInspection,
     missionCalendarEndDay,
     plannedDepartureDate,
+    assetsBeingMoved,
+    linkedManifestIds,
   });
+
+  // Surface the locality gate context as an extra gate so the checkout UI can
+  // show why the mechanical inspection is being required (or that it's satisfied).
+  if (localityGateNote) {
+    r.gates.push({
+      id: "locality_mechanical",
+      label: "Mechanical inspection (locality)",
+      status: skipMechanicalInspection ? "satisfied" : "blocked",
+      detail: localityGateNote,
+    });
+  }
 
   return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile, transportMode };
 }

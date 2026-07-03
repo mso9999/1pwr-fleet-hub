@@ -31,6 +31,7 @@ interface MissionForTrip {
   mission_profile: string;
   assigned_vehicle_id: string;
   assigned_vehicle_code?: string | null;
+  transport_mode?: string | null;
   title: string;
   approval_status?: string;
   passengers: string;
@@ -258,9 +259,25 @@ export function TripCheckoutForm({
   }, [selectedMission]);
 
   const vehicleId = selectedMission?.assigned_vehicle_id ?? "";
+  const missionTransportMode = String(selectedMission?.transport_mode || "company_vehicle").toLowerCase() as
+    | "company_vehicle"
+    | "public_transport"
+    | "third_party"
+    | "personal_vehicle";
+  const isNonCompanyMission =
+    missionTransportMode === "public_transport" ||
+    missionTransportMode === "third_party" ||
+    missionTransportMode === "personal_vehicle";
 
   useEffect(() => {
-    if (!vehicleId || !selectedMissionId) {
+    if (!selectedMissionId) {
+      setReadiness(null);
+      return;
+    }
+    // Non-company-vehicle missions have no reserved vehicle; the readiness
+    // engine skips vehicle gates for them, so we can fetch with an empty
+    // vehicleId.
+    if (!isNonCompanyMission && !vehicleId) {
       setReadiness(null);
       return;
     }
@@ -268,7 +285,7 @@ export function TripCheckoutForm({
     setReadinessLoading(true);
     const q = new URLSearchParams({
       org: organizationId,
-      vehicleId,
+      vehicleId: isNonCompanyMission ? "" : vehicleId,
       missionId: selectedMissionId,
       checkDate,
     });
@@ -286,7 +303,7 @@ export function TripCheckoutForm({
     return () => {
       cancelled = true;
     };
-  }, [vehicleId, selectedMissionId, organizationId, checkDate]);
+  }, [vehicleId, selectedMissionId, organizationId, checkDate, isNonCompanyMission]);
 
   function addStop(): void {
     setStops([...stops, { location: "", loadOut: "", loadIn: "", notes: "" }]);
@@ -377,9 +394,9 @@ export function TripCheckoutForm({
     const body: Record<string, unknown> = {
       organizationId,
       missionId: selectedMission.id,
-      vehicleId: selectedMission.assigned_vehicle_id,
+      vehicleId: isNonCompanyMission ? "" : selectedMission.assigned_vehicle_id,
       driverName: fd.get("driverName"),
-      odoStart: Number(fd.get("odoStart")),
+      odoStart: isNonCompanyMission ? null : Number(fd.get("odoStart")),
       departureLocation: fd.get("departureLocation"),
       destination: dest,
       missionType: mType,
@@ -691,7 +708,15 @@ export function TripCheckoutForm({
             )}
 
             <Input name="driverName" label="Driver name *" required placeholder="Your name" />
-            <Input name="odoStart" label="ODO reading (km) *" type="number" required placeholder="e.g. 271964" />
+            {isNonCompanyMission ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <span className="font-medium capitalize">{missionTransportMode.replace("_", " ")}</span> mission —
+                no company vehicle, so ODO and vehicle fields are skipped. The trip is lodged against a
+                sentinel {missionTransportMode.replace("_", " ")} record for HR/deployment tracking.
+              </div>
+            ) : (
+              <Input name="odoStart" label="ODO reading (km) *" type="number" required placeholder="e.g. 271964" />
+            )}
             <Select name="departureLocation" label="Departing from *" required>
               {sites.map((s) => (
                 <option key={s.code} value={s.code}>

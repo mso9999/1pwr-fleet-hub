@@ -176,33 +176,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     typeof body.routeChangeReason === "string" ? body.routeChangeReason.trim() : "";
   const rollout = isMultiStopRolloutEnabledServer();
 
-  // Scenario B (2026-07): public-transport missions have no company vehicle.
-  // We allow vehicle-less trip checkout when the linked mission is marked
-  // transport_mode = 'public_transport'. The trip still records the
-  // departure / return timestamps so HR's deployment detection has a
-  // clock; the DVC is skipped entirely.
-  let missionTransportMode: "company_vehicle" | "public_transport" = "company_vehicle";
+  // Non-company-vehicle transport modes (2026-07): public_transport,
+  // third_party, personal_vehicle. Each has a per-org sentinel vehicle so the
+  // trips table's NOT NULL vehicle_id / FK is satisfied while the trip is
+  // effectively vehicle-less. Downstream consumers (deployments.ts, UI)
+  // recognize the sentinel ids and treat the trip accordingly.
+  type NonCompanyMode = "public_transport" | "third_party" | "personal_vehicle";
+  let missionTransportMode: "company_vehicle" | NonCompanyMode = "company_vehicle";
   if (missionIdRaw) {
     const tmRow = db
       .prepare("SELECT transport_mode FROM missions WHERE id = ?")
       .get(missionIdRaw) as { transport_mode?: string | null } | undefined;
     const tm = String(tmRow?.transport_mode || "company_vehicle").toLowerCase();
-    missionTransportMode = tm === "public_transport" ? "public_transport" : "company_vehicle";
+    missionTransportMode =
+      tm === "public_transport" || tm === "third_party" || tm === "personal_vehicle"
+        ? (tm as NonCompanyMode)
+        : "company_vehicle";
   }
-  const isPublicTransportMission = missionTransportMode === "public_transport";
+  const isNonCompanyMission = missionTransportMode !== "company_vehicle";
 
-  // For public-transport missions, the trips table still requires a
-  // vehicle_id (NOT NULL with FK to vehicles). We use a per-org sentinel
-  // vehicle (id=`public_transport_<org>`, code='PUBLIC-TRANSPORT') seeded
-  // by migratePublicTransportSentinelVehicles. Downstream consumers
-  // (deployments.ts, UI) recognize the sentinel and treat the trip as
-  // vehicle-less.
+  const SENTINEL_CODES: Record<NonCompanyMode, string> = {
+    public_transport: "PUBLIC-TRANSPORT",
+    third_party: "THIRD-PARTY",
+    personal_vehicle: "PERSONAL-VEHICLE",
+  };
+  const SENTINEL_LABELS: Record<NonCompanyMode, string> = {
+    public_transport: "(public transport)",
+    third_party: "(third-party transport)",
+    personal_vehicle: "(personal vehicle)",
+  };
+
+  // For non-company-vehicle missions, the trips table still requires a
+  // vehicle_id (NOT NULL with FK to vehicles). Use a per-org sentinel vehicle
+  // seeded on demand. Downstream consumers recognize these sentinel ids.
   let effectiveVehicleId = rawVehicleId;
-  if (isPublicTransportMission && !hasVehicle) {
-    effectiveVehicleId = `public_transport_${organizationId}`;
-    // Ensure the sentinel exists for this org (defensive: the migration
-    // should have created it, but a brand-new org added after init would
-    // not have one yet).
+  if (isNonCompanyMission && !hasVehicle) {
+    const mode = missionTransportMode as NonCompanyMode;
+    effectiveVehicleId = `${mode}_${organizationId}`;
     const sentinelExists = db
       .prepare("SELECT 1 FROM vehicles WHERE id = ? LIMIT 1")
       .get(effectiveVehicleId);
@@ -212,18 +222,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           id, organization_id, code, make, model, license_plate, status,
           registration_disc_expiry_date, asset_class, is_synthetic,
           created_at, updated_at
-        ) VALUES (?, ?, 'PUBLIC-TRANSPORT', '(public transport)', '(public transport)', 'N/A',
+        ) VALUES (?, ?, ?, ?, ?, 'N/A',
                   'operational', NULL, 'synthetic', 1,
                   datetime('now'), datetime('now'))
-      `).run(effectiveVehicleId, organizationId);
+      `).run(
+        effectiveVehicleId,
+        organizationId,
+        SENTINEL_CODES[mode],
+        SENTINEL_LABELS[mode],
+        SENTINEL_LABELS[mode]
+      );
     }
   }
 
-  if (!hasVehicle && !isPublicTransportMission) {
+  if (!hasVehicle && !isNonCompanyMission) {
     return NextResponse.json(
       {
         error:
-          "Trip checkout requires a vehicle and an approved mission. Plan the mission, get management approval, have fleet reserve a vehicle, then check out here.",
+          "Trip checkout requires a vehicle and an approved mission. Plan the mission, get management approval, have fleet reserve a vehicle, then check out here — or switch the mission's transport mode to public / third-party / personal vehicle (management approval required).",
       },
       { status: 400 }
     );

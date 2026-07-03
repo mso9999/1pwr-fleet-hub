@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -160,13 +162,15 @@ const EQUIP_KEYS = [
   "equip_tool_inverter",
 ];
 
-export default function VehicleChecksPage() {
+export function VehicleChecksPageContent() {
   const { organizationId } = useAuth();
   const { active, trackId, stepIndex } = useTutorial();
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo") || "";
 
   useEffect(() => {
     if (!active || trackId !== "driverCheck") return;
@@ -190,6 +194,13 @@ export default function VehicleChecksPage() {
 
   return (
     <div className="space-y-6">
+      {returnTo && (
+        <div className="text-sm">
+          <Link href={returnTo} className="text-blue-600 hover:underline">
+            ← Back to {returnTo}
+          </Link>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-zinc-500">
@@ -237,6 +248,14 @@ export default function VehicleChecksPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function VehicleChecksPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div className="text-zinc-500 text-center py-12">Loading…</div>}>
+      <VehicleChecksPageContent />
+    </Suspense>
   );
 }
 

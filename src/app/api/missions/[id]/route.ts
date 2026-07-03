@@ -20,6 +20,8 @@ const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string
   ["return_date", "returnDate"],
   ["destination", "destination"],
   ["departure_location", "departureLocation"],
+  ["assets_being_moved", "assetsBeingMoved"],
+  ["linked_manifest_ids", "linkedManifestIds"],
   ["mission_profile", "missionProfile"],
   ["trip_shape", "tripShape"],
   ["required_vehicle_class", "requiredVehicleClass"],
@@ -398,6 +400,8 @@ export async function PATCH(
     title: "title",
     destination: "destination",
     departureLocation: "departure_location",
+    assetsBeingMoved: "assets_being_moved",
+    linkedManifestIds: "linked_manifest_ids",
     departureDate: "departure_date",
     returnDate: "return_date",
     missionType: "mission_type",
@@ -420,6 +424,12 @@ export async function PATCH(
       if (js === "missionProfile") {
         v = String(v).toLowerCase() === "field" ? "field" : "local";
       }
+      if (js === "assetsBeingMoved") {
+        v = v ? 1 : 0;
+      }
+      if (js === "linkedManifestIds") {
+        v = JSON.stringify(Array.isArray(v) ? v.filter((s: unknown): s is string => typeof s === "string") : []);
+      }
       if (js === "tripShape") {
         if (!rollout) continue;
         v = normalizeTripShape(v);
@@ -430,10 +440,14 @@ export async function PATCH(
       }
       if (js === "transportMode") {
         const raw = String(v ?? "company_vehicle").toLowerCase();
-        v = raw === "public_transport" ? "public_transport" : "company_vehicle";
-        // If switching to public_transport, clear required_vehicle_class.
+        const next: string =
+          raw === "public_transport" || raw === "third_party" || raw === "personal_vehicle"
+            ? raw
+            : "company_vehicle";
+        v = next;
+        // If switching to a non-company mode, clear required_vehicle_class.
         // Justification must be present (validated below).
-        if (v === "public_transport") {
+        if (next !== "company_vehicle") {
           const existingJust = String(
             (row as Record<string, unknown>)?.public_transport_justification ?? "",
           ).trim();
@@ -442,7 +456,7 @@ export async function PATCH(
             return NextResponse.json(
               {
                 error:
-                  "Public-transport missions require a justification of at least 20 characters.",
+                  "Non-company-vehicle missions (public transport, third-party, personal vehicle) require a justification of at least 20 characters.",
                 field: "publicTransportJustification",
               },
               { status: 400 },

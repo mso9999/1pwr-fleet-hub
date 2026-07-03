@@ -51,6 +51,116 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "repairs-pipeline-and-pr-status",
+    title: "Repairs pipeline board, live PR status, and parts you can actually edit",
+    summary:
+      "Work orders get a kanban Board view, PR/PO links show the live PR approval status with an Open-in-PR link, parts can be added/removed inline, and closing a work order now prompts for its closing inspection.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "What changed on the repairs side",
+        bodyMd:
+          "- **Board view** on the Work orders page — toggle List / Board to see repairs grouped by status (submitted → queued → in-progress → needs-parts → pr-submitted → awaiting-parts → completed → closed). Click any card to open the detail.\n- **Live PR status** on each PR/PO link — the Firestore-synced approval status and approved amount from the PR system now show next to each link, with an **Open in PR →** deep link.\n- **Parts add/remove** — a **+ Add part** form on the work order detail lets fleet add part lines (description, qty, unit cost, supplier, PR status, ETA) and remove them; `parts_cost` and `total_cost` recalculate automatically.\n- **Closing inspection** — transitioning a work order to **Closed** now prompts you to pick a recent inspection for the vehicle (the API already required it; the UI didn't)."
+      },
+      {
+        title: "Where it shows up elsewhere",
+        bodyMd:
+          "- The **Dashboard** Open Work Orders card now includes a *Pipeline by status* row of clickable pills that filter the work orders page.\n- The **Triage** table now has a **Status** column so you can see where each open repair sits in the pipeline without opening it."
+      }
+    ]
+  },
+  {
+    slug: "alternate-transport-trips",
+    title: "Trips can now be lodged for public, third-party, and personal transport",
+    summary:
+      "Missions pick one of four transport modes. Non-company modes lodge a trip against a sentinel vehicle (no reserved vehicle needed) so HR/deployment tracking still works. Day-of mode switches need management approval.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "Before, a mission was either *company vehicle* or *public transport* (a checkbox), and the trip checkout UI still required a reserved vehicle — so public-transport missions couldn't actually be checked out through the normal flow. Now there are **four explicit transport modes**:\n\n- **Company vehicle** (default)\n- **Public transport** (taxi / bus)\n- **Third-party / hired transport**\n- **Personal vehicle** (reimbursement is separate)\n\nNon-company missions lodge a trip against a per-org **sentinel vehicle** (`PUBLIC-TRANSPORT` / `THIRD-PARTY` / `PERSONAL-VEHICLE`) so the trip record exists for HR/deployment tracking, with no reserved vehicle required."
+      },
+      {
+        title: "Day-of mode switch",
+        bodyMd:
+          "When an approved mission reaches departure day with no vehicle available (or the reserved vehicle is in repairs), the mission's expanded card has an **Alternate transport** panel:\n\n1. Pick a mode (public / third-party / personal) and write a reason (≥20 chars).\n2. Submit the request — it's recorded as `pending`.\n3. A management approver reviews it on the same panel and **Approve** or **Reject**.\n4. On approval, the mission's transport mode updates and the trip can be lodged.\n\nAt checkout, non-company missions skip ODO and vehicle fields and show a banner explaining the sentinel vehicle."
+      }
+    ]
+  },
+  {
+    slug: "loadout-manifest-gate",
+    title: "Missions moving assets now require an AM loadout manifest before checkout",
+    summary:
+      "Missions have a new 'Assets / equipment being moved' flag. When checked, trip checkout is blocked until at least one AM loadout manifest is linked to the mission.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "Asset movement used to be inferred from free-text *Loadout / equipment* notes — nothing enforced that a packing list actually existed in Asset Management before the vehicle left. Now it's explicit:\n\n- The mission create form has an **Assets / equipment being moved** checkbox.\n- When checked, the mission's expanded card shows an **AM loadout manifest** linker — paste the manifest document id from [AM](https://am.1pwrafrica.com/loadout) to attach it.\n- Trip checkout's readiness panel adds a **Loadout manifest (assets moved)** gate that blocks until at least one manifest is linked."
+      },
+      {
+        title: "How to use it",
+        bodyMd:
+          "1. When creating a mission that carries cargo/equipment, tick **Assets / equipment being moved**.\n2. Create the packing list in AM (`am.1pwrafrica.com/loadout`).\n3. Open the mission on the approval view and paste the manifest document id into the **AM loadout manifest** box → **Link**.\n4. Once linked, the checkout gate turns green and the trip can be checked out.\n\nMultiple manifests can be linked to one mission. The manifest content stays in AM; Fleet Hub only enforces the link exists."
+      }
+    ]
+  },
+  {
+    slug: "mechanical-checklist-50km-gate",
+    title: "Vehicles headed >50km now need a fleet mechanical checklist before allocation",
+    summary:
+      "When fleet allocates a vehicle to a destination beyond 50km from the vehicle's current location, a passing detailed mechanical inspection (≤14 days) is required — or a fleet-lead override with a written reason.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "Why this changed",
+        bodyMd:
+          "Local trips (in and around HQ) don't need the same mechanical scrutiny as a field deployment to a distant site. Before, the mechanical-inspection gate was either always skipped or tied to a manual *Field* dropdown the requester chose themselves — neither reflected where the vehicle was actually driving.\n\nNow the gate is **distance-aware**: it triggers when the destination is more than **50 km** from the vehicle's *current location* (great-circle distance, with an HQ fallback when the vehicle's location GPS isn't set)."
+      },
+      {
+        title: "What fleet leads see",
+        bodyMd:
+          "- On the **Fleet: reserve vehicles** card, each candidate shows **`mechanical inspection required`** or **`inspection on file`** in the dropdown when the destination is >50km away.\n- Selecting a vehicle that needs an inspection shows the distance and the requirement inline.\n- To reserve without an inspection, the fleet lead enters an **override reason (8+ chars)** — the same field already used for overlap / registration-disc overrides.\n- The gate also re-runs at trip checkout (so an inspection that aged out between reservation and checkout is caught), and a recent fleet-lead override carries forward so you don't have to override twice."
+      }
+    ]
+  },
+  {
+    slug: "mission-pipeline-view",
+    title: "See exactly where a mission is in its lifecycle",
+    summary:
+      "Every mission now shows a stepper (Draft → Submitted → Approved → Vehicle reserved → Checked out → Departed → Checked in) so you always know what's next and who acted.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "The mission → trip flow used to be scattered across **Missions**, **Trips**, and **Vehicle checks** with no single view of where a mission stood. Now each mission card shows a **pipeline stepper** with all seven lifecycle stages, and the expanded detail includes a full **Lifecycle timeline** (created, approved, vehicle reserved, checked out, departed, checked in) with timestamps and actors.\n\nEach reached step is a deep link — click **Vehicle reserved** to jump to the trip checkout for that mission, **Departed** to open the active trip."
+      },
+      {
+        title: "Better cross-page navigation",
+        bodyMd:
+          "When you follow a deep link from one workflow into another (e.g. *Create mission now* from the Trips page, or *Complete driver checklist* from the readiness panel), the destination now shows a **← Back to** link so you can return to where you came from instead of getting lost in the sidebar."
+      }
+    ]
+  },
+  {
     slug: "mission-route-origin",
     title: "Missions now capture where the trip starts, not just where it's going",
     summary:

@@ -25,6 +25,15 @@ export function GET(request: NextRequest): NextResponse {
     "SELECT COUNT(*) as count FROM work_orders WHERE organization_id = ? AND status NOT IN ('completed', 'validated', 'closed', 'cancelled')"
   ).get(org) as { count: number };
 
+  // Per-status work order breakdown (open statuses only) for the dashboard
+  // pipeline view. Excludes terminal statuses so the counts reflect the
+  // active repair pipeline.
+  const workOrderStatusCounts = db.prepare(
+    `SELECT status, COUNT(*) as count FROM work_orders
+     WHERE organization_id = ? AND status NOT IN ('completed', 'validated', 'closed', 'cancelled')
+     GROUP BY status ORDER BY count DESC`
+  ).all(org) as { status: string; count: number }[];
+
   const avgRepair = db.prepare(
     "SELECT AVG(julianday(downtime_end) - julianday(downtime_start)) as avg_days FROM work_orders WHERE organization_id = ? AND downtime_end IS NOT NULL"
   ).get(org) as { avg_days: number | null };
@@ -202,6 +211,7 @@ export function GET(request: NextRequest): NextResponse {
     grounded: stats["grounded"] || 0,
     writtenOff: stats["written-off"] || 0,
     openWorkOrders: openWorkOrders.count,
+    workOrderStatusCounts,
     avgRepairDays: avgRepair.avg_days ? Math.round(avgRepair.avg_days * 10) / 10 : 0,
     fleetUptimePct,
     mtbfDays: mtbf.avg_days ? Math.round(mtbf.avg_days * 10) / 10 : 0,
