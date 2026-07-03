@@ -159,12 +159,19 @@ function tripShapeLabel(s: string | undefined): string {
   return "One-way";
 }
 
+function missionOriginLabel(m: PlannedMissionRow): string {
+  const origin = String(m.departure_location || "").trim();
+  return origin || "HQ";
+}
+
 function missionRouteSummary(m: PlannedMissionRow): string {
   const stops = Array.isArray(m.stops) ? m.stops : [];
   const ordered = [...stops].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
   const points = ordered.map((s) => String(s.location || "").trim()).filter(Boolean);
-  if (points.length > 0) return points.join(" -> ");
-  return String(m.destination || "").trim() || "—";
+  const origin = missionOriginLabel(m);
+  const dest = String(m.destination || "").trim();
+  if (points.length > 0) return [origin, ...points].join(" -> ");
+  return dest ? `${origin} -> ${dest}` : origin;
 }
 
 interface RefRow {
@@ -176,6 +183,7 @@ interface RefRow {
 interface PlannedMissionRow {
   id: string;
   destination: string;
+  departure_location?: string;
   departure_date: string;
   return_date: string;
   passengers: string;
@@ -921,7 +929,7 @@ export default function VehicleRequestsPage() {
                         </span>
                       </div>
                       <div className="text-zinc-500 mt-0.5">
-                        {m.destination} · {m.departure_date}
+                        From <span className="font-medium text-zinc-700">{missionOriginLabel(m)}</span> · To <span className="font-medium text-zinc-700">{m.destination}</span> · {m.departure_date}
                         {m.return_date ? ` → ${m.return_date}` : ""}
                       </div>
                       <div className="text-xs text-zinc-600 mt-1">
@@ -983,6 +991,14 @@ export default function VehicleRequestsPage() {
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">Trip shape</dt>
                         <dd className="text-zinc-900 mt-0.5">{tripShapeLabel(m.trip_shape)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Origin</dt>
+                        <dd className="text-zinc-900 mt-0.5">{missionOriginLabel(m)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-zinc-500 uppercase tracking-wide">Destination</dt>
+                        <dd className="text-zinc-900 mt-0.5">{m.destination || "—"}</dd>
                       </div>
                       <div className="sm:col-span-2">
                         <dt className="text-zinc-500 uppercase tracking-wide">Planned route</dt>
@@ -1943,7 +1959,8 @@ function RequestForm({
     const orderedStops = [...(m.stops || [])].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
     if (shape === "round_trip" && orderedStops.length > 0) {
       const returnLeg = orderedStops[orderedStops.length - 1];
-      setRouteOrigin(String(returnLeg.location || "HQ"));
+      // Prefer the stored departure_location; fall back to the synthesized return leg.
+      setRouteOrigin(String(m.departure_location || returnLeg.location || "HQ"));
       const interior = orderedStops.slice(0, -1).map((s) => ({
         location: String(s.location || ""),
         loadOut: String(s.load_out || ""),
@@ -1952,7 +1969,7 @@ function RequestForm({
       }));
       setRouteStops(interior.length > 0 ? interior : [{ location: "", loadOut: "", loadIn: "", notes: "" }]);
     } else {
-      setRouteOrigin("HQ");
+      setRouteOrigin(String(m.departure_location || "HQ"));
       const nextStops = orderedStops.map((s) => ({
         location: String(s.location || ""),
         loadOut: String(s.load_out || ""),
@@ -2101,6 +2118,7 @@ function RequestForm({
       organizationId,
       title: String(fd.get("cmTitle") || "").slice(0, 240),
       destination,
+      departureLocation: routeOrigin.trim() || "HQ",
       departureDate,
       returnDate: String(fd.get("cmReturnDate") || ""),
       passengers: String(fd.get("cmPassengers") || ""),
@@ -2324,16 +2342,29 @@ function RequestForm({
                     <option value="multi_stop">Multi-stop</option>
                   </select>
                 </div>
-                {tripShape !== "one_way" && (
-                  <Input
-                    label="Route origin (for return leg)"
-                    value={routeOrigin}
-                    onChange={(e) => setRouteOrigin(e.target.value)}
-                    placeholder="HQ"
-                  />
-                )}
               </div>
             )}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">Route origin / departure point *</label>
+                <select
+                  value={routeOrigin}
+                  onChange={(e) => setRouteOrigin(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="HQ">HQ — Head office</option>
+                  {siteRows.filter((s) => s.code !== "HQ").map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.code} — {s.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-zinc-500">
+                  Where the vehicle departs from. Defaults to HQ. Shown on the mission approval
+                  view so reviewers can see the full route, not just the destination.
+                </p>
+              </div>
+            </div>
             {multiStopEnabled && tripShape !== "one_way" && (
               <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/20 p-4">
                 <p className="text-xs font-medium text-zinc-500 uppercase">Planned stops</p>

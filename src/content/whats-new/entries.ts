@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-route-origin",
+    title: "Missions now capture where the trip starts, not just where it's going",
+    summary:
+      "Every mission now records a route origin (departure point) so reviewers see the full From → To route on the approval view, not just the destination.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-07-03",
+    appVersion: "0.4.8",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "Before, a mission profile only stored the **destination** — so on the *Missions pending management approval* view, a one-way field deployment to SEH showed `To SEH` with no indication of where the vehicle was actually departing from. That made route planning, fuel estimation, and driver assignment ambiguous for reviewers.\n\nNow every mission captures a **Route origin / departure point** (defaults to `HQ`), stored on the mission itself.",
+      },
+      {
+        title: "What you'll see",
+        bodyMd:
+          "- **Mission creation form** has a new *Route origin / departure point* dropdown (defaults to HQ) shown for every trip shape.\n- **Mission approval view** header now reads `From HQ · To SEH · <date>`, and the detail panel has a dedicated **Origin** field plus a **Planned route** line that shows the full `HQ -> SEH` (or `HQ -> stop1 -> stop2` for multi-stop).\n- Existing missions created before this change default their origin to `HQ` so nothing breaks.\n- The origin carries through to trip checkout and the HR deployments API as the canonical departure point.",
+      },
+    ],
+  },
+  {
     slug: "trip-departure-tracker-crosscheck",
     title: "Start trip records the real departure time",
     summary:

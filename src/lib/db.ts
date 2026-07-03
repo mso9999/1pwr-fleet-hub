@@ -298,6 +298,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
       organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
       title TEXT NOT NULL DEFAULT '',
       destination TEXT NOT NULL DEFAULT '',
+      departure_location TEXT NOT NULL DEFAULT '',
       departure_date TEXT NOT NULL DEFAULT '',
       return_date TEXT NOT NULL DEFAULT '',
       mission_type TEXT NOT NULL DEFAULT 'other',
@@ -437,6 +438,7 @@ function migrateMissionsCentricAndReservations(db: Database.Database): void {
     ["assigned_by_id", "TEXT NOT NULL DEFAULT ''"],
     ["assigned_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"],
+    ["departure_location", "TEXT NOT NULL DEFAULT ''"],
     /** Scenario B (2026-07): public-transport missions skip vehicle gates.
      *  `transport_mode` defaults to 'company_vehicle' so all pre-existing
      *  rows behave exactly as before. */

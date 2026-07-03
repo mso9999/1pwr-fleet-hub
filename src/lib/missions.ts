@@ -12,6 +12,7 @@ export function insertPlannedMission(
     organizationId: string;
     title: string;
     destination: string;
+    departureLocation?: string;
     departureDate: string;
     returnDate: string;
     missionType: string;
@@ -105,18 +106,19 @@ export function insertPlannedMission(
   const tx = db.transaction((routeStops: RouteStopNormalized[]) => {
     db.prepare(`
       INSERT INTO missions (
-        id, organization_id, title, destination, departure_date, return_date,
+        id, organization_id, title, destination, departure_location, departure_date, return_date,
         mission_type, passengers, crew_size, personnel_manifest, loadout_summary, notes, status, approval_status,
         mission_profile, trip_shape, required_vehicle_class, rr_status,
         hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
         transport_mode, public_transport_justification,
         created_by_id, created_by_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.organizationId,
       input.title,
       input.destination,
+      String(input.departureLocation || "HQ").trim() || "HQ",
       input.departureDate,
       input.returnDate,
       input.missionType || "other",

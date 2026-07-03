@@ -81,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const tripCheckoutEligible = request.nextUrl.searchParams.get("tripCheckoutEligible") === "true";
 
   let sql = `
-    SELECT m.id, m.organization_id, m.title, m.destination, m.departure_date, m.return_date, m.mission_type,
+    SELECT m.id, m.organization_id, m.title, m.destination, m.departure_location, m.departure_date, m.return_date, m.mission_type,
            m.passengers, m.crew_size, m.personnel_manifest, m.loadout_summary, m.notes, m.status, m.trip_id,
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
            m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
@@ -245,6 +245,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     organizationId,
     title: String(body.title || ""),
     destination,
+    departureLocation: String(body.departureLocation || body.departure_location || "HQ"),
     departureDate: String(body.departureDate || ""),
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "other"),

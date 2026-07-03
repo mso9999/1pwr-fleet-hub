@@ -19,6 +19,7 @@ const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string
   ["departure_date", "departureDate"],
   ["return_date", "returnDate"],
   ["destination", "destination"],
+  ["departure_location", "departureLocation"],
   ["mission_profile", "missionProfile"],
   ["trip_shape", "tripShape"],
   ["required_vehicle_class", "requiredVehicleClass"],
@@ -32,6 +33,7 @@ function missionAuditSubset(r: Record<string, unknown>): Record<string, unknown>
   return {
     title: r.title,
     destination: r.destination,
+    departure_location: r.departure_location,
     departure_date: r.departure_date,
     return_date: r.return_date,
     approval_status: r.approval_status,
@@ -395,6 +397,7 @@ export async function PATCH(
   const map: Record<string, string> = {
     title: "title",
     destination: "destination",
+    departureLocation: "departure_location",
     departureDate: "departure_date",
     returnDate: "return_date",
     missionType: "mission_type",
