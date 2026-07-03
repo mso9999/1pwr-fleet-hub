@@ -624,6 +624,43 @@ function ensureWhatsNewSeenTable(db: Database.Database): void {
   `);
 }
 
+/**
+ * One-time, idempotent backfill of missions.departure_location from the linked
+ * trip's departure_location. Only touches missions whose origin is still the
+ * empty default AND that have a linked trip with a non-empty departure point.
+ * Safe to run on every boot — once a mission has an origin it won't be touched
+ * again. Missions without a linked trip keep the HQ default (rendered by the
+ * UI's missionOriginLabel helper).
+ */
+function backfillMissionDepartureLocation(db: Database.Database): void {
+  const tripsExists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trips' LIMIT 1")
+    .get();
+  if (!tripsExists) return;
+  const missionsCols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  if (!missionsCols.some((c) => c.name === "departure_location")) return;
+  const result = db
+    .prepare(
+      `UPDATE missions
+       SET departure_location = (
+         SELECT t.departure_location
+         FROM trips t
+         WHERE t.id = missions.trip_id
+       ), updated_at = datetime('now')
+       WHERE missions.departure_location = ''
+         AND missions.trip_id IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM trips t
+           WHERE t.id = missions.trip_id
+             AND COALESCE(t.departure_location, '') != ''
+         )`
+    )
+    .run();
+  if (result.changes > 0) {
+    console.log(`[db] backfilled departure_location on ${result.changes} mission(s) from linked trips`);
+  }
+}
+
 function ensurePhase1Schema(db: Database.Database): void {
   ensureVehicleRequestsTable(db);
   migrateVehicleRequestsSchema(db);
@@ -640,6 +677,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateEhsApprovedDrivers(db);
   migrateEhsOperatorRegister(db);
   ensureWhatsNewSeenTable(db);
+  backfillMissionDepartureLocation(db);
   migrateFleetMechanics(db);
   migrateRecordMutationLog(db);
   migrateOrganizationsRouteOrigin(db);
