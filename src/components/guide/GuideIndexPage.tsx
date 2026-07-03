@@ -64,6 +64,21 @@ export function GuideIndexPageClient(): React.ReactElement {
           ))}
         </CardContent>
       </Card>
+
+      <Card className="border-zinc-200">
+        <CardHeader>
+          <CardTitle className="text-base">What&apos;s new</CardTitle>
+          <CardDescription className="text-zinc-600">
+            A historical archive of every feature update and reconfiguration shipped to Fleet Hub.
+            New entries pop up at login the first time you see them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link href="/whats-new" className="text-sm font-medium text-blue-700 hover:underline">
+            Browse the What&apos;s new archive →
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   );
 }

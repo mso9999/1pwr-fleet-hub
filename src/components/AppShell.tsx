@@ -10,6 +10,7 @@ import { navDataTutorialHref } from "@/lib/tutorial-steps";
 import { TutorialLaunchButton } from "@/components/tutorial/TutorialLaunchButton";
 import { useLocaleContext } from "@/i18n/locale-context";
 import { LanguageToggle } from "@/components/LanguageToggle";
+import { WhatsNewDialog } from "@/components/WhatsNewDialog";
 
 const NAV_ITEMS = [
   { href: "/", labelKey: "nav.dashboard", icon: "grid" },
@@ -330,6 +331,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
           {children}
         </main>
       </div>
+      <WhatsNewDialog />
     </div>
   );
 }

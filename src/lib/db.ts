@@ -610,6 +610,18 @@ function migrateMissionsApprovalColumns(db: Database.Database): void {
   ).run();
 }
 
+function ensureWhatsNewSeenTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS whats_new_seen (
+      user_id TEXT NOT NULL,
+      entry_slug TEXT NOT NULL,
+      seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, entry_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_whats_new_seen_user ON whats_new_seen(user_id);
+  `);
+}
+
 function ensurePhase1Schema(db: Database.Database): void {
   ensureVehicleRequestsTable(db);
   migrateVehicleRequestsSchema(db);
@@ -625,6 +637,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   migrateDriverVehicleChecksSchema(db);
   migrateEhsApprovedDrivers(db);
   migrateEhsOperatorRegister(db);
+  ensureWhatsNewSeenTable(db);
   migrateFleetMechanics(db);
   migrateRecordMutationLog(db);
   migrateOrganizationsRouteOrigin(db);
