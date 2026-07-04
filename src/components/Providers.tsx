@@ -25,7 +25,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || pathname === "/sso") {
     return <>{children}</>;
   }
 
@@ -35,7 +35,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     if (typeof window !== "undefined") {
-      window.location.href = "/login";
+      // Emergency fallback (?fallback=1) keeps the local login form reachable
+      // (e.g. Nexus outage). Normal path is centralized auth at Nexus, which
+      // SSOs back to /sso (signInWithCustomToken receiver).
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("fallback") === "1") {
+        window.location.href = "/login?fallback=1";
+      } else {
+        window.location.replace(
+          "https://nexus.1pwrafrica.com/sso/authorize?tool=fm&redirect_uri=" +
+            encodeURIComponent("https://fm.1pwrafrica.com/sso")
+        );
+      }
     }
     return null;
   }
