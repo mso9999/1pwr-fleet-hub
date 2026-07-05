@@ -37,3 +37,13 @@ Vehicle item shape: `fmVehicleId, organizationId, fleetCode, make, model, year, 
 - Additive field changes only; AM caches vehicle fields.
 - FM pushes a vehicle mirror to PR's `referenceData_vehicles` (FM is the author).
 - New integration endpoints: register here + in the master ownership map.
+
+## Nexus SSO (centralized auth)
+
+Nexus (`nexus.1pwrafrica.com`) is the IdP. `AuthGate` (`Providers.tsx`)
+redirects unauthenticated users to
+`/sso/authorize?tool=fm&redirect_uri=https://fm.1pwrafrica.com/sso`;
+`src/app/sso/page.tsx` consumes `?sso_token=` via `signInWithCustomToken`
+(same `pr-system-4ea55` project). **Emergency fallback:**
+`/login?fallback=1` (Firebase email/password). Full flow + outage procedure:
+`nexus-portal/docs/NEXUS_AUTH_RUNBOOK.md`.

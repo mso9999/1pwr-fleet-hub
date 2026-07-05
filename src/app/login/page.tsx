@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
@@ -16,6 +16,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [destination, setDestination] = useState<"fleet" | "pr">("fleet");
+  // Centralized auth: the local form is an emergency fallback only
+  // (?fallback=1, e.g. Nexus outage). Normal sign-in happens at Nexus,
+  // which SSOs back via /sso.
+  const [showFallbackForm, setShowFallbackForm] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("fallback") === "1") {
+      setShowFallbackForm(true);
+    } else {
+      window.location.replace(
+        "https://nexus.1pwrafrica.com/sso/authorize?tool=fm&redirect_uri=" +
+          encodeURIComponent("https://fm.1pwrafrica.com/sso")
+      );
+    }
+  }, []);
+
+  if (!showFallbackForm) {
+    return null;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
