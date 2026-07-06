@@ -11,6 +11,33 @@ if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
 
+// Guard against the silent-empty-DB failure mode that caused the 2026-07
+// vehicles outage: if DB_PATH is unset, the app resolves to cwd/fleet-hub.db,
+// and a misconfigured deploy (pm2 --update-env with no DB_PATH in the shell)
+// would create a fresh 0-byte file there and serve "no such table" on every
+// query. Instead of silently using an empty/wrong DB, fail loudly so the
+// health check and logs surface the misconfiguration.
+//
+// Empty file that WE just created (this boot, no schema yet) is fine on the
+// very first run of a genuinely new deployment; what we refuse is opening an
+// already-existing 0-byte file as if it were a real database.
+if (fs.existsSync(DB_PATH) && fs.statSync(DB_PATH).size === 0) {
+  const msg =
+    `[db] REFUSING to open ${DB_PATH}: it exists but is 0 bytes. ` +
+    `This is the empty-shadow-DB failure mode (DB_PATH=${process.env.DB_PATH || "<unset>"}). ` +
+    `Set DB_PATH to the real database (e.g. /var/www/fleet-hub/data/fleet-hub.db) ` +
+    `and remove the empty file before restarting.`;
+  console.error(msg);
+  throw new Error(msg);
+}
+if (!process.env.DB_PATH) {
+  console.warn(
+    `[db] DB_PATH is unset — resolving to ${DB_PATH}. ` +
+    `Production should set DB_PATH in .env (see deploy.yml); an unset value risks ` +
+    `opening a stray cwd database after a misconfigured pm2 --update-env restart.`
+  );
+}
+
 let db: Database.Database | null = null;
 let schemaReady = false;
 
@@ -369,7 +396,11 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
     CREATE INDEX IF NOT EXISTS idx_missions_org ON missions(organization_id);
     CREATE INDEX IF NOT EXISTS idx_missions_org_status ON missions(organization_id, status);
     CREATE INDEX IF NOT EXISTS idx_missions_approval ON missions(organization_id, approval_status);
-    CREATE INDEX IF NOT EXISTS idx_missions_transport_mode ON missions(transport_mode);
+    -- NOTE: idx_missions_transport_mode is created AFTER migrateMissionsCentricAndReservations
+    -- adds the transport_mode column, not here. Creating it in this block (which runs before
+    -- the column-adding ALTER) throws "no such column: transport_mode" on legacy DBs and aborts
+    -- the whole ensureMissionsTableAndVehicleRequestMissionId function — which then never reaches
+    -- the ALTER that would have added the column. Self-perpetuating.
   `);
 
   safeMigrate(db, "ensureMissionsRowShape", ensureMissionsRowShape);
@@ -391,6 +422,15 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
 
   safeMigrate(db, "migrateMissionsApprovalColumns", migrateMissionsApprovalColumns);
   safeMigrate(db, "migrateMissionsCentricAndReservations", migrateMissionsCentricAndReservations);
+  // Now that migrateMissionsCentricAndReservations has added the transport_mode column
+  // (via guarded ALTER), create its index. Doing this earlier (in the CREATE TABLE block
+  // above) throws on legacy DBs that pre-date the column — see the NOTE up there.
+  safeMigrate(db, "idx_missions_transport_mode", (d) => {
+    const mCols = d.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+    if (mCols.some((c) => c.name === "transport_mode")) {
+      d.exec(`CREATE INDEX IF NOT EXISTS idx_missions_transport_mode ON missions(transport_mode)`);
+    }
+  });
   safeMigrate(db, "migratePublicTransportSentinelVehicles", migratePublicTransportSentinelVehicles);
 }
 

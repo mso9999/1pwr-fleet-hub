@@ -97,6 +97,26 @@ jobs:
               echo "NOTE: FLEET_PUBLIC_BASE_URL not set — inspection_url falls back to https://fm.1pwrafrica.com"
             fi
 
+            # Pin DB_PATH in .env so the app always opens the real database
+            # (data/fleet-hub.db), not a fresh empty cwd/fleet-hub.db. This is
+            # the durable home for the value: `pm2 restart --update-env` below
+            # re-reads env from the shell, which has no DB_PATH, so without
+            # this line the app would silently fall back to path.join(cwd,
+            # 'fleet-hub.db') on every deploy — the 2026-07 vehicles outage was
+            # exactly that (a 0-byte cwd DB shadowing the real one).
+            sed -i.bak '/^DB_PATH=/d' /var/www/fleet-hub/.env
+            printf 'DB_PATH=/var/www/fleet-hub/data/fleet-hub.db\n' >> /var/www/fleet-hub/.env
+            echo "DB_PATH written to .env"
+
+            # Remove a stale empty cwd/fleet-hub.db if one was left behind by a
+            # prior misconfigured boot. The app reads data/fleet-hub.db (per
+            # DB_PATH above); a stray empty file here only risks shadowing it
+            # again if DB_PATH is ever dropped. Never deletes a non-empty DB.
+            if [ -f /var/www/fleet-hub/fleet-hub.db ] && [ ! -s /var/www/fleet-hub/fleet-hub.db ]; then
+              rm -f /var/www/fleet-hub/fleet-hub.db
+              echo "Removed stale empty cwd fleet-hub.db"
+            fi
+
             # --update-env re-reads process env; Next.js itself also picks
             # up .env at boot because cwd is /var/www/fleet-hub.
             pm2 restart fleet-hub --update-env
