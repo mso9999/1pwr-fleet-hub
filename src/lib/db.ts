@@ -760,6 +760,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   safeMigrate(db, "migrateVehicleGpsSnapshots", migrateVehicleGpsSnapshots);
   safeMigrate(db, "migrateTripsPhase1", migrateTripsPhase1);
   safeMigrate(db, "migrateDriverVehicleChecksSchema", migrateDriverVehicleChecksSchema);
+  safeMigrate(db, "migratePostDeploymentChecksSchema", migratePostDeploymentChecksSchema);
   safeMigrate(db, "migrateEhsApprovedDrivers", migrateEhsApprovedDrivers);
   safeMigrate(db, "migrateEhsOperatorRegister", migrateEhsOperatorRegister);
   safeMigrate(db, "ensureWhatsNewSeenTable", ensureWhatsNewSeenTable);
@@ -1628,6 +1629,47 @@ function migrateDriverVehicleChecksSchema(db: Database.Database): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date)");
 }
 
+/**
+ * Legacy post_deployment_checks tables pre-date several columns (trip_id,
+ * mechanic_*, check_items, findings, work_order_ids, overall_status). CREATE
+ * TABLE IF NOT EXISTS in createPhase1Tables is a no-op on existing tables, so
+ * those columns must be added here via guarded ALTER — otherwise the index on
+ * trip_id (and any SELECT referencing these columns) throws "no such column"
+ * and aborts the rest of the schema init. Mirrors migrateDriverVehicleChecksSchema.
+ */
+function migratePostDeploymentChecksSchema(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='post_deployment_checks' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const colNames = new Set(
+    (db.prepare("PRAGMA table_info(post_deployment_checks)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  const has = (col: string) => colNames.has(col);
+
+  const additions: Array<[string, string]> = [
+    ["trip_id", "TEXT DEFAULT NULL"],
+    ["mechanic_id", "TEXT NOT NULL DEFAULT ''"],
+    ["mechanic_name", "TEXT NOT NULL DEFAULT ''"],
+    ["check_items", "TEXT NOT NULL DEFAULT '[]'"],
+    ["findings", "TEXT NOT NULL DEFAULT '[]'"],
+    ["work_order_ids", "TEXT NOT NULL DEFAULT '[]'"],
+    ["overall_status", "TEXT NOT NULL DEFAULT 'pass'"],
+  ];
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE post_deployment_checks ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  // Index on trip_id only once the column is confirmed present.
+  if (has("trip_id") || additions.some(([c]) => c === "trip_id")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_pdc_trip ON post_deployment_checks(trip_id)");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_pdc_vehicle ON post_deployment_checks(vehicle_id)");
+}
+
 function migrateVehicleCountryChangeWorkflow(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS vehicle_country_change_requests (
@@ -1870,7 +1912,11 @@ function createPhase1Tables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_pdc_vehicle ON post_deployment_checks(vehicle_id);
-    CREATE INDEX IF NOT EXISTS idx_pdc_trip ON post_deployment_checks(trip_id);
+    -- idx_pdc_trip is created by migratePostDeploymentChecksSchema, which runs after
+    -- this block and only creates the index once trip_id is confirmed present (it may
+    -- be missing on legacy post_deployment_checks tables that pre-date the column —
+    -- CREATE TABLE IF NOT EXISTS is a no-op on existing tables, so the column is added
+    -- by ALTER there, and an unguarded index here would throw "no such column: trip_id".
 
     CREATE TABLE IF NOT EXISTS pr_cost_cache (
       id TEXT PRIMARY KEY,
