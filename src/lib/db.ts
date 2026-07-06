@@ -15,6 +15,23 @@ let db: Database.Database | null = null;
 let schemaReady = false;
 
 /**
+ * Run a schema migration step in isolation. A thrown error in one migration
+ * no longer aborts the rest of ensurePhase1Schema — historically a single
+ * failing ALTER (e.g. an earlier mission_id back-fill) silently aborted every
+ * later migration in the sequence, so columns added further down (such as
+ * vehicles.is_synthetic) never landed, and SELECTs referencing them then
+ * 500'd on every request. Each step is logged on failure so the operator
+ * can see exactly which migration needs attention without losing the others.
+ */
+function safeMigrate(db: Database.Database, label: string, step: (db: Database.Database) => void): void {
+  try {
+    step(db);
+  } catch (err) {
+    console.error(`[db] migration "${label}" failed (continuing with remaining migrations):`, err);
+  }
+}
+
+/**
  * Lightweight: guarantee vehicle_requests exists even if full Phase-1 DDL never ran.
  */
 function ensureVehicleRequestsTable(db: Database.Database): void {
@@ -355,22 +372,26 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
     CREATE INDEX IF NOT EXISTS idx_missions_transport_mode ON missions(transport_mode);
   `);
 
-  ensureMissionsRowShape(db);
-  migrateMissionsPersonnelManifest(db);
+  safeMigrate(db, "ensureMissionsRowShape", ensureMissionsRowShape);
+  safeMigrate(db, "migrateMissionsPersonnelManifest", migrateMissionsPersonnelManifest);
 
   // Ensure vehicle_requests.mission_id exists BEFORE migrateMissionsApprovalColumns, because its
   // back-fill UPDATE references vr.mission_id. On legacy DBs the old order threw here, the rest
-  // of ensurePhase1Schema aborted, and SELECTs against vr.mission_id then 500'd.
-  const vrCols = db.prepare("PRAGMA table_info(vehicle_requests)").all() as Array<{ name: string }>;
-  const vrHas = (col: string) => vrCols.some((c) => c.name === col);
-  if (!vrHas("mission_id")) {
-    db.exec(`ALTER TABLE vehicle_requests ADD COLUMN mission_id TEXT REFERENCES missions(id)`);
-  }
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_vr_mission ON vehicle_requests(mission_id)`);
+  // of ensurePhase1Schema aborted, and SELECTs against vr.mission_id then 500'd. Wrapped in
+  // safeMigrate so a failure here can no longer abort the later migrations below it (notably
+  // migratePublicTransportSentinelVehicles, which adds vehicles.is_synthetic).
+  safeMigrate(db, "vehicle_requests.mission_id", (d) => {
+    const vrCols = d.prepare("PRAGMA table_info(vehicle_requests)").all() as Array<{ name: string }>;
+    const vrHas = (col: string) => vrCols.some((c) => c.name === col);
+    if (!vrHas("mission_id")) {
+      d.exec(`ALTER TABLE vehicle_requests ADD COLUMN mission_id TEXT REFERENCES missions(id)`);
+    }
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_vr_mission ON vehicle_requests(mission_id)`);
+  });
 
-  migrateMissionsApprovalColumns(db);
-  migrateMissionsCentricAndReservations(db);
-  migratePublicTransportSentinelVehicles(db);
+  safeMigrate(db, "migrateMissionsApprovalColumns", migrateMissionsApprovalColumns);
+  safeMigrate(db, "migrateMissionsCentricAndReservations", migrateMissionsCentricAndReservations);
+  safeMigrate(db, "migratePublicTransportSentinelVehicles", migratePublicTransportSentinelVehicles);
 }
 
 /**
@@ -685,27 +706,32 @@ function backfillMissionDepartureLocation(db: Database.Database): void {
 }
 
 function ensurePhase1Schema(db: Database.Database): void {
-  ensureVehicleRequestsTable(db);
-  migrateVehicleRequestsSchema(db);
-  ensureMissionsTableAndVehicleRequestMissionId(db);
-  ensurePersonalVehicleReimbursementTable(db);
-  migratePersonalVehicleReimbursementSchema(db);
-  ensurePvrRateSettingsTable(db);
-  migrateVehiclesPhase1(db);
-  migrateAssetClassCategories(db);
-  migrateFieldIssueTicketing(db);
-  migrateVehicleGpsSnapshots(db);
-  migrateTripsPhase1(db);
-  migrateDriverVehicleChecksSchema(db);
-  migrateEhsApprovedDrivers(db);
-  migrateEhsOperatorRegister(db);
-  ensureWhatsNewSeenTable(db);
-  backfillMissionDepartureLocation(db);
-  migrateFleetMechanics(db);
-  migrateRecordMutationLog(db);
-  migrateOrganizationsRouteOrigin(db);
-  migrateVehicleStatusEnforcement(db);
+  // Each step runs in isolation via safeMigrate so one failing migration
+  // cannot silently abort the rest (see the helper's docstring above).
+  safeMigrate(db, "ensureVehicleRequestsTable", ensureVehicleRequestsTable);
+  safeMigrate(db, "migrateVehicleRequestsSchema", migrateVehicleRequestsSchema);
+  safeMigrate(db, "ensureMissionsTableAndVehicleRequestMissionId", ensureMissionsTableAndVehicleRequestMissionId);
+  safeMigrate(db, "ensurePersonalVehicleReimbursementTable", ensurePersonalVehicleReimbursementTable);
+  safeMigrate(db, "migratePersonalVehicleReimbursementSchema", migratePersonalVehicleReimbursementSchema);
+  safeMigrate(db, "ensurePvrRateSettingsTable", ensurePvrRateSettingsTable);
+  safeMigrate(db, "migrateVehiclesPhase1", migrateVehiclesPhase1);
+  safeMigrate(db, "migrateAssetClassCategories", migrateAssetClassCategories);
+  safeMigrate(db, "migrateFieldIssueTicketing", migrateFieldIssueTicketing);
+  safeMigrate(db, "migrateVehicleGpsSnapshots", migrateVehicleGpsSnapshots);
+  safeMigrate(db, "migrateTripsPhase1", migrateTripsPhase1);
+  safeMigrate(db, "migrateDriverVehicleChecksSchema", migrateDriverVehicleChecksSchema);
+  safeMigrate(db, "migrateEhsApprovedDrivers", migrateEhsApprovedDrivers);
+  safeMigrate(db, "migrateEhsOperatorRegister", migrateEhsOperatorRegister);
+  safeMigrate(db, "ensureWhatsNewSeenTable", ensureWhatsNewSeenTable);
+  safeMigrate(db, "backfillMissionDepartureLocation", backfillMissionDepartureLocation);
+  safeMigrate(db, "migrateFleetMechanics", migrateFleetMechanics);
+  safeMigrate(db, "migrateRecordMutationLog", migrateRecordMutationLog);
+  safeMigrate(db, "migrateOrganizationsRouteOrigin", migrateOrganizationsRouteOrigin);
+  safeMigrate(db, "migrateVehicleStatusEnforcement", migrateVehicleStatusEnforcement);
 
+  // Table-existence check is a read, not a migration — keep it direct so a
+  // missing-tables state is always detected and repaired regardless of which
+  // migrations above may have thrown.
   const hasScheduledMaintenance = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_maintenance' LIMIT 1")
     .get();
@@ -716,11 +742,11 @@ function ensurePhase1Schema(db: Database.Database): void {
     console.warn(
       "[db] Phase 1 tables missing — running createPhase1Tables (scheduled_maintenance, vehicle_requests, …)"
     );
-    createPhase1Tables(db);
+    safeMigrate(db, "createPhase1Tables", createPhase1Tables);
   }
 
-  migrateWorkOrdersPhase3(db);
-  migrateWorkOrderLaborPhase3(db);
+  safeMigrate(db, "migrateWorkOrdersPhase3", migrateWorkOrdersPhase3);
+  safeMigrate(db, "migrateWorkOrderLaborPhase3", migrateWorkOrderLaborPhase3);
 }
 
 export function getDb(): Database.Database {
