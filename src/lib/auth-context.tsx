@@ -130,14 +130,38 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
       }
 
       try {
-        const userDoc = await Promise.race([
-          getDoc(doc(firestore, "users", fbUser.uid)),
+        // Canonical identity is nexus_users (managed in Nexus). Read it first,
+        // mapping systemAccess.pr → permissionLevel/role; fall back to the legacy
+        // `users` doc during transition. Both are the user's own doc, so the
+        // Firestore rules permit the read (isOwnDocument).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const readProfile = async (): Promise<any | null> => {
+          const nx = await getDoc(doc(firestore, "nexus_users", fbUser.uid)).catch(() => null);
+          if (nx?.exists()) {
+            const d = nx.data();
+            if (d?.systemAccess?.pr) {
+              return {
+                email: d.email,
+                firstName: d.firstName,
+                lastName: d.lastName,
+                role: d.systemAccess?.pr?.role,
+                department: d.department,
+                organization: d.organization,
+                permissionLevel: d.systemAccess?.pr?.permissionLevel,
+                isActive: d.isActive,
+              };
+            }
+          }
+          const legacy = await getDoc(doc(firestore, "users", fbUser.uid));
+          return legacy.exists() ? legacy.data() : null;
+        };
+        const data = await Promise.race([
+          readProfile(),
           new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error("profile-timeout")), PROFILE_MS);
           }),
         ]);
-        if (userDoc.exists()) {
-          const data = userDoc.data();
+        if (data) {
           const fleetUser: FleetUser = {
             id: fbUser.uid,
             firebaseUid: fbUser.uid,
