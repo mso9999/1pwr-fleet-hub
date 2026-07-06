@@ -788,6 +788,7 @@ function ensurePhase1Schema(db: Database.Database): void {
 
   safeMigrate(db, "migrateWorkOrdersPhase3", migrateWorkOrdersPhase3);
   safeMigrate(db, "migrateWorkOrderLaborPhase3", migrateWorkOrderLaborPhase3);
+  safeMigrate(db, "migratePrCostCacheSchema", migratePrCostCacheSchema);
 }
 
 export function getDb(): Database.Database {
@@ -1154,8 +1155,13 @@ function initializeSchema(db: Database.Database): void {
     try {
       fn();
     } catch (err) {
-      console.error(`[db] Migration step "${name}" failed:`, err);
-      throw err;
+      // Don't rethrow: a single failing step used to abort the whole
+      // initializeSchema (and thus getDb's first-boot path), leaving later
+      // migrations unrun and the DB in a half-migrated state. Log and continue,
+      // matching ensurePhase1Schema's safeMigrate behaviour. getDb falls back
+      // to ensurePhase1Schema regardless, which re-applies everything that can
+      // be applied.
+      console.error(`[db] Migration step "${name}" failed (continuing):`, err);
     }
   }
 }
@@ -1751,7 +1757,13 @@ function migrateTripsPhase1(db: Database.Database): void {
 }
 
 function createPhase1Tables(db: Database.Database): void {
-  db.exec(`
+  // Run each statement independently. CREATE TABLE IF NOT EXISTS is a no-op on
+  // existing tables, so the columns a CREATE INDEX references may legitimately
+  // not exist yet on legacy DBs (they're added by the dedicated migrate*Schema
+  // functions via ALTER). A single index throwing "no such column: X" here used
+  // to abort the whole block — leaving later tables uncreated — so each
+  // statement is try/caught and the failure is logged, not rethrown.
+  const statements = `
     CREATE TABLE IF NOT EXISTS driver_vehicle_checks (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
@@ -1931,9 +1943,74 @@ function createPhase1Tables(db: Database.Database): void {
       UNIQUE(pr_number)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_prc_vehicle ON pr_cost_cache(vehicle_code);
-    CREATE INDEX IF NOT EXISTS idx_prc_wo ON pr_cost_cache(work_order_id);
-  `);
+    -- idx_prc_vehicle / idx_prc_wo reference columns that legacy pr_cost_cache
+    -- tables may lack (only id, pr_number). They are created by
+    -- migratePrCostCacheSchema after the columns are confirmed present, so an
+    -- unguarded index here can't throw "no such column: vehicle_code" and abort
+    -- the rest of schema init.
+  `;
+
+  // Split into individual statements and run each in isolation. A failing
+  // statement (e.g. an index on a column a legacy table lacks) is logged but
+  // doesn't abort the rest of the block. Comment lines (--) are stripped
+  // per-line BEFORE splitting on ';' so a comment followed by a real statement
+  // doesn't merge with it and get filtered out.
+  const stripped = statements
+    .split("\n")
+    .map((l) => l.trimStart())
+    .filter((l) => !l.startsWith("--"))
+    .join("\n");
+  const stmts = stripped
+    .split(/;\s*\n/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of stmts) {
+    try {
+      db.exec(stmt + ";");
+    } catch (err) {
+      console.error("[db] createPhase1Tables statement failed (continuing):", err);
+    }
+  }
+}
+
+/**
+ * Legacy pr_cost_cache tables pre-date the work_order_id/vehicle_code/pr_status/
+ * approved_amount/currency/description/last_synced_at columns (CREATE TABLE IF
+ * NOT EXISTS is a no-op on existing tables, so they must be ALTERed in).
+ * Also creates the vehicle_code/work_order_id indexes once those columns exist.
+ */
+function migratePrCostCacheSchema(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pr_cost_cache' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const colNames = new Set(
+    (db.prepare("PRAGMA table_info(pr_cost_cache)").all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  const has = (col: string) => colNames.has(col);
+
+  const additions: Array<[string, string]> = [
+    ["work_order_id", "TEXT DEFAULT NULL"],
+    ["vehicle_code", "TEXT NOT NULL DEFAULT ''"],
+    ["pr_status", "TEXT NOT NULL DEFAULT ''"],
+    ["approved_amount", "REAL DEFAULT 0"],
+    ["currency", "TEXT DEFAULT 'LSL'"],
+    ["description", "TEXT DEFAULT ''"],
+    ["last_synced_at", "TEXT NOT NULL DEFAULT (datetime('now'))"],
+  ];
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE pr_cost_cache ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  if (has("vehicle_code") || additions.some(([c]) => c === "vehicle_code")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_prc_vehicle ON pr_cost_cache(vehicle_code)");
+  }
+  if (has("work_order_id") || additions.some(([c]) => c === "work_order_id")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_prc_wo ON pr_cost_cache(work_order_id)");
+  }
 }
 
 function migrateWorkOrdersPhase3(db: Database.Database): void {
