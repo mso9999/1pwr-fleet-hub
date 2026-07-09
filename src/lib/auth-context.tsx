@@ -130,71 +130,60 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
       }
 
       try {
-        // Canonical identity is nexus_users (managed in Nexus). Read it first,
-        // mapping systemAccess.pr → permissionLevel/role; fall back to the legacy
-        // `users` doc during transition. Both are the user's own doc, so the
-        // Firestore rules permit the read (isOwnDocument).
+        // Identity (names/email + the account-disabled kill switch) is
+        // nexus_users (managed in Nexus); the legacy `users` doc is the
+        // transition fallback. The FLEET role/department/organization are
+        // NOT taken from Nexus: nexus_users only carries PR's systemAccess,
+        // and mapping systemAccess.pr.role onto the fleet role overwrote
+        // real fleet roles (manager/driver/…) with PR roles (REQ/USER) via
+        // /api/users/sync — the 2026-07-09 incident. FM's own users table
+        // (served by /api/me/whoami) is canonical for those.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const readProfile = async (): Promise<any | null> => {
+        const readIdentity = async (): Promise<any | null> => {
           const nx = await getDoc(doc(firestore, "nexus_users", fbUser.uid)).catch(() => null);
-          if (nx?.exists()) {
-            const d = nx.data();
-            if (d?.systemAccess?.pr) {
-              return {
-                email: d.email,
-                firstName: d.firstName,
-                lastName: d.lastName,
-                role: d.systemAccess?.pr?.role,
-                department: d.department,
-                organization: d.organization,
-                permissionLevel: d.systemAccess?.pr?.permissionLevel,
-                isActive: d.isActive,
-              };
-            }
-          }
-          const legacy = await getDoc(doc(firestore, "users", fbUser.uid));
-          return legacy.exists() ? legacy.data() : null;
+          if (nx?.exists()) return nx.data();
+          const legacy = await getDoc(doc(firestore, "users", fbUser.uid)).catch(() => null);
+          return legacy?.exists() ? legacy.data() : null;
         };
-        const data = await Promise.race([
-          readProfile(),
+        const [identity, serverProfile] = await Promise.race([
+          Promise.all([readIdentity(), loadServerProfile(fbUser)]),
           new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error("profile-timeout")), PROFILE_MS);
           }),
         ]);
-        if (data) {
+        if (identity || serverProfile) {
           const fleetUser: FleetUser = {
             id: fbUser.uid,
             firebaseUid: fbUser.uid,
-            email: data.email || fbUser.email || "",
-            firstName: data.firstName || "",
-            lastName: data.lastName || "",
-            name: `${data.firstName || ""} ${data.lastName || ""}`.trim() || data.email || "",
-            role: data.role || "REQ",
-            department: data.department || "",
-            organizationId: data.organization
-              ? data.organization.toLowerCase().replace(/\s+/g, "_")
-              : "1pwr_lesotho",
-            permissionLevel: data.permissionLevel || 5,
-            isActive: data.isActive !== false,
+            email: identity?.email || serverProfile?.email || fbUser.email || "",
+            firstName: identity?.firstName || serverProfile?.firstName || "",
+            lastName: identity?.lastName || serverProfile?.lastName || "",
+            name:
+              `${identity?.firstName || ""} ${identity?.lastName || ""}`.trim() ||
+              serverProfile?.name ||
+              identity?.email ||
+              "",
+            // Fleet authority comes from FM's own users table only.
+            role: serverProfile?.role || "driver",
+            department: serverProfile?.department || "",
+            organizationId: serverProfile?.organizationId || "1pwr_lesotho",
+            permissionLevel: serverProfile?.permissionLevel || 5,
+            isActive: identity ? identity.isActive !== false : true,
           };
           setUser(fleetUser);
           if (fleetUser.organizationId) {
             persistOrg(fleetUser.organizationId);
           }
 
+          // Propagate identity only — the server ignores role/department/org
+          // fields on updates (see /api/users/sync).
           fetch("/api/users/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(fleetUser),
           }).catch(() => {});
         } else {
-          const fallback = await loadServerProfile(fbUser);
-          if (fallback) {
-            setUser(fallback);
-            if (fallback.organizationId) persistOrg(fallback.organizationId);
-          } else {
-            setUser(null);
-          }
+          setUser(null);
         }
       } catch {
         const fallback = await loadServerProfile(fbUser);

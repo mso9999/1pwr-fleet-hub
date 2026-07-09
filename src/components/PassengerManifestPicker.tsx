@@ -44,14 +44,16 @@ interface Props {
  * Passenger manifest picker for the driver vehicle checklist.
  *
  * Passengers are selected from the live HR employee directory (server-side
- * fetch via /api/admin/hr-directory) — never typed as free text — so the
- * manifest references each person by canonical HR `employee_id`. This is what
- * eliminates misspellings and ambiguity, and what lets HR link timecards to a
- * specific field-deployment inspection.
+ * fetch via /api/hr-directory/manifest-options, a minimal projection open to
+ * every verified fleet user — drivers must be able to fill the required
+ * manifest) — never typed as free text — so the manifest references each
+ * person by canonical HR `employee_id`. This is what eliminates misspellings
+ * and ambiguity, and what lets HR link timecards to a specific
+ * field-deployment inspection.
  *
  * Filter dropdowns (country, department) are populated dynamically from
- * /api/admin/hr-directory/meta. The directory is fetched once per filter
- * combination and cached in-component for the picker's lifetime.
+ * /api/hr-directory/manifest-options/meta. The directory is fetched once per
+ * filter combination and cached in-component for the picker's lifetime.
  */
 export function PassengerManifestPicker({ value, onChange, defaultCountry }: Props): React.ReactElement {
   const { user } = useAuth();
@@ -73,7 +75,7 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
     setLoadingMeta(true);
     (async () => {
       try {
-        const res = await fetch("/api/admin/hr-directory/meta", {
+        const res = await fetch("/api/hr-directory/manifest-options/meta", {
           headers: await jsonHeadersWithBearer(),
         });
         if (!res.ok) {
@@ -103,7 +105,7 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
       const params = new URLSearchParams();
       if (country) params.set("country", country);
       if (department) params.set("department", department);
-      const res = await fetch(`/api/admin/hr-directory?${params.toString()}`, {
+      const res = await fetch(`/api/hr-directory/manifest-options?${params.toString()}`, {
         headers: await jsonHeadersWithBearer(),
       });
       if (!res.ok) {
