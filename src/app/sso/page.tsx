@@ -28,6 +28,12 @@ export default function SsoPage(): React.ReactElement {
       return;
     }
 
+    // Pick up language preference from Nexus SSO launch
+    const lang = params.get("lang");
+    if (lang === "fr" || lang === "en") {
+      localStorage.setItem("fleet-hub-locale", lang);
+    }
+
     signInWithCustomToken(auth, token)
       .then(() => {
         window.location.replace("/");
