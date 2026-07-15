@@ -26,7 +26,8 @@ export type AuthFailure =
   | "auth_unconfigured" // server has no Firebase Admin credential loaded
   | "no_bearer" // request did not include Authorization: Bearer <token>
   | "bad_token" // token couldn't be verified (expired / wrong project / signature)
-  | "deactivated"; // user exists in users table but is_active=0
+  | "deactivated" // user exists in users table but is_active=0
+  | "fm_access_disabled"; // Nexus systemAccess.fm.enabled is false
 
 export interface VerifyFleetUserResult {
   user: VerifiedFleetUser | null;
@@ -86,6 +87,17 @@ export async function verifyFleetUser(request: Request): Promise<VerifyFleetUser
   }
 
   if (!decoded) return { user: null, reason: "bad_token" };
+
+  // Enforce Nexus systemAccess.fm.enabled for SSO-routed sessions.
+  // When a user signs in via Nexus SSO, the custom token includes
+  // systemAccess.fm.enabled. If it's explicitly false, deny access.
+  const decodedRecord = decoded as Record<string, unknown>;
+  if (decodedRecord.nexus_sso === true) {
+    const fmAccess = decodedRecord.systemAccess as Record<string, unknown> | undefined;
+    if (fmAccess && fmAccess.enabled === false) {
+      return { user: null, reason: "fm_access_disabled" };
+    }
+  }
 
   const db = getDb();
   const rowForUid = db
