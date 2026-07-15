@@ -40,6 +40,13 @@ interface ApprovedDriverOption {
   hrEmployeeId: string;
 }
 
+interface NonCompliantDriver {
+  id: string;
+  displayName: string;
+  email: string;
+  reasons: string[];
+}
+
 interface SiteOption {
   code: string;
   label: string;
@@ -57,6 +64,7 @@ function ApprovedDriverCombobox({
   loading,
   matched,
   organizationId,
+  nonCompliant = [],
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -64,6 +72,7 @@ function ApprovedDriverCombobox({
   loading: boolean;
   matched: ApprovedDriverOption | null;
   organizationId: string;
+  nonCompliant?: NonCompliantDriver[];
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -195,10 +204,23 @@ function ApprovedDriverCombobox({
       {loading ? (
         <p className="text-[11px] text-zinc-500">Loading approved drivers for {organizationId}…</p>
       ) : noApproved ? (
-        <p className="text-[11px] text-amber-700">
-          No EHS-approved drivers found for {organizationId}. You can write in a name, but EHS should add
-          approved drivers to the register.
-        </p>
+        <div className="text-[11px] text-amber-700 space-y-1">
+          <p>
+            No EHS-approved drivers found for {organizationId}. You can write in a name, but EHS should add
+            approved drivers to the register.
+          </p>
+          {nonCompliant.length > 0 && (
+            <div className="mt-1 space-y-1">
+              <p className="font-semibold">Drivers in the register but not yet compliant:</p>
+              {nonCompliant.map((d) => (
+                <div key={d.id} className="rounded border border-amber-200 bg-amber-50/60 px-2 py-1">
+                  <span className="font-medium">{d.displayName}</span>
+                  <span className="text-amber-600"> — {d.reasons.join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : matched ? (
         <p className="text-[11px] text-emerald-700">
           EHS-approved for {organizationId} · {matched.email}
@@ -312,6 +334,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
   const [driverOptions, setDriverOptions] = useState<ApprovedDriverOption[]>([]);
   const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
+  const [nonCompliantDrivers, setNonCompliantDrivers] = useState<NonCompliantDriver[]>([]);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [passengerManifest, setPassengerManifest] = useState<ManifestPassenger[]>([]);
@@ -346,8 +369,11 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           if (!cancelled) setDriverOptions([]);
           return;
         }
-        const data = (await res.json()) as { options?: ApprovedDriverOption[] };
-        if (!cancelled) setDriverOptions(Array.isArray(data.options) ? data.options : []);
+        const data = (await res.json()) as { options?: ApprovedDriverOption[]; nonCompliant?: NonCompliantDriver[] };
+        if (!cancelled) {
+          setDriverOptions(Array.isArray(data.options) ? data.options : []);
+          setNonCompliantDrivers(Array.isArray(data.nonCompliant) ? data.nonCompliant : []);
+        }
       } catch {
         if (!cancelled) setDriverOptions([]);
       } finally {
@@ -704,6 +730,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               loading={driverOptionsLoading}
               matched={matchedDriver}
               organizationId={organizationId}
+              nonCompliant={nonCompliantDrivers}
             />
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>

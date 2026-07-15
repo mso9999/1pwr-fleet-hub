@@ -111,17 +111,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     for (const r of mediaRows) trainingMediaCountByAuthId[r.id] = Number(r.c);
   }
 
-  const options = rows
-    .map((row) => ({
+  const evaluated = rows.map((row) => ({
+    row,
+    result: evaluateOperatorCompliance({
       row,
-      result: evaluateOperatorCompliance({
-        row,
-        authorizations: authorizationsByOperator.get(row.id) ?? [],
-        licenceMediaCount: licenceCountByOperator.get(row.id) ?? 0,
-        trainingMediaCountByAuthId,
-        category,
-      }),
-    }))
+      authorizations: authorizationsByOperator.get(row.id) ?? [],
+      licenceMediaCount: licenceCountByOperator.get(row.id) ?? 0,
+      trainingMediaCountByAuthId,
+      category,
+    }),
+  }));
+
+  const options = evaluated
     .filter(({ result }) => result.ready)
     .map(({ row, result }) => ({
       id: row.id,
@@ -129,6 +130,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       displayName: row.display_name || row.email,
       hrEmployeeId: row.hr_employee_id || "",
       isTrainer: result.grant === "trainer",
+    }));
+
+  const nonCompliant = evaluated
+    .filter(({ result }) => !result.ready)
+    .map(({ row, result }) => ({
+      id: row.id,
+      displayName: row.display_name || row.email,
+      email: row.email,
+      reasons: result.reasons,
     }));
 
   const nq = qRaw ? normalizeSearch(qRaw) : "";
@@ -141,7 +151,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : options;
 
   if (!usePagination) {
-    return NextResponse.json({ category, options: filtered });
+    return NextResponse.json({ category, options: filtered, nonCompliant });
   }
 
   const total = filtered.length;
@@ -155,5 +165,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     total,
     page,
     pageSize,
+    nonCompliant,
   });
 }
