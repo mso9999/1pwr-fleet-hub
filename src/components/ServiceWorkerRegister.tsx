@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { APP_COMMIT, APP_VERSION } from "@/lib/app-version";
 
 /**
  * Registers the PWA service worker in production and forces an auto-reload when a new
@@ -14,11 +15,14 @@ export function ServiceWorkerRegister(): null {
     if (!("serviceWorker" in navigator)) return;
 
     let refreshing = false;
-    // When a new SW takes control, reload exactly once so the user sees the new build.
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
+    function forceReload(): void {
       if (refreshing) return;
       refreshing = true;
       window.location.reload();
+    }
+    navigator.serviceWorker.addEventListener("controllerchange", forceReload);
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data?.type === "NEW_VERSION") forceReload();
     });
 
     navigator.serviceWorker
@@ -42,6 +46,23 @@ export function ServiceWorkerRegister(): null {
       .catch(() => {
         /* non-fatal */
       });
+
+    const clientBuildId = `${APP_VERSION}+${APP_COMMIT}`;
+    function checkServerBuild(): void {
+      if (document.visibilityState !== "visible") return;
+      fetch("/api/health", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data: { version?: string }) => {
+          if (data.version && data.version !== clientBuildId) {
+            forceReload();
+          }
+        })
+        .catch(() => {});
+    }
+    document.addEventListener("visibilitychange", checkServerBuild);
+    return () => {
+      document.removeEventListener("visibilitychange", checkServerBuild);
+    };
   }, []);
   return null;
 }
