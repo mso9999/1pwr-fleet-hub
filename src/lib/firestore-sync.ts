@@ -180,11 +180,43 @@ export async function syncSitesFromFirestore(
 }
 
 /**
- * READ-ONLY: Sync departments from PR Firestore `referenceData_departments` → type `department`.
+ * READ-ONLY: Sync departments from HR API (preferred) or PR Firestore `referenceData_departments` (fallback).
+ * R6 Retirement: after 30 days of HR API working, remove the Firestore fallback.
  */
 export async function syncDepartmentsFromFirestore(
   organizationId: string = "1pwr_lesotho"
 ): Promise<SyncResult> {
+  // R6: Try HR API first (canonical source for departments)
+  try {
+    const { fetchHrEmployeeMeta } = await import("@/lib/hr-directory-client");
+    const meta = await fetchHrEmployeeMeta();
+    if (meta.ok && meta.departments && meta.departments.length > 0) {
+      const db = getDb();
+      let upserted = 0;
+      const txn = db.transaction(() => {
+        for (let i = 0; i < meta.departments!.length; i++) {
+          const dept = meta.departments![i];
+          const code = dept.trim().toUpperCase().replace(/\s+/g, "_");
+          const existing = db
+            .prepare("SELECT id FROM reference_data WHERE organization_id = ? AND type = 'department' AND code = ?")
+            .get(organizationId, code) as Record<string, unknown> | undefined;
+          if (existing) {
+            db.prepare("UPDATE reference_data SET label = ?, sort_order = ?, active = 1 WHERE id = ?")
+              .run(dept, i, existing.id);
+          } else {
+            db.prepare("INSERT INTO reference_data (id, organization_id, type, code, label, sort_order, active) VALUES (lower(hex(randomblob(16))), ?, 'department', ?, ?, ?, 1)")
+              .run(organizationId, code, dept, i);
+          }
+          upserted++;
+        }
+      });
+      txn();
+      return { success: true, upserted, deactivated: 0 };
+    }
+    console.warn("[firestore-sync] R6 Fallback: HR API departments empty/unavailable, falling back to Firestore referenceData_departments");
+  } catch (hrErr) {
+    console.warn("[firestore-sync] R6 Fallback: HR API error, falling back to Firestore referenceData_departments:", hrErr);
+  }
   return syncReferenceListFromPr("referenceData_departments", "department", organizationId);
 }
 

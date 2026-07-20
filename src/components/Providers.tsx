@@ -6,6 +6,7 @@ import { AppShell } from "@/components/AppShell";
 import { TutorialProvider } from "@/components/tutorial/TutorialProvider";
 import { AppVersionConsole } from "@/components/AppVersionConsole";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { AIAssistantWidget } from "@/components/AIAssistantWidget";
 import { LocaleProvider, useLocaleContext } from "@/i18n/locale-context";
 import { LocaleHtmlLang } from "@/components/LocaleHtmlLang";
 
@@ -65,6 +66,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <AppVersionConsole />
         <ServiceWorkerRegister />
+        <AIAssistantWidget />
         <AuthGate>{children}</AuthGate>
       </AuthProvider>
     </LocaleProvider>

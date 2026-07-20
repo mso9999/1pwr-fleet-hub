@@ -423,11 +423,14 @@ function OperatorCard({
       }
       setDirty(false);
       if (attestChecked) {
-        // Re-attest immediately as part of the same user intent.
-        await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
+        const attRes = await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
           method: "POST",
           headers: await jsonHeadersWithBearer(),
         });
+        if (!attRes.ok) {
+          const attErr = (await attRes.json().catch(() => ({}))) as { error?: string };
+          alert(attErr.error || "Saved, but attestation failed — please try attesting again.");
+        }
       }
       await onSaved();
     } finally {
@@ -438,10 +441,15 @@ function OperatorCard({
   async function attestOnly(): Promise<void> {
     setAttesting(true);
     try {
-      await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
+      const res = await fetch(`/api/ehs-approved-drivers/${d.id}/attest`, {
         method: "POST",
         headers: await jsonHeadersWithBearer(),
       });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        alert(err.error || "Could not attest — please try again.");
+        return;
+      }
       await onSaved();
     } finally {
       setAttesting(false);
@@ -840,11 +848,16 @@ function AuthorizationsMatrix({
     grant: OperatorGrant,
     notes: string
   ): Promise<void> {
-    await fetch(`/api/ehs-approved-drivers/${operatorId}/authorizations`, {
+    const res = await fetch(`/api/ehs-approved-drivers/${operatorId}/authorizations`, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({ categoryCode, grant, notes }),
     });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      alert(err.error || "Could not save authorization — please try again.");
+      return;
+    }
     await onChanged();
   }
 
