@@ -15,6 +15,13 @@ import { evaluateTrackerDepartureDiscrepancy } from "@/lib/trip-departure";
  * wheel-roll unless an approver overrides. Then cross-checks the vehicle's
  * tracker history against the planned departure date and records any
  * discrepancy on the trip row.
+ *
+ * Supports optional backdating: if the request body includes a `departedAt`
+ * ISO string, that value is used for the trip's `departed_at` field instead of
+ * the current time. All audit timestamps (updated_at, status_log.changed_at,
+ * mutation_log.created_at) always use the actual real-world time so the audit
+ * trail records *who* backdated *when*, even though the deployment date itself
+ * is in the past.
  */
 export async function POST(
   request: NextRequest,
@@ -73,6 +80,35 @@ export async function POST(
   }
 
   const now = new Date().toISOString();
+
+  // --- Optional backdating ------------------------------------------------
+  // If the caller supplies a `departedAt` ISO string, use that as the
+  // departure timestamp instead of "now". This lets teams record a
+  // departure that happened earlier (e.g. they forgot to click "Start
+  // trip" yesterday). The actual-time audit trail is preserved because
+  // `updated_at`, `status_log.changed_at`, and `mutation_log.created_at`
+  // all use `now` (real time), not the backdated value.
+  const backdatedRaw = String(body.departedAt || body.departed_at || "").trim();
+  let departedAt = now; // default: real-time departure
+  let isBackdated = false;
+  if (backdatedRaw) {
+    const parsed = new Date(backdatedRaw);
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json(
+        { error: "The provided departure date is not a valid date.", reason: "invalid_departed_at" },
+        { status: 400 }
+      );
+    }
+    if (parsed.getTime() > Date.now()) {
+      return NextResponse.json(
+        { error: "Departure date cannot be in the future.", reason: "future_departed_at" },
+        { status: 400 }
+      );
+    }
+    departedAt = parsed.toISOString();
+    isBackdated = departedAt !== now;
+  }
+
   const readiness = evaluateReadinessForMissionLinkedTrip(db, {
     organizationId,
     missionId,
@@ -185,11 +221,11 @@ export async function POST(
     "updated_at = ?",
   ];
   const setValues: unknown[] = [
-    now,
+    departedAt,
     user.id,
     user.name || user.email,
     discrepancy ? JSON.stringify(discrepancy) : null,
-    now,
+    now, // updated_at always uses actual time
   ];
   if (useActualOdo) {
     setClauses.push("odo_start = ?");
@@ -210,7 +246,7 @@ export async function POST(
       "departed",
       user.name || user.email,
       now,
-      overrideApplied ? `override: ${overrideReason}` : ""
+      overrideApplied ? `override: ${overrideReason}` : isBackdated ? `backdated to ${departedAt}` : ""
     );
   });
   tx();
@@ -225,7 +261,8 @@ export async function POST(
       after: {
         vehicleId,
         missionId,
-        departedAt: now,
+        departedAt,
+        backdated: isBackdated,
         gatesBypassed: readiness.gates
           .filter((g) => g.status !== "satisfied")
           .map((g) => ({ id: g.id, label: g.label, detail: g.detail })),
@@ -234,6 +271,23 @@ export async function POST(
           : null,
       },
       reason: overrideReason,
+    });
+  } else if (isBackdated) {
+    recordMutation(db, {
+      entityType: "trip",
+      entityId: id,
+      organizationId,
+      action: "backdate_departure",
+      actor: actorFrom(user),
+      after: {
+        vehicleId,
+        missionId,
+        departedAt,
+        actualOdoStart: useActualOdo ? actualOdoStart : undefined,
+        discrepancy: discrepancy
+          ? { discrepancy: discrepancy.discrepancy, firstMovedAt: discrepancy.firstMovedAt }
+          : null,
+      },
     });
   } else {
     recordMutation(db, {
@@ -245,7 +299,7 @@ export async function POST(
       after: {
         vehicleId,
         missionId,
-        departedAt: now,
+        departedAt,
         actualOdoStart: useActualOdo ? actualOdoStart : undefined,
         discrepancy: discrepancy
           ? { discrepancy: discrepancy.discrepancy, firstMovedAt: discrepancy.firstMovedAt }

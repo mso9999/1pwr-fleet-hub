@@ -27,7 +27,8 @@ export type MutationAction =
   | "checkin"
   | "approve"
   | "reject"
-  | "admin_config";
+  | "admin_config"
+  | "backdate_departure";
 
 export type MutationEntityType =
   | "fleet_mechanic"

@@ -228,6 +228,8 @@ function TripsPageContent(): React.ReactElement {
     if (odoRaw) body.actualOdoStart = Number(odoRaw);
     const overrideReason = String(fd.get("overrideReason") || "").trim();
     if (overrideReason) body.overrideReason = overrideReason;
+    const departedAtRaw = String(fd.get("departedAt") || "").trim();
+    if (departedAtRaw) body.departedAt = departedAtRaw;
     const res = await fetch(`/api/trips/${departTrip.id}/depart`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -636,11 +638,19 @@ function DepartureForm({
           Records the actual date and time of departure. If a pre-departure checklist is older than
           24 hours, the readiness gate will block this until an approver provides an override reason.
           For tracked vehicles, the system will cross-check the tracker history against the planned
-          departure date and flag any discrepancy.
+          departure date and flag any discrepancy. To record a departure that happened on a prior
+          day, set the departure date below — the audit log will always show the real time you made
+          this entry.
         </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+          <Input
+            name="departedAt"
+            label="Departure date (leave as today for real-time)"
+            type="date"
+            max={new Date().toISOString().slice(0, 10)}
+          />
           <Input
             name="actualOdoStart"
             label="Actual ODO at departure (km)"
