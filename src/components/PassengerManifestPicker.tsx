@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
+import { Search, X, ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 
 export type PassengerTravelMode = "on_vehicle" | "straggler_public_transport";
 
@@ -44,17 +45,16 @@ interface Props {
  * Passenger manifest picker for the driver vehicle checklist.
  *
  * Passengers are selected from the live HR employee directory (server-side
- * fetch via /api/hr-directory/manifest-options, a minimal projection open to
- * every verified fleet user — drivers must be able to fill the required
- * manifest) — never typed as free text — so the manifest references each
- * person by canonical HR `employee_id`. This is what eliminates misspellings
- * and ambiguity, and what lets HR link timecards to a specific
- * field-deployment inspection.
+ * fetch via /api/hr-directory/manifest-options) via a modal dialog with
+ * search and pagination. Passengers are referenced by canonical HR
+ * `employee_id` — never free text.
  *
  * Filter dropdowns (country, department) are populated dynamically from
  * /api/hr-directory/manifest-options/meta. The directory is fetched once per
  * filter combination and cached in-component for the picker's lifetime.
  */
+const PAGE_SIZE = 10;
+
 export function PassengerManifestPicker({ value, onChange, defaultCountry }: Props): React.ReactElement {
   const { user } = useAuth();
   const [countries, setCountries] = useState<string[]>([]);
@@ -65,9 +65,9 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string>("");
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [page, setPage] = useState(0);
   const fetchedKeyRef = useRef<string>("");
 
   useEffect(() => {
@@ -132,16 +132,6 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
     void loadEmployees(selectedCountry, selectedDepartment);
   }, [selectedCountry, selectedDepartment, loadEmployees]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent): void {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
   const selectedIds = useMemo(() => new Set(value.map((p) => p.employee_id)), [value]);
 
   const filtered = useMemo(() => {
@@ -158,6 +148,10 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
     });
   }, [employees, query]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageItems = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+
   function addPassenger(emp: HrEmployee): void {
     if (!emp.employee_id) return;
     if (selectedIds.has(emp.employee_id)) return;
@@ -171,7 +165,6 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
         travel_mode: "on_vehicle",
       },
     ]);
-    setQuery("");
   }
 
   function removePassenger(employeeId: string): void {
@@ -194,123 +187,31 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
     );
   }
 
+  function openModal(): void {
+    setModalOpen(true);
+    setQuery("");
+    setPage(0);
+  }
+
   return (
-    <div className="space-y-3" ref={rootRef}>
+    <div className="space-y-3">
       <div>
         <label className="text-sm font-medium text-zinc-700">Passenger manifest</label>
         <p className="text-xs text-zinc-500 mt-0.5">
-          Select every 1PWR employee traveling on this vehicle from the HR directory. Passengers are
+          Select 1PWR employees traveling on this vehicle from the HR directory. Passengers are
           referenced by HR employee ID — no free text — so HR can link timecards to this field
-          deployment.
+          deployment. Leave empty if there are no passengers.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-zinc-600">Country filter</label>
-          <select
-            value={selectedCountry}
-            onChange={(e) => setSelectedCountry(e.target.value)}
-            className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
-            disabled={loadingMeta}
-          >
-            <option value="">All countries</option>
-            {countries.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-zinc-600">Department filter</label>
-          <select
-            value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
-            disabled={loadingMeta}
-          >
-            <option value="">All departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="relative">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
-            else if (e.key === "ArrowDown") setOpen(true);
-          }}
-          placeholder="Search employees by name, email, ID, or role…"
-          className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-3 pr-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-          autoComplete="off"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls="passenger-manifest-listbox"
-        />
-        {open && (
-          <div
-            id="passenger-manifest-listbox"
-            role="listbox"
-            className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-zinc-200 bg-white shadow-lg"
-          >
-            {loadingEmployees ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">Loading employees…</div>
-            ) : filtered.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">
-                {employees.length === 0
-                  ? "No employees found for the selected filters."
-                  : "No matches."}
-              </div>
-            ) : (
-              <ul className="py-1">
-                {filtered.slice(0, 50).map((emp) => {
-                  const isSelected = !!emp.employee_id && selectedIds.has(emp.employee_id);
-                  return (
-                    <li key={emp.employee_id} role="option" aria-selected={isSelected}>
-                      <button
-                        type="button"
-                        disabled={isSelected}
-                        onClick={() => addPassenger(emp)}
-                        className={`flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-zinc-50 disabled:opacity-50 ${
-                          isSelected ? "bg-blue-50" : ""
-                        }`}
-                      >
-                        <span className="font-medium text-zinc-900">
-                          {emp.name}{" "}
-                          <span className="text-xs text-zinc-400">({emp.employee_id})</span>
-                        </span>
-                        <span className="text-xs text-zinc-500">
-                          {[
-                            emp.current_position_title,
-                            emp.department,
-                            emp.country,
-                            emp.email,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+      <button
+        type="button"
+        onClick={openModal}
+        className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+      >
+        <UserPlus className="h-4 w-4" />
+        {value.length > 0 ? `Edit manifest (${value.length})` : "Add passengers from HR directory"}
+      </button>
 
       {error && <p className="text-[11px] text-red-700">{error}</p>}
 
@@ -380,9 +281,160 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
         </ul>
       ) : (
         <p className="text-[11px] text-zinc-500">
-          No passengers added yet. Add at least the driver is not required here — the driver is
-          captured separately above; list only the additional personnel riding this vehicle.
+          No passengers added yet. The driver is captured separately above; list only additional
+          personnel riding this vehicle. Leave empty if there are no passengers.
         </p>
+      )}
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3">
+              <h2 className="text-base font-semibold text-zinc-900">Select passengers from HR directory</h2>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-700"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 border-b border-zinc-100 px-5 py-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-zinc-600">Country filter</label>
+                  <select
+                    value={selectedCountry}
+                    onChange={(e) => { setSelectedCountry(e.target.value); setPage(0); }}
+                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
+                    disabled={loadingMeta}
+                  >
+                    <option value="">All countries</option>
+                    {countries.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-zinc-600">Department filter</label>
+                  <select
+                    value={selectedDepartment}
+                    onChange={(e) => { setSelectedDepartment(e.target.value); setPage(0); }}
+                    className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
+                    disabled={loadingMeta}
+                  >
+                    <option value="">All departments</option>
+                    {departments.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+                  placeholder="Search by name, email, employee ID, or role…"
+                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto px-5 py-3">
+              {loadingEmployees ? (
+                <div className="py-8 text-center text-sm text-zinc-500">Loading employees…</div>
+              ) : pageItems.length === 0 ? (
+                <div className="py-8 text-center text-sm text-zinc-500">
+                  {employees.length === 0
+                    ? "No employees found for the selected filters."
+                    : "No matches for your search."}
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {pageItems.map((emp) => {
+                    const isSelected = !!emp.employee_id && selectedIds.has(emp.employee_id);
+                    return (
+                      <li key={emp.employee_id}>
+                        <button
+                          type="button"
+                          disabled={isSelected}
+                          onClick={() => addPassenger(emp)}
+                          className={`flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 ${
+                            isSelected ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-zinc-900">
+                              {emp.name}{" "}
+                              <span className="text-xs text-zinc-400">({emp.employee_id})</span>
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {[
+                                emp.current_position_title,
+                                emp.department,
+                                emp.country,
+                                emp.email,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                          </div>
+                          {isSelected ? (
+                            <span className="shrink-0 text-xs font-medium text-blue-600">Added</span>
+                          ) : (
+                            <span className="shrink-0 text-xs font-medium text-zinc-400">+ Add</span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3">
+              <span className="text-xs text-zinc-500">
+                {filtered.length} employee{filtered.length !== 1 ? "s" : ""}
+                {value.length > 0 ? ` · ${value.length} selected` : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-30"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="text-xs text-zinc-600">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages - 1}
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-30"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
