@@ -61,6 +61,7 @@ interface OperatorRecord {
   hr_employee_id: string;
   license_valid_from: string;
   license_expiry: string;
+  license_originally_issued: string;
   written_test_passed_at: string;
   road_test_passed_at: string;
   eye_test_passed_at: string;
@@ -364,6 +365,7 @@ function OperatorCard({
   const [local, setLocal] = useState({
     licenseValidFrom: d.license_valid_from || "",
     licenseExpiry: d.license_expiry || "",
+    licenseOriginallyIssued: d.license_originally_issued || "",
     vision: d.vision_result || "pending",
     hearing: d.hearing_result || "pending",
     reaction: d.reaction_result || "pending",
@@ -378,6 +380,7 @@ function OperatorCard({
     setLocal({
       licenseValidFrom: d.license_valid_from || "",
       licenseExpiry: d.license_expiry || "",
+      licenseOriginallyIssued: d.license_originally_issued || "",
       vision: d.vision_result || "pending",
       hearing: d.hearing_result || "pending",
       reaction: d.reaction_result || "pending",
@@ -396,7 +399,12 @@ function OperatorCard({
     setAttestChecked(false);
   }
 
-  const licHint = evaluateLicenseContinuity(local.licenseValidFrom, local.licenseExpiry);
+  const licHint = evaluateLicenseContinuity(
+    local.licenseValidFrom,
+    local.licenseExpiry,
+    new Date(),
+    local.licenseOriginallyIssued
+  );
 
   async function save(): Promise<void> {
     setSaving(true);
@@ -407,6 +415,7 @@ function OperatorCard({
         body: JSON.stringify({
           licenseValidFrom: local.licenseValidFrom,
           licenseExpiry: local.licenseExpiry,
+          licenseOriginallyIssued: local.licenseOriginallyIssued,
           visionResult: local.vision,
           hearingResult: local.hearing,
           reactionResult: local.reaction,
@@ -594,6 +603,12 @@ function OperatorCard({
                 value={local.licenseExpiry}
                 onChange={(e) => mark("licenseExpiry", e.target.value)}
               />
+              <Input
+                label="License originally issued"
+                type="date"
+                value={local.licenseOriginallyIssued}
+                onChange={(e) => mark("licenseOriginallyIssued", e.target.value)}
+              />
               <div>
                 <label className="text-sm font-medium text-zinc-700 block mb-1">Status</label>
                 <select
@@ -689,6 +704,7 @@ function OperatorCard({
             <div className="text-sm text-zinc-600 grid gap-1 sm:grid-cols-2">
               <div>License from: {d.license_valid_from || "—"}</div>
               <div>License expiry: {d.license_expiry || "—"}</div>
+              <div>Originally issued: {d.license_originally_issued || "—"}</div>
               <div>Vision: {d.vision_result}</div>
               <div>Hearing: {d.hearing_result}</div>
               <div>Reaction: {d.reaction_result}</div>

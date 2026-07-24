@@ -34,6 +34,7 @@ function baseOperator(): EhsDriverRow {
     display_name: "Test Operator",
     license_valid_from: ymd(fiveYearsAgo),
     license_expiry: ymd(oneYearAhead),
+    license_originally_issued: ymd(fiveYearsAgo),
     written_test_passed_at: "",
     road_test_passed_at: "",
     eye_test_passed_at: "",

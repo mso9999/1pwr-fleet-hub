@@ -22,6 +22,7 @@ export type EhsDriverRow = {
   display_name: string;
   license_valid_from: string;
   license_expiry: string;
+  license_originally_issued: string;
   // Legacy date fields: kept on the row for historical reference after the D018 migration.
   written_test_passed_at: string;
   road_test_passed_at: string;
@@ -71,11 +72,13 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-/** License must still be valid and have covered continuous validity for at least the prior two years. */
+/** License must still be valid and have covered continuous validity for at least the prior two years.
+ *  Uses license_originally_issued when available, falling back to license_valid_from. */
 export function evaluateLicenseContinuity(
   licenseValidFrom: string,
   licenseExpiry: string,
-  referenceNow: Date = new Date()
+  referenceNow: Date = new Date(),
+  licenseOriginallyIssued?: string
 ): { ok: boolean; detail: string } {
   const vf = parseYmd(licenseValidFrom);
   const ex = parseYmd(licenseExpiry);
@@ -92,12 +95,14 @@ export function evaluateLicenseContinuity(
   }
   const twoYearsAgo = new Date(refDay);
   twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-  const fromDay = startOfDay(vf);
+  const originDate = parseYmd(licenseOriginallyIssued || "");
+  const continuityDate = originDate ?? vf;
+  const fromDay = startOfDay(continuityDate);
   if (fromDay > twoYearsAgo) {
     return {
       ok: false,
       detail:
-        "License must show continuous validity for at least the past two years (valid-from is too recent).",
+        "License must show continuous validity for at least the past two years (originally-issued date is too recent).",
     };
   }
   return { ok: true, detail: "License dates satisfy the two-year continuity rule." };
@@ -222,7 +227,8 @@ export function evaluateOperatorCompliance(
       const lic = evaluateLicenseContinuity(
         input.row.license_valid_from,
         input.row.license_expiry,
-        input.referenceNow
+        input.referenceNow,
+        input.row.license_originally_issued
       );
       if (!lic.ok) {
         reasons.push(lic.detail);

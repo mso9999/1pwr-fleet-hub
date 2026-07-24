@@ -222,10 +222,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     db.prepare(
       `INSERT INTO ehs_approved_drivers (
         id, organization_id, hr_user_id, hr_employee_id, email, display_name,
-        license_valid_from, license_expiry,
+        license_valid_from, license_expiry, license_originally_issued,
         written_test_passed_at, road_test_passed_at, eye_test_passed_at, reaction_test_passed_at,
         status, notes, created_at, updated_at, updated_by_id, updated_by_name
-      ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', '', '', 'active', '', ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', '', '', '', 'active', '', ?, ?, ?, ?)`
     ).run(
       id,
       organizationId,

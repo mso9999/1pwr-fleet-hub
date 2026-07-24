@@ -1262,6 +1262,7 @@ function migrateEhsApprovedDrivers(db: Database.Database): void {
       display_name TEXT NOT NULL DEFAULT '',
       license_valid_from TEXT NOT NULL DEFAULT '',
       license_expiry TEXT NOT NULL DEFAULT '',
+      license_originally_issued TEXT NOT NULL DEFAULT '',
       written_test_passed_at TEXT NOT NULL DEFAULT '',
       road_test_passed_at TEXT NOT NULL DEFAULT '',
       eye_test_passed_at TEXT NOT NULL DEFAULT '',
@@ -1302,6 +1303,7 @@ function migrateEhsOperatorRegister(db: Database.Database): void {
     ["attested_by_id", "TEXT NOT NULL DEFAULT ''"],
     ["attested_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["attested_at", "TEXT DEFAULT NULL"],
+    ["license_originally_issued", "TEXT NOT NULL DEFAULT ''"],
   ];
   const needBackfill = additions.some(([c]) => !has(c));
   for (const [col, def] of additions) {
