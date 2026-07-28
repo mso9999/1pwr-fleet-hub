@@ -34,6 +34,8 @@ export const DVC_VALIDITY_WINDOW_HOURS = 24;
 export interface TripReadinessInput {
   organizationId: string;
   vehicleId: string;
+  /** When supplied, only a departing checklist linked to this exact trip can satisfy the gate. */
+  tripId?: string;
   /** `local` | `field`; unknown values treated as `local`. */
   missionProfile: string | undefined;
   /** Calendar day for DVC match (YYYY-MM-DD). Defaults to UTC date of `referenceNow`. */
@@ -137,14 +139,18 @@ export function evaluateTripReadiness(
     });
   }
 
+  const tripId = String(input.tripId || "").trim();
   const dvc = db
     .prepare(
       `SELECT id, overall_pass, has_exceptions, exception_approved, check_date, valid_for_departure_on, created_at
        FROM driver_vehicle_checks
        WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing'
+         ${tripId ? "AND trip_id = ?" : ""}
        ORDER BY datetime(created_at) DESC LIMIT 1`
     )
-    .get(input.organizationId, input.vehicleId) as
+    .get(...(tripId
+      ? [input.organizationId, input.vehicleId, tripId]
+      : [input.organizationId, input.vehicleId])) as
     | {
         id: string;
         overall_pass: number;
@@ -179,9 +185,9 @@ export function evaluateTripReadiness(
   const dvcDetail = skipDvc
     ? "Not required for this mission profile (local / HQ-vicinity)."
     : !dvc
-      ? `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`
+      ? `Complete the departing trip checklist for ${vehicle.code} for ${checkDate} on the Vehicle checks page (pass all lines, or get manager approval for exceptions).`
       : !dvcPass
-        ? `Complete a departing driver checklist for ${vehicle.code} for ${checkDate} (pass all lines, or get manager approval for exceptions).`
+        ? `Complete the departing trip checklist for ${vehicle.code} for ${checkDate} (pass all lines, or get manager approval for exceptions).`
         : !dvcCurrent
           ? `The last departing checklist for ${vehicle.code} was on ${dvcCheckDay} and is outside the ${DVC_VALIDITY_WINDOW_HOURS}h validity window. Re-inspect before departing${
               plannedDay ? ` (planned departure ${plannedDay})` : ""

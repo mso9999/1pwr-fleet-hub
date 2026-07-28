@@ -15,6 +15,10 @@ import {
   localityGateRequired,
   LOCALITY_RADIUS_KM,
 } from "@/lib/locality-gate";
+import {
+  assertMissionHasPlannedTripForVehicleAllocation,
+  syncAllocatedVehicleToPlannedTrip,
+} from "@/lib/mission-checkout";
 
 /**
  * POST /api/missions/[id]/reserve-vehicle
@@ -64,6 +68,17 @@ export async function POST(
       { status: 400 }
     );
   }
+  const allocationEligibility = assertMissionHasPlannedTripForVehicleAllocation(
+    db,
+    orgId,
+    missionId
+  );
+  if (!allocationEligibility.ok) {
+    return NextResponse.json(
+      { error: allocationEligibility.error, reason: allocationEligibility.code },
+      { status: 400 }
+    );
+  }
 
   const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(vehicleId) as
     | Record<string, unknown>
@@ -105,9 +120,8 @@ export async function POST(
     );
   }
 
-  // Locality gate: if the destination is > LOCALITY_RADIUS_KM from the vehicle's
-  // current location, require a passing detailed mechanical inspection within
-  // the max-age window — or a fleet-lead override reason (8+ chars).
+  // Outside 50 km from HQ, the detailed mechanical inspection must be newer
+  // than the vehicle's most recent actual deployment.
   const destinationCode = String(mission.destination || "").trim();
   if (destinationCode) {
     const gate = localityGateRequired(db, orgId, vehicleId, destinationCode);
@@ -134,6 +148,7 @@ export async function POST(
           vehicleId,
           vehicleCode: vehicle.code,
           localityGate: { distanceKm: gate.distanceKm, radiusKm: LOCALITY_RADIUS_KM },
+          lastDeploymentAt: gate.lastDeploymentAt,
           gatesBypassed: ["mechanical_inspection_locality"],
         },
         reason: overrideReason,
@@ -228,6 +243,7 @@ export async function POST(
       `UPDATE missions SET assigned_vehicle_id = ?, assigned_at = ?, assigned_by_id = ?, assigned_by_name = ?,
        updated_at = ? WHERE id = ?`
     ).run(vehicleId, now, user.id, user.name || user.email, now, missionId);
+    syncAllocatedVehicleToPlannedTrip(db, missionId, vehicleId);
   });
 
   try {

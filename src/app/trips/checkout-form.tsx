@@ -533,24 +533,18 @@ export function TripCheckoutForm({
     setDraftNotice("Trip draft loaded. Continue editing and click Create trip when ready.");
   }
 
-  const readinessFailing = vehicleId !== "" && readiness !== null && !readiness.ok;
-  const overrideValid = canOverride && overrideEnabled && overrideReason.trim().length >= 8;
-  const submitBlocked =
-    !selectedMissionId ||
-    !vehicleId ||
-    readinessLoading ||
-    (readinessFailing && !overrideValid);
+  const submitBlocked = !selectedMissionId;
 
   return (
     <Card className="border-blue-200 bg-blue-50/30" data-tutorial="tutorial-trip-checkout-card">
       <CardHeader>
-        <CardTitle>Start trip (mission checkout)</CardTitle>
+        <CardTitle>Create planned trip from approved mission</CardTitle>
         <p className="text-sm text-zinc-500 font-normal">
-          Select an approved mission with a fleet-reserved vehicle. The vehicle cannot be changed here — ask fleet to reassign on{" "}
+          Select an approved mission and create its trip record. Fleet allocates the vehicle afterward on{" "}
           <Link href="/vehicle-requests" className="text-blue-600 underline font-medium">
             Missions
           </Link>
-          . Optional mission edits require fleet/management permission and may re-open approval.
+          . The driver checklist is completed against the allocated trip before departure.
         </p>
       </CardHeader>
       <CardContent>
@@ -593,7 +587,7 @@ export function TripCheckoutForm({
               {!missionsLoading && missions.length === 0 && (
                 <div className="mt-1 space-y-1">
                   <p className="text-xs text-amber-800">
-                    No eligible missions. You need an approved mission, active status, a reserved vehicle, and no open trip on that mission.
+                    No eligible missions. You need an approved, active mission with no open trip.
                   </p>
                   <Link
                     href="/vehicle-requests?newMission=1&returnTo=%2Ftrips"
@@ -608,8 +602,8 @@ export function TripCheckoutForm({
             {selectedMission && (
               <div className="sm:col-span-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1">
                 <div>
-                  <span className="text-zinc-500">Reserved vehicle: </span>
-                  <strong>{selectedMission.assigned_vehicle_code || selectedMission.assigned_vehicle_id}</strong>
+                  <span className="text-zinc-500">Fleet allocation: </span>
+                  <strong>{selectedMission.assigned_vehicle_code || "Pending after trip creation"}</strong>
                 </div>
                 <div>
                   <span className="text-zinc-500">Profile: </span>
@@ -715,7 +709,7 @@ export function TripCheckoutForm({
                 sentinel {missionTransportMode.replace("_", " ")} record for HR/deployment tracking.
               </div>
             ) : (
-              <Input name="odoStart" label="ODO reading (km) *" type="number" required placeholder="e.g. 271964" />
+              <Input name="odoStart" label="Planned ODO (optional)" type="number" placeholder="Confirm actual ODO at departure" />
             )}
             <Select name="departureLocation" label="Departing from *" required>
               {sites.map((s) => (
@@ -762,7 +756,7 @@ export function TripCheckoutForm({
           <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 space-y-2" data-tutorial="tutorial-trip-readiness-gates">
             {!vehicleId && (
               <p className="text-sm text-zinc-500">
-                Select an approved mission with a reserved vehicle to see trip readiness gates (driver checklist, operational status, etc.).
+                Fleet allocation follows trip creation. After allocation, complete the trip checklist; all readiness gates are enforced when departure is recorded.
               </p>
             )}
             {vehicleId && (

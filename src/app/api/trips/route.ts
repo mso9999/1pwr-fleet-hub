@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { evaluateReadinessForMissionLinkedTrip } from "@/lib/mission-deployment-readiness";
-import { assertMissionEligibleForTripCheckout } from "@/lib/mission-checkout";
-import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
+import {
+  assertMissionEligibleForTripCreation,
+  ensureUnallocatedVehicle,
+} from "@/lib/mission-checkout";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { v4 as uuidv4 } from "uuid";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
@@ -54,7 +55,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     SELECT t.*, v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model,
            m.title AS mission_title,
            m.approval_status AS mission_approval_status,
-           m.lifecycle_status AS mission_lifecycle_status
+           m.lifecycle_status AS mission_lifecycle_status,
+           (SELECT MAX(dvc.created_at)
+              FROM driver_vehicle_checks dvc
+             WHERE dvc.trip_id = t.id
+               AND lower(dvc.direction) = 'departing') AS trip_checklist_at
     FROM trips t
     LEFT JOIN vehicles v ON t.vehicle_id = v.id
     LEFT JOIN missions m ON t.mission_id = m.id
@@ -168,9 +173,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const rawVehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
   const hasVehicle = rawVehicleId.length > 0;
 
-  const overrideReasonRaw = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
-  let overrideApplied = false;
-  let missionReadiness: ReturnType<typeof evaluateReadinessForMissionLinkedTrip> | null = null;
   const missionIdRaw = typeof body.missionId === "string" ? body.missionId.trim() : "";
   const routeChangeReasonRaw =
     typeof body.routeChangeReason === "string" ? body.routeChangeReason.trim() : "";
@@ -235,14 +237,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  if (!hasVehicle && !isNonCompanyMission) {
-    return NextResponse.json(
-      {
-        error:
-          "Trip checkout requires a vehicle and an approved mission. Plan the mission, get management approval, have fleet reserve a vehicle, then check out here — or switch the mission's transport mode to public / third-party / personal vehicle (management approval required).",
-      },
-      { status: 400 }
-    );
+  if (!isNonCompanyMission && !hasVehicle) {
+    effectiveVehicleId = ensureUnallocatedVehicle(db, organizationId);
   }
 
   if (!missionIdRaw) {
@@ -254,14 +250,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const eligible = assertMissionEligibleForTripCheckout(db, organizationId, missionIdRaw);
+  const eligible = assertMissionEligibleForTripCreation(db, organizationId, missionIdRaw);
   if (!eligible.ok) {
     return NextResponse.json({ error: eligible.error, code: eligible.code }, { status: 409 });
   }
 
   const mission = db
-    .prepare("SELECT destination, trip_shape, departure_date FROM missions WHERE id = ?")
-    .get(missionIdRaw) as { destination?: string; trip_shape?: string; departure_date?: string } | undefined;
+    .prepare("SELECT destination, trip_shape, departure_date, mission_profile FROM missions WHERE id = ?")
+    .get(missionIdRaw) as {
+      destination?: string;
+      trip_shape?: string;
+      departure_date?: string;
+      mission_profile?: string;
+    } | undefined;
   const missionStops = rollout
     ? (db
         .prepare(
@@ -291,64 +292,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  missionReadiness = evaluateReadinessForMissionLinkedTrip(db, {
-    organizationId,
-    missionId: missionIdRaw,
-    vehicleId: effectiveVehicleId,
-    checkDate: now.slice(0, 10),
-    referenceNow: new Date(now),
-  });
-  if (!missionReadiness.ok) {
-    if (overrideReasonRaw.length === 0) {
-      return NextResponse.json(
-        {
-          error: "Trip readiness requirements are not met for this mission-linked checkout.",
-          gates: missionReadiness.gates,
-          missionProfile: missionReadiness.missionProfile,
-          missionBlockedReason: missionReadiness.missionBlockedReason,
-        },
-        { status: 400 },
-      );
-    }
-    if (!(await canOverridePrerequisite(db, organizationId, user.email, user.role))) {
-      return NextResponse.json(
-        {
-          error:
-            "You do not have permission to override the trip readiness gate. Ask a fleet manager or PR-credentialed approver.",
-          gates: missionReadiness.gates,
-          missionProfile: missionReadiness.missionProfile,
-        },
-        { status: 403 },
-      );
-    }
-    if (overrideReasonRaw.length < 8) {
-      return NextResponse.json(
-        {
-          error: "Provide a longer override reason (at least 8 characters) so this bypass is auditable.",
-          gates: missionReadiness.gates,
-          missionProfile: missionReadiness.missionProfile,
-        },
-        { status: 400 },
-      );
-    }
-    overrideApplied = true;
-  }
-
-  const resolvedMissionProfile = missionReadiness?.missionProfile ?? body.missionProfile ?? "local";
+  const resolvedMissionProfile = mission?.mission_profile ?? body.missionProfile ?? "local";
   const resolvedTripShape = rollout
     ? normalizeTripShape(body.tripShape || mission?.trip_shape || "one_way")
     : "one_way";
   const odoStart =
     body.odoStart === undefined || body.odoStart === null || body.odoStart === ""
-      ? null
+      ? 0
       : Number(body.odoStart);
   const defaultApprovalStatus = "auto-approved";
 
   db.prepare(`
     INSERT INTO trips (
       id, organization_id, vehicle_id, driver_id, driver_name, odo_start,
-      departure_location, destination, mission_type, mission_profile, passengers, load_out, load_in, checkout_at,
-      trip_shape,
+      departure_location, destination, mission_type, mission_profile, trip_shape,
+      passengers, load_out, load_in, checkout_at,
       authorized_driver_verified, approved_drivers, loadout_manifest,
       expected_return_at, mission_priority, approval_status, approved_by, am_allocation_ids,
       mission_id, planned_departure_date
@@ -396,38 +354,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const vehicleBefore = db.prepare("SELECT status FROM vehicles WHERE id = ?").get(rawVehicleId) as { status: string } | undefined;
-
-  db.prepare("UPDATE vehicles SET current_location = ?, status = 'deployed', updated_at = ? WHERE id = ?")
-    .run(body.destination, now, rawVehicleId);
-
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("vehicle", rawVehicleId, vehicleBefore?.status || "operational", "deployed", body.driverName || "", now);
-
-  db.prepare(
-    "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("trip", id, null, "checked-out", body.driverName || "", now);
-
-  if (overrideApplied && missionReadiness) {
-    const gates = missionReadiness.gates;
-    recordMutation(db, {
-      entityType: "trip",
-      entityId: id,
-      organizationId,
-      action: "prerequisite_override",
-      actor: actorFrom(user),
-      after: {
-        vehicleId: rawVehicleId,
-        missionId: missionIdRaw || undefined,
-        missionProfile: resolvedMissionProfile,
-        gatesBypassed: gates
-          .filter((g) => g.status !== "satisfied")
-          .map((g) => ({ id: g.id, label: g.label, detail: g.detail })),
-      },
-      reason: overrideReasonRaw,
-    });
-  }
+  ).run("trip", id, null, "planned", body.driverName || "", now);
 
   recordMutation(db, {
     entityType: "trip",
@@ -437,11 +366,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     actor: actorFrom(user),
     after: {
       missionId: missionIdRaw,
-      vehicleId: rawVehicleId,
+      vehicleId: effectiveVehicleId,
       driverName: body.driverName || "",
       destination: body.destination || "",
       departureLocation: body.departureLocation || "",
-      prerequisiteOverride: overrideApplied,
+      allocationStatus: isNonCompanyMission || hasVehicle ? "allocated" : "pending_fleet",
       tripShape: resolvedTripShape,
       stopPlanChanged,
     },

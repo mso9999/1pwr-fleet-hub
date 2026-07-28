@@ -20,7 +20,11 @@ export interface MissionTripReadinessResult {
  * treated as satisfied — the fleet lead already authorized the allocation
  * without a fresh inspection, so we don't force a second override at checkout.
  */
-function hasRecentLocalityOverride(db: Database.Database, missionId: string): boolean {
+function hasRecentLocalityOverride(
+  db: Database.Database,
+  missionId: string,
+  afterTimestamp: string | null
+): boolean {
   const row = db
     .prepare(
       `SELECT 1 FROM record_mutation_log
@@ -28,9 +32,10 @@ function hasRecentLocalityOverride(db: Database.Database, missionId: string): bo
          AND action = 'prerequisite_override'
          AND after_json LIKE '%mechanical_inspection_locality%'
          AND datetime(created_at) >= datetime('now', '-7 days')
+         AND (? IS NULL OR datetime(created_at) > datetime(?))
        LIMIT 1`
     )
-    .get(missionId) as { 1: number } | undefined;
+    .get(missionId, afterTimestamp, afterTimestamp) as { 1: number } | undefined;
   return !!row;
 }
 
@@ -56,7 +61,7 @@ export function evaluateReadinessForMissionLinkedTrip(
   const m = db
     .prepare(
       `SELECT id, approval_status, assigned_vehicle_id, mission_profile, lifecycle_status,
-              departure_date, return_date, transport_mode, destination,
+              departure_date, return_date, transport_mode, destination, trip_id,
               assets_being_moved, linked_manifest_ids
        FROM missions WHERE id = ? AND organization_id = ?`
     )
@@ -71,6 +76,7 @@ export function evaluateReadinessForMissionLinkedTrip(
         return_date: string;
         transport_mode?: string | null;
         destination?: string | null;
+        trip_id?: string | null;
         assets_being_moved?: number | null;
         linked_manifest_ids?: string | null;
       }
@@ -163,7 +169,22 @@ export function evaluateReadinessForMissionLinkedTrip(
   }
 
   const assigned = String(m.assigned_vehicle_id || "").trim();
-  if (!assigned || assigned !== input.vehicleId) {
+  if (!assigned) {
+    gates.push({
+      id: "mission_vehicle",
+      label: "Fleet vehicle allocation",
+      status: "blocked",
+      detail: "Fleet has not allocated a physical vehicle to this trip.",
+    });
+    return {
+      ok: false,
+      gates,
+      missionProfile: String(m.mission_profile || MISSION_PROFILE.LOCAL),
+      missionBlockedReason: "no_reserved_vehicle",
+      transportMode,
+    };
+  }
+  if (assigned !== input.vehicleId) {
     gates.push({
       id: "mission_vehicle",
       label: "Reserved vehicle",
@@ -190,26 +211,25 @@ export function evaluateReadinessForMissionLinkedTrip(
   const missionCalendarEndDay = missionWindowEndDate(String(m.departure_date || ""), m.return_date) || undefined;
   const plannedDepartureDate = String(m.departure_date || "").slice(0, 10) || undefined;
 
-  // Locality-aware mechanical inspection gate: re-enabled conditionally.
-  // The gate runs at checkout/departure only when the destination is beyond
-  // LOCALITY_RADIUS_KM from the vehicle's current location AND no passing
-  // detailed inspection is on file AND there's no recent fleet-lead locality
-  // override on the mission (which already authorized the allocation).
+  // Outside 50 km from HQ, require an inspection newer than the vehicle's
+  // latest actual deployment. An override must also be newer than deployment.
   const destinationCode = String(m.destination || "").trim();
-  let skipMechanicalInspection = true;
+  let mechanicalInspectionSatisfied = true;
   let localityGateNote = "";
   if (destinationCode) {
-    const gate = localityGateRequired(db, input.organizationId, input.vehicleId, destinationCode, input.referenceNow);
+    const gate = localityGateRequired(db, input.organizationId, input.vehicleId, destinationCode);
     if (gate.required && !gate.inspectionOnFile) {
-      const overrideOnFile = hasRecentLocalityOverride(db, input.missionId);
-      if (!overrideOnFile) {
-        skipMechanicalInspection = false;
-      }
+      const overrideOnFile = hasRecentLocalityOverride(
+        db,
+        input.missionId,
+        gate.lastDeploymentAt
+      );
+      mechanicalInspectionSatisfied = overrideOnFile;
       localityGateNote = overrideOnFile
-        ? `Mechanical inspection locality gate: ${Math.round(gate.distanceKm ?? 0)} km (beyond locality); satisfied by recent fleet-lead override.`
+        ? `Mechanical inspection gate: ${Math.round(gate.distanceKm ?? 0)} km from HQ; satisfied by a fleet-lead override recorded after the vehicle's last deployment.`
         : gate.reason;
-    } else if (gate.required && gate.inspectionOnFile) {
-      localityGateNote = `Mechanical inspection locality gate: ${Math.round(gate.distanceKm ?? 0)} km (beyond locality); passing detailed inspection on file.`;
+    } else if (gate.required) {
+      localityGateNote = gate.reason;
     }
   }
 
@@ -227,11 +247,12 @@ export function evaluateReadinessForMissionLinkedTrip(
   const r = evaluateTripReadiness(db, {
     organizationId: input.organizationId,
     vehicleId: input.vehicleId,
+    tripId: String(m.trip_id || "").trim() || undefined,
     missionProfile: m.mission_profile,
     checkDate: input.checkDate,
     referenceNow: input.referenceNow,
     skipDriverChecklist: skipDvc,
-    skipMechanicalInspection,
+    skipMechanicalInspection: true,
     missionCalendarEndDay,
     plannedDepartureDate,
     assetsBeingMoved,
@@ -243,11 +264,16 @@ export function evaluateReadinessForMissionLinkedTrip(
   if (localityGateNote) {
     r.gates.push({
       id: "locality_mechanical",
-      label: "Mechanical inspection (locality)",
-      status: skipMechanicalInspection ? "satisfied" : "blocked",
+      label: "Mechanical inspection (outside 50 km from HQ)",
+      status: mechanicalInspectionSatisfied ? "satisfied" : "blocked",
       detail: localityGateNote,
     });
   }
 
-  return { ok: r.ok, gates: r.gates, missionProfile: r.missionProfile, transportMode };
+  return {
+    ok: r.ok && mechanicalInspectionSatisfied,
+    gates: r.gates,
+    missionProfile: r.missionProfile,
+    transportMode,
+  };
 }

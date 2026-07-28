@@ -338,7 +338,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [passengerManifest, setPassengerManifest] = useState<ManifestPassenger[]>([]);
-  const [selectedTripId, setSelectedTripId] = useState<string>("");
+  const [selectedTripId, setSelectedTripId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return new URL(window.location.href).searchParams.get("tripId") ?? "";
+  });
   const [eligibleTrips, setEligibleTrips] = useState<EligibleTrip[]>([]);
   const [eligibleTripsLoading, setEligibleTripsLoading] = useState(false);
   const [eligibleTripsError, setEligibleTripsError] = useState<string>("");

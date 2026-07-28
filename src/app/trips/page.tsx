@@ -42,6 +42,7 @@ interface TripRow {
   checkin_at: string | null;
   planned_departure_date?: string | null;
   departed_at?: string | null;
+  trip_checklist_at?: string | null;
   departure_confirmed_by_name?: string | null;
   departure_discrepancy?: string | null;
   issues_observed: string;
@@ -66,6 +67,13 @@ function tripShapeLabel(shape?: string): string {
   if (s === "round_trip") return "Round trip";
   if (s === "multi_stop") return "Multi-stop";
   return "One-way";
+}
+
+function isPendingFleetAllocation(trip: TripRow): boolean {
+  return (
+    String(trip.vehicle_code || "").toUpperCase() === "UNALLOCATED" ||
+    String(trip.vehicle_id || "").startsWith("unallocated_")
+  );
 }
 
 interface ParsedDiscrepancy {
@@ -307,11 +315,11 @@ function TripsPageContent(): React.ReactElement {
         data-tutorial="tutorial-trips-loadout-manifests"
       >
         <span className="font-medium text-zinc-800">Trip readiness: </span>
-        Every check-out is tied to an <strong>approved mission</strong> with a <strong>fleet-reserved vehicle</strong>. Create and approve the mission on{" "}
+        The progression is <strong>mission submitted → PM approval → trip created → Fleet vehicle allocation → trip checklist → departure</strong>. Create and approve the mission on{" "}
         <Link href="/vehicle-requests" className="text-blue-600 underline font-medium">Missions</Link>
-        {" "}first, then reserve the vehicle, then start the trip here. If you change mission parameters while checking out, management may need to re-approve.
-        <strong> Local</strong> missions skip the departing driver checklist; <strong>field</strong> missions require today&apos;s{" "}
-        <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">departing driver checklist</Link>.
+        , create the planned trip here, then Fleet allocates a vehicle. Company-vehicle trips require a{" "}
+        <Link href="/vehicle-checks" className="text-blue-600 underline font-medium">departing trip checklist</Link>.
+        Destinations outside 50 km from HQ also require a passing mechanical inspection newer than that vehicle&apos;s last deployment before allocation.
         If the reserved unit is not operational, fleet can place the mission on <strong>checkout hold</strong> (management is alerted).{" "}
         <span className="font-medium text-zinc-800">Daily ODO: </span>
         While a trip is active, log typed odometer readings and optional gauge photos below each trip — no WhatsApp group needed.
@@ -369,7 +377,7 @@ function TripsPageContent(): React.ReactElement {
                   <div className="flex items-center justify-between p-4">
                     <div>
                       <div className="flex items-center gap-2 font-medium flex-wrap">
-                        {trip.vehicle_code ? (
+                        {!isPendingFleetAllocation(trip) && trip.vehicle_code ? (
                           <Badge variant="info">{trip.vehicle_code}</Badge>
                         ) : (
                           <Badge variant="secondary">Pending allocation</Badge>
@@ -391,7 +399,7 @@ function TripsPageContent(): React.ReactElement {
                       <div className="text-xs text-zinc-400 mt-1">
                         Driver: {trip.driver_name || "—"}
                         {trip.odo_start != null ? ` · ODO: ${Number(trip.odo_start).toLocaleString()} km` : ""}
-                        · Checked out: {new Date(trip.checkout_at).toLocaleString()}
+                        · Trip created: {new Date(trip.checkout_at).toLocaleString()}
                         {trip.departed_at
                           ? ` · Departed: ${new Date(trip.departed_at).toLocaleString()}`
                           : " · Departed: pending"}
@@ -415,7 +423,7 @@ function TripsPageContent(): React.ReactElement {
                         );
                       })()}
                     </div>
-                    {trip.vehicle_code ? (
+                    {!isPendingFleetAllocation(trip) && trip.vehicle_code ? (
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {!trip.departed_at && (() => {
                           const b = missionGateBadge(trip);
@@ -425,6 +433,17 @@ function TripsPageContent(): React.ReactElement {
                             </Badge>
                           ) : null;
                         })()}
+                        {!trip.departed_at && !trip.trip_checklist_at && (
+                          <Link
+                            href={`/vehicle-checks?vehicleId=${encodeURIComponent(String(trip.vehicle_id || ""))}&tripId=${encodeURIComponent(trip.id)}&returnTo=${encodeURIComponent(`/trips?trip=${trip.id}`)}`}
+                            className="inline-flex h-9 items-center rounded-md border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                          >
+                            Complete trip checklist
+                          </Link>
+                        )}
+                        {!trip.departed_at && trip.trip_checklist_at && (
+                          <Badge variant="success" className="text-[10px]">Checklist complete</Badge>
+                        )}
                         {!trip.departed_at && (
                           <Button size="sm" variant="outline" onClick={() => setDepartTrip(trip)}>
                             Start trip
@@ -701,7 +720,11 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
         className={`border-b border-zinc-100 cursor-pointer hover:bg-zinc-50 scroll-mt-24 ${isExpanded ? "bg-blue-50/50" : ""}`}
         onClick={onToggle}
       >
-        <td className="py-2.5 pr-3 font-medium">{trip.vehicle_code || <span className="text-zinc-400 italic">pending</span>}</td>
+        <td className="py-2.5 pr-3 font-medium">
+          {isPendingFleetAllocation(trip)
+            ? <span className="text-zinc-400 italic">pending Fleet allocation</span>
+            : trip.vehicle_code || <span className="text-zinc-400 italic">pending</span>}
+        </td>
         <td className="py-2.5 pr-3 text-zinc-600">{trip.departure_location} → {trip.arrival_location || trip.destination}</td>
         <td className="py-2.5 pr-3 hidden sm:table-cell text-zinc-600">{trip.driver_name || "—"}</td>
         <td className="py-2.5 pr-3 hidden md:table-cell text-zinc-600 capitalize">{(trip.mission_type || "").replace(/-/g, " ")}</td>

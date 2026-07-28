@@ -124,9 +124,8 @@ export async function POST(
     // The mission_approval gate is policy-hard: vehicles must not be deployed
     // without the mission getting logged and approved. An approver cannot
     // override a non-approved mission — they have to approve the mission
-    // first. Other gates (DVC freshness, mechanical, etc.) keep their
-    // override path because those are operational checks where a reasoned
-    // bypass is legitimate.
+    // first. The trip-linked checklist is also policy-hard: exceptions may
+    // be approved, but the checklist itself cannot be skipped.
     const missionApprovalGate = readiness.gates.find(
       (g) => g.id === "mission_approval" && g.status !== "satisfied"
     );
@@ -142,14 +141,33 @@ export async function POST(
         { status: 403 }
       );
     }
+    const tripChecklistGate = readiness.gates.find(
+      (g) => g.id === "driver_checklist" && g.status !== "satisfied"
+    );
+    if (tripChecklistGate) {
+      return NextResponse.json(
+        {
+          error:
+            "Complete the departing checklist linked to this trip before departure. This gate cannot be overridden.",
+          gates: readiness.gates,
+          missionProfile: readiness.missionProfile,
+          reason: "trip_checklist_required_no_override",
+        },
+        { status: 400 }
+      );
+    }
     // mission_lifecycle and mission (not-found) gates are also policy-hard.
     const missionBlocked = String(readiness.missionBlockedReason || "");
-    if (missionBlocked && missionBlocked !== "vehicle_mismatch") {
+    if (missionBlocked) {
       return NextResponse.json(
         {
           error:
             missionBlocked === "not_found"
               ? "Mission not found for this organization. Dispatch must log a mission before departure."
+              : missionBlocked === "no_reserved_vehicle"
+                ? "Fleet must allocate a physical vehicle to this trip before the checklist and departure steps."
+                : missionBlocked === "vehicle_mismatch"
+                  ? "The trip vehicle does not match Fleet's mission allocation. Correct the allocation before departure."
               : `Mission lifecycle is ${missionBlocked}. Only active missions can deploy — this gate cannot be overridden.`,
           gates: readiness.gates,
           missionProfile: readiness.missionProfile,
@@ -233,8 +251,29 @@ export async function POST(
   }
   setValues.push(id);
 
+  const vehicleBefore = db.prepare("SELECT status FROM vehicles WHERE id = ?").get(vehicleId) as
+    | { status: string }
+    | undefined;
+  const destination = String(trip.destination || "");
+
   const tx = db.transaction(() => {
     db.prepare(`UPDATE trips SET ${setClauses.join(", ")} WHERE id = ?`).run(...setValues);
+
+    db.prepare(
+      "UPDATE vehicles SET current_location = ?, status = 'deployed', updated_at = ? WHERE id = ?"
+    ).run(destination, now, vehicleId);
+    db.prepare(
+      `INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "vehicle",
+      vehicleId,
+      vehicleBefore?.status || "operational",
+      "deployed",
+      user.name || user.email,
+      now,
+      overrideApplied ? `departure override: ${overrideReason}` : ""
+    );
 
     db.prepare(
       `INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at, reason)
@@ -242,7 +281,7 @@ export async function POST(
     ).run(
       "trip",
       id,
-      "checked-out",
+      "planned",
       "departed",
       user.name || user.email,
       now,

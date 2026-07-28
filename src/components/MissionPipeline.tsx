@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
  * requesters can see "where is this mission" without jumping between
  * /vehicle-requests, /trips, and /vehicle-checks.
  *
- * Steps: Draft → Pending approval → Approved → Vehicle reserved →
- *         Checked out → Departed → Checked in.
+ * Steps: Draft → Submitted → Approved → Trip created → Vehicle allocated →
+ *         Checklist complete → Departed → Checked in.
  */
 
 export interface MissionPipelineData {
@@ -28,6 +28,7 @@ export interface MissionPipelineData {
   assigned_vehicle_code?: string | null;
   trip_id?: string | null;
   trip_checkout_at?: string | null;
+  trip_checklist_at?: string | null;
   trip_departed_at?: string | null;
   trip_checkin_at?: string | null;
   rejection_reason?: string;
@@ -66,16 +67,22 @@ const STEPS: StepDef[] = [
       String(m.approval_status || "").toLowerCase() === "approved" ? m.approved_at || "" : null,
   },
   {
-    key: "reserved",
-    label: "Vehicle reserved",
+    key: "trip_created",
+    label: "Trip created",
+    reached: (m) => m.trip_checkout_at || null,
+    href: (m) => (m.trip_id ? `/trips?trip=${encodeURIComponent(m.trip_id)}` : `/trips?mission=${encodeURIComponent(m.id)}`),
+  },
+  {
+    key: "allocated",
+    label: "Vehicle allocated",
     reached: (m) => m.assigned_at || null,
     href: (m) => `/trips?mission=${encodeURIComponent(m.id)}`,
   },
   {
-    key: "checked_out",
-    label: "Checked out",
-    reached: (m) => m.trip_checkout_at || null,
-    href: (m) => (m.trip_id ? `/trips?trip=${encodeURIComponent(m.trip_id)}` : `/trips?mission=${encodeURIComponent(m.id)}`),
+    key: "checklist",
+    label: "Checklist complete",
+    reached: (m) => m.trip_checklist_at || null,
+    href: (m) => (m.trip_id ? `/trips?trip=${encodeURIComponent(m.trip_id)}` : undefined),
   },
   {
     key: "departed",
@@ -193,16 +200,19 @@ export function MissionLifecycleTimeline({ mission }: { mission: MissionPipeline
       detail: approval === "rejected" && mission.rejection_reason ? mission.rejection_reason : undefined,
     });
   }
+  if (mission.trip_checkout_at) {
+    events.push({ label: "Trip created", at: mission.trip_checkout_at });
+  }
   if (mission.assigned_at) {
     events.push({
-      label: "Vehicle reserved",
+      label: "Vehicle allocated",
       at: mission.assigned_at,
       actor: mission.assigned_by_name,
       detail: mission.assigned_vehicle_code ? `Vehicle ${mission.assigned_vehicle_code}` : undefined,
     });
   }
-  if (mission.trip_checkout_at) {
-    events.push({ label: "Trip checked out", at: mission.trip_checkout_at });
+  if (mission.trip_checklist_at) {
+    events.push({ label: "Trip checklist completed", at: mission.trip_checklist_at });
   }
   if (mission.trip_departed_at) {
     events.push({ label: "Departed", at: mission.trip_departed_at });

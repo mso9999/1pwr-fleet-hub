@@ -168,7 +168,10 @@ export function VehicleChecksPageContent() {
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URL(window.location.href).searchParams.has("vehicleId");
+  });
   const searchParams = useSearchParams();
   const returnTo = searchParams.get("returnTo") || "";
 

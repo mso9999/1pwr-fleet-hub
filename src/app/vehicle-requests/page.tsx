@@ -515,6 +515,11 @@ function FleetMissionReserveRow({
 
   useEffect(() => {
     let cancelled = false;
+    if (!m.trip_id) {
+      return () => {
+        cancelled = true;
+      };
+    }
     setLoading(true);
     setErr("");
     void (async () => {
@@ -530,7 +535,7 @@ function FleetMissionReserveRow({
     return () => {
       cancelled = true;
     };
-  }, [m.id]);
+  }, [m.id, m.trip_id]);
 
   const assigned = !!(m.assigned_vehicle_id || m.assigned_vehicle_code);
   const inactive = m.lifecycle_status && m.lifecycle_status !== "active";
@@ -577,11 +582,27 @@ function FleetMissionReserveRow({
     );
   }
 
+  if (!m.trip_id) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2 text-xs">
+        <span className="text-amber-800">
+          Trip creation is the next step; Fleet allocation unlocks afterward.
+        </span>
+        <Link
+          href={`/trips?mission=${encodeURIComponent(m.id)}`}
+          className="font-medium text-blue-700 underline"
+        >
+          Create trip
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2 pt-1 border-t border-zinc-100">
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[200px] flex-1">
-          <label className="text-xs font-medium text-zinc-600 block mb-1">Reserve vehicle</label>
+          <label className="text-xs font-medium text-zinc-600 block mb-1">Allocate vehicle</label>
           <select
             value={vehicleId}
             onChange={(e) => setVehicleId(e.target.value)}
@@ -609,7 +630,7 @@ function FleetMissionReserveRow({
               return (
                 <p className="mt-1 text-[11px] text-amber-800">
                   {sel.localityReason ||
-                    `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km away (>50 km locality). A passing detailed mechanical inspection within the last 14 days is required, or enter an override reason below.`}
+                    `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). A passing detailed mechanical inspection newer than this vehicle's last deployment is required, or enter an override reason below.`}
                 </p>
               );
             }
@@ -624,7 +645,7 @@ function FleetMissionReserveRow({
           })()}
         </div>
         <Button type="button" size="sm" disabled={!vehicleId || saving} onClick={() => void reserve()} className="touch-manipulation">
-          {saving ? "Saving…" : "Reserve"}
+          {saving ? "Saving…" : "Allocate"}
         </Button>
       </div>
       <div>
@@ -635,7 +656,7 @@ function FleetMissionReserveRow({
           type="text"
           value={overrideReason}
           onChange={(e) => setOverrideReason(e.target.value)}
-          placeholder="Required when: overlapping reservation, registration disc past mission end, or vehicle allocated >50km from destination without a fresh mechanical inspection"
+          placeholder="Required when: overlapping reservation, registration disc past mission end, or an outside-50-km allocation lacks a post-deployment mechanical inspection"
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
       </div>
@@ -1010,9 +1031,9 @@ export default function VehicleRequestsPage() {
       {canAllocateVehicle && approvedMissionsFleet.filter((m) => !m.lifecycle_status || m.lifecycle_status === "active").length > 0 && (
         <Card className="border-emerald-100 bg-emerald-50/20" data-tutorial="tutorial-vr-fleet-reserve">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Fleet: reserve vehicles on approved missions</CardTitle>
+            <CardTitle className="text-base">Fleet: allocate vehicles after trip creation</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
-              Pick a candidate that matches the mission dates and required class. Today’s departures only allow operational vehicles; future dates allow additional statuses per policy.
+              Approved missions appear here immediately. Create the trip first, then Fleet picks a vehicle matching the dates and required class.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">

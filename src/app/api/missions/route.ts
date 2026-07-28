@@ -84,12 +84,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     SELECT m.id, m.organization_id, m.title, m.destination, m.departure_location, m.departure_date, m.return_date, m.mission_type,
            m.passengers, m.crew_size, m.personnel_manifest, m.loadout_summary, m.notes, m.status, m.trip_id,
            m.approval_status, m.approved_by_name, m.approved_at, m.rejection_reason,
-           m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.rr_status,
+           m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.transport_mode, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
            m.assets_being_moved, m.linked_manifest_ids,
            m.created_by_id, m.created_by_name, m.created_at, m.updated_at,
            v.code AS assigned_vehicle_code,
-           t.checkout_at AS trip_checkout_at, t.departed_at AS trip_departed_at, t.checkin_at AS trip_checkin_at,
+           t.checkout_at AS trip_checkout_at,
+           (SELECT MAX(dvc.created_at)
+              FROM driver_vehicle_checks dvc
+             WHERE dvc.trip_id = t.id
+               AND lower(dvc.direction) = 'departing') AS trip_checklist_at,
+           t.departed_at AS trip_departed_at, t.checkin_at AS trip_checkin_at,
            t.destination AS trip_destination, t.departure_location AS trip_departure_location
     FROM missions m
     LEFT JOIN vehicles v ON m.assigned_vehicle_id = v.id
@@ -112,10 +117,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (tripCheckoutEligible) {
     sql += ` AND lower(COALESCE(m.approval_status,'')) = 'approved'
              AND lower(COALESCE(m.lifecycle_status,'active')) = 'active'
-             AND (
-               trim(COALESCE(m.assigned_vehicle_id,'')) != ''
-               OR lower(COALESCE(m.transport_mode,'company_vehicle')) IN ('public_transport','third_party','personal_vehicle')
-             )
              AND (
                m.trip_id IS NULL
                OR EXISTS (SELECT 1 FROM trips t WHERE t.id = m.trip_id AND t.checkin_at IS NOT NULL)

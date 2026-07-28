@@ -1,6 +1,6 @@
 {
   "name": "fleet-hub",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,6 +15,7 @@
     "test:registration-disc": "tsx scripts/test-registration-disc.ts",
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",
     "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts",
+    "test:mission-trip-progression": "tsx scripts/test-mission-trip-progression.ts",
     "test:stragglers-public-transport": "tsx scripts/test-stragglers-and-public-transport.ts"
   },
   "dependencies": {

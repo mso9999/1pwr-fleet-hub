@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-trip-allocation-checklist-progression",
+    title: "Mission-to-departure steps now follow the operational sequence",
+    summary:
+      "Trips are created only after PM approval, Fleet allocates the vehicle to the planned trip, and a trip-linked checklist is mandatory before departure.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-07-28",
+    appVersion: "0.4.9",
+    pages: [
+      {
+        title: "The required progression",
+        bodyMd:
+          "The workflow is now **mission submitted → PM approval → trip created → Fleet vehicle allocation → trip checklist → departure**. Creating a planned trip no longer marks a vehicle as deployed. Fleet allocation is unavailable until the approved mission has a trip, and the vehicle changes to **deployed** only when departure is recorded.",
+      },
+      {
+        title: "Inspection and checklist controls",
+        bodyMd:
+          "For a destination outside **50 km from HQ**, Fleet must use a vehicle with a passing detailed mechanical inspection newer than that vehicle's last deployment (or record an authorized, auditable override). The departing checklist must be linked to the **exact trip** and cannot be skipped at departure.",
+      },
+    ],
+  },
+  {
     slug: "repairs-pipeline-and-pr-status",
     title: "Repairs pipeline board, live PR status, and parts you can actually edit",
     summary:
