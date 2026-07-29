@@ -40,11 +40,15 @@ export function isHrDepartment(department: string | null | undefined): boolean {
   return /\bhr\b/i.test(d) || /\bhuman\s+resources\b/i.test(d);
 }
 
-/** IT department (word match, also matches "IT Support" and "Information Technology"). */
+/** IS&T department, including legacy IT labels during the naming transition. */
 export function isItDepartment(department: string | null | undefined): boolean {
   const d = String(department ?? "").trim();
   if (!d) return false;
-  return /\bit\b/i.test(d) || /\binformation\s+technology\b/i.test(d);
+  return (
+    /\bit\b/i.test(d) ||
+    /\bis\s*&\s*t\b/i.test(d) ||
+    /\binformation\s+(?:systems?\s+(?:and|&)\s+)?technology\b/i.test(d)
+  );
 }
 
 /** Data Protection Officer (department or role title carries DPO). */
@@ -138,7 +142,7 @@ export function canSignOffVehicleStatus(role: string): boolean {
  * Private mission/trip draft visibility policy:
  * - creator can always view/edit own drafts
  * - admin/superadmin can view/edit all drafts
- * - IT department can view/edit all drafts
+ * - IS&T department can view all drafts for diagnosis, but cannot edit them
  * - fleet manager roles (fleet_lead, manager) do NOT get access by role alone
  */
 export function canViewPrivateDraft(args: {
@@ -157,5 +161,7 @@ export function canEditPrivateDraft(args: {
   department?: string | null;
   isCreator: boolean;
 }): boolean {
-  return canViewPrivateDraft(args);
+  if (args.isCreator) return true;
+  const role = (args.role || "").toLowerCase();
+  return role === "admin" || role === "superadmin";
 }

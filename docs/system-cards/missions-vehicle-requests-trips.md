@@ -15,6 +15,8 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 | Legacy assign via vehicle request | `POST /api/vehicle-requests/[id]/assign` — when `mission_id` is set, mirrors mission reservation rules |
 | **Arbitrate** capacity (defer / cancel / reactivate lifecycle) | **Management** cohort with `canArbitrateMissionCapacity` — explicitly **not** fleet lead acting alone |
 | Create an operational **trip** (checkout) | Authenticated user (`POST /api/trips`); optional `missionId` with readiness gates when mission-linked |
+| View a private draft for support | Draft creator, admin/superadmin, or an **IS&T** department user. IS&T visibility is diagnostic and read-only. |
+| Edit/delete a private draft | Draft creator or admin/superadmin only. IS&T does not inherit the creator's authority. |
 
 ## Lifecycle
 
@@ -22,6 +24,13 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 2. **Vehicle request** (optional queue row) — After the mission is **approved**, an **approved driver** may submit a request linked with `missionId` (purpose, priority, etc.). Required class can be inherited from the mission.
 3. **Vehicle reservation** — Fleet team lead reserves on the mission (`vehicle_reservations` + `missions.assigned_vehicle_id`). Date overlap is blocked unless a manager provides `overrideReason` (logged).
 4. **Trip** — Operational checkout on `/trips` (concrete vehicle, odometer, readiness). May reference `missionId`; mission-linked readiness is enforced when applicable.
+
+## IS&T support boundary
+
+- Current and legacy department labels (`IS&T`, `IS & T`, `Information Systems and Technology`, `IT`, and `Information Technology`) are recognized during the naming transition.
+- IS&T can inspect private mission and trip drafts to reproduce a support issue.
+- IS&T cannot submit, alter, or delete another user's private draft merely because it is visible.
+- Any Fleet mutation still requires the actor's own Fleet role, department rule, or named capability. View As and diagnostic visibility never supply write authority.
 
 ## Data
 

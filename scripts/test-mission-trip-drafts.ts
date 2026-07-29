@@ -1,5 +1,9 @@
 import { getDb, ensureMissionsTableAndVehicleRequestMissionId } from "../src/lib/db";
-import { canViewPrivateDraft } from "../src/lib/fleet-roles";
+import {
+  canEditPrivateDraft,
+  canViewPrivateDraft,
+  isItDepartment,
+} from "../src/lib/fleet-roles";
 
 /**
  * Lightweight schema/ACL smoke-check for mission/trip draft workflow.
@@ -36,8 +40,31 @@ function main(): void {
       ok: canViewPrivateDraft({ role: "admin", department: "", isCreator: false }),
     },
     {
-      label: "IT can view",
+      label: "legacy IT can view",
       ok: canViewPrivateDraft({ role: "driver", department: "IT Support", isCreator: false }),
+    },
+    {
+      label: "IS&T can view",
+      ok: canViewPrivateDraft({ role: "driver", department: "IS&T", isCreator: false }),
+    },
+    {
+      label: "IS&T naming variants are recognized",
+      ok:
+        isItDepartment("IS & T") &&
+        isItDepartment("Information Systems and Technology") &&
+        isItDepartment("Information Technology"),
+    },
+    {
+      label: "IS&T cannot edit another user's draft",
+      ok: !canEditPrivateDraft({ role: "driver", department: "IS&T", isCreator: false }),
+    },
+    {
+      label: "creator can edit",
+      ok: canEditPrivateDraft({ role: "driver", department: "", isCreator: true }),
+    },
+    {
+      label: "admin can edit",
+      ok: canEditPrivateDraft({ role: "admin", department: "", isCreator: false }),
     },
     {
       label: "fleet_lead cannot view by role alone",

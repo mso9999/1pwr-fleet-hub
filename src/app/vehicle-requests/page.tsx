@@ -2477,7 +2477,7 @@ function RequestForm({
     if (res.ok) {
       setMissionMessage(
         saveAsDraft
-          ? "Mission draft saved. Only you, admins, and IT can view/edit it until submission."
+          ? "Mission draft saved. Only you and admins can edit it until submission; IS&T may view it for diagnosis."
           : "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
       );
       e.currentTarget.reset();

@@ -494,7 +494,7 @@ export function TripCheckoutForm({
     const row = (await res.json()) as TripDraftRow;
     const nextId = String(row.id || "");
     setActiveDraftId(nextId || null);
-    setDraftNotice("Trip draft saved. Only you, admins, and IT can view/edit it.");
+    setDraftNotice("Trip draft saved. Only you and admins can edit it; IS&T may view it for diagnosis.");
     const headers = await jsonHeadersWithBearer();
     const listRes = await fetch(
       `/api/trips?org=${encodeURIComponent(organizationId)}&drafts=true`,
