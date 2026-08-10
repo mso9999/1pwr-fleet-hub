@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, firestore } from "@/lib/firebase";
+import PrivilegeDenialOverlay from "@/components/PrivilegeDenialOverlay";
 
 interface FleetUser {
   id: string;
@@ -241,6 +242,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         signOut: handleSignOut,
       }}
     >
+      <PrivilegeDenialOverlay user={user} />
       {children}
     </AuthContext.Provider>
   );
