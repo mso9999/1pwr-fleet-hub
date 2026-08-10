@@ -7,8 +7,8 @@ import { currentDeploymentForEmployee } from "@/lib/deployments";
  * GET /api/deployments/current?employee_id=1PWR0159F
  *
  * Returns the employee's currently-active field deployment — the most recent
- * departing driver vehicle check that lists them on the passenger manifest and
- * whose linked trip has departed but not yet been checked in.
+ * departing driver vehicle check that identifies them as driver or passenger
+ * and whose linked trip has departed but not yet been checked in.
  *
  * Auth: X-API-Key: <FLEET_HR_API_KEY> (optionally IP-allow-listed).
  */

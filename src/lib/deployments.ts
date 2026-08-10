@@ -4,8 +4,9 @@ import type Database from "better-sqlite3";
  * Field-deployment query layer for HR-facing APIs.
  *
  * A "field deployment" for an employee = a departing driver vehicle check
- * whose passenger manifest references the employee by HR employee_id, joined
- * to its trip (via dvc.trip_id) for the actual departure / return timestamps.
+ * where the employee is either the driver or appears in the passenger
+ * manifest, joined to its trip (via dvc.trip_id) for the actual departure /
+ * return timestamps.
  *
  * The `deployment_start_date` HR treats as canonical is the trip's
  * `departed_at` (the moment the vehicle physically left), falling back to
@@ -53,6 +54,8 @@ interface DeploymentRow {
   passenger_manifest: string | null;
   overall_pass: number;
   direction: string;
+  driver_hr_employee_id: string | null;
+  registered_driver_employee_id: string | null;
   vehicle_code: string | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
@@ -264,8 +267,8 @@ function publicTransportRowToDeployment(
  * to a [from, to] date range (inclusive) on `check_date`.
  *
  * Three sources are merged:
- *   1. Driver-vehicle-check (DVC) passenger manifests where the employee
- *      rode on the company vehicle (`source: "driver_vehicle_check"`).
+ *   1. Driver-vehicle-checks (DVCs) where the employee was the driver or rode
+ *      on the company vehicle (`source: "driver_vehicle_check"`).
  *   2. Mission personnel manifests where the employee is marked
  *      `travel_mode = "straggler_public_transport"` — they missed the
  *      company-vehicle departure and travelled to the site separately via
@@ -295,15 +298,27 @@ export function listDeploymentsForEmployee(
   let sql = `
     SELECT dvc.id as inspection_id, dvc.organization_id, dvc.vehicle_id, dvc.check_date,
            dvc.created_at, dvc.passenger_manifest, dvc.overall_pass, dvc.direction,
+           dvc.driver_hr_employee_id,
+           ead.hr_employee_id AS registered_driver_employee_id,
            v.code as vehicle_code, v.make as vehicle_make, v.model as vehicle_model, v.license_plate,
            t.id as trip_id, t.departed_at, t.checkin_at, t.checkout_at, t.destination, t.departure_location
     FROM driver_vehicle_checks dvc
     JOIN vehicles v ON dvc.vehicle_id = v.id
     LEFT JOIN trips t ON dvc.trip_id = t.id
+    LEFT JOIN ehs_approved_drivers ead
+      ON ead.id = dvc.driver_id AND ead.organization_id = dvc.organization_id
     WHERE dvc.direction = 'departing'
-      AND dvc.passenger_manifest LIKE ?
+      AND (
+        dvc.driver_hr_employee_id = ?
+        OR ead.hr_employee_id = ?
+        OR dvc.passenger_manifest LIKE ?
+      )
   `;
-  const params: unknown[] = [`%"employee_id":"${input.employeeId}"%`];
+  const params: unknown[] = [
+    input.employeeId,
+    input.employeeId,
+    `%"employee_id":"${input.employeeId}"%`,
+  ];
   if (input.from) {
     sql += " AND dvc.check_date >= ?";
     params.push(input.from);
@@ -318,7 +333,10 @@ export function listDeploymentsForEmployee(
   const rows = db.prepare(sql).all(...params) as DeploymentRow[];
   const out: DeploymentRecord[] = [];
   for (const row of rows) {
-    if (!jsonExtractExists(db, row.passenger_manifest || "[]", input.employeeId)) continue;
+    const isDriver =
+      row.driver_hr_employee_id === input.employeeId ||
+      row.registered_driver_employee_id === input.employeeId;
+    if (!isDriver && !jsonExtractExists(db, row.passenger_manifest || "[]", input.employeeId)) continue;
     out.push(rowToDeployment(row, input.employeeId));
     if (out.length >= limit) break;
   }

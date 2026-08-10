@@ -145,6 +145,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!dvcCols.some((c) => c.name === "passenger_manifest")) {
       db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN passenger_manifest TEXT NOT NULL DEFAULT '[]'");
     }
+    if (!dvcCols.some((c) => c.name === "driver_hr_employee_id")) {
+      db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN driver_hr_employee_id TEXT NOT NULL DEFAULT ''");
+    }
 
     const direction = String(body.direction || "departing").toLowerCase();
 
@@ -281,9 +284,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const failureDescriptions = body.failureDescriptions || {};
 
     const passengerManifest = normalizePassengerManifest(body.passengerManifest);
+    const organizationId = String(body.organizationId || "1pwr_lesotho");
+    const driverId = String(body.driverId || "").trim();
+    const registeredDriver = driverId
+      ? db
+          .prepare(
+            "SELECT hr_employee_id FROM ehs_approved_drivers WHERE id = ? AND organization_id = ?"
+          )
+          .get(driverId, organizationId) as { hr_employee_id?: string | null } | undefined
+      : undefined;
+    // Snapshot the canonical HR employee ID on the checklist. This makes the
+    // deployment durable even if the EHS operator register is edited later.
+    const driverHrEmployeeId = String(registeredDriver?.hr_employee_id || "").trim();
 
     const cols = [
-      "id", "organization_id", "vehicle_id", "trip_id", "driver_id", "driver_name",
+      "id", "organization_id", "vehicle_id", "trip_id", "driver_id", "driver_hr_employee_id", "driver_name",
       "mileage_km", "check_date", "route_from", "route_to", "direction",
       ...STATUS_CHECK_FIELDS,
       "failure_descriptions", "remarks", "travel_phone_number",
@@ -299,7 +314,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       body.organizationId || "1pwr_lesotho",
       body.vehicleId,
       body.tripId || null,
-      body.driverId || "",
+      driverId,
+      driverHrEmployeeId,
       body.driverName || "",
       body.mileageKm ?? null,
       body.checkDate || today,

@@ -41,6 +41,7 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 - **vehicle_reservations**: interval per `vehicle_id` / `mission_id`; `status` (`active` | `superseded` | …); overlap enforced in app + transaction.
 - **vehicle_requests**: `mission_id` for new inserts; must reference a mission with `approval_status = approved` (unless override). List view may show assigned vehicle from mission via join.
 - **ehs_approved_drivers**: Org + email gate for `POST /api/vehicle-requests`.
+- **driver_vehicle_checks.driver_hr_employee_id**: immutable HR employee-ID snapshot for the selected driver. The Fleet-local `driver_id` still references the EHS operator register; HR linkage never treats that local ID as an employee ID.
 
 ## API summary
 
@@ -70,8 +71,10 @@ Three sources are merged to surface field deployments to HR (newest first):
 
 | Source | Trigger | Vehicle | Anchored on |
 |--------|---------|---------|-------------|
-| `driver_vehicle_check` | Passenger on a departing DVC's manifest (`travel_mode = 'on_vehicle'` or absent) | Real vehicle | `trips.departed_at` |
+| `driver_vehicle_check` | Driver selected on a departing DVC, or passenger on its manifest (`travel_mode = 'on_vehicle'` or absent) | Real vehicle | `trips.departed_at` |
 | `straggler_public_transport` | Passenger on a mission manifest with `travel_mode = 'straggler_public_transport'` (Scenario A) | Linked mission's reserved vehicle (may be null if vehicle not yet assigned) | `trips.departed_at` of the linked mission's trip, else `missions.departure_date` |
 | `public_transport_mission` | Passenger on a mission with `transport_mode = 'public_transport'` (Scenario B) | None | `trips.departed_at` of the linked mission's trip, else `missions.departure_date` |
 
 Each deployment record carries `source`, `mission_id` (for straggler / public-transport), and `notes` (for straggler) so HR can distinguish them.
+
+The driver is matched through the checklist's `driver_hr_employee_id` snapshot, with the EHS operator register retained as a historical fallback for older checks. The driver must not be added again as a passenger. HR treats the departure timestamp as the canonical start of its six-week timecard policy window; Fleet check-in records the end of the physical trip and does not shorten that policy window.
