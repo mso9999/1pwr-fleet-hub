@@ -32,6 +32,10 @@ const TUTORIAL_QUERY_MAP: Record<string, string> = {
   deployment: "fieldDeployment",
   fieldDeployment: "fieldDeployment",
   "field-deployment": "fieldDeployment",
+  approve: "missionApproval",
+  approver: "missionApproval",
+  "mission-approval": "missionApproval",
+  missionApproval: "missionApproval",
 };
 
 function TutorialSearchParamsBootstrap({
@@ -99,7 +103,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }): R
       setStepIndex(0);
       setActive(true);
       seededRef.current = new Set();
-      if (tid === "fieldDeployment") {
+      if (tid === "fieldDeployment" || tid === "missionApproval") {
         try {
           await fetch("/api/tutorial/seed", {
             method: "POST",

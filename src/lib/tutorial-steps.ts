@@ -860,12 +860,68 @@ const WORK_ORDER_STEPS: TutorialStep[] = [
   },
 ];
 
+/**
+ * Mission approver track: the pending queue → reviewing a plan → the decision
+ * buttons → what happens downstream. Seeded with a PENDING sandbox mission so
+ * approvers practice the real click (auto-cleaned on exit). Recommended to
+ * users whose signed privilege includes mission approval.
+ */
+const MISSION_APPROVAL_STEPS: TutorialStep[] = [
+  {
+    id: "ma-queue",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pending-approval",
+    role: "Mission approver",
+    title: "1. Your approval queue",
+    body:
+      "Missions waiting for a decision appear here — visible only to accounts holding the mission-approver grant. New submissions also arrive by email, but this queue is the system of record: if it is pending here, it is not approved, no matter what was agreed in chat.",
+    suggestion:
+      "A practice mission (“Tutorial sandbox — practice approval”) has been added to this queue for the tour. It is deleted when you finish or exit.",
+  },
+  {
+    id: "ma-review",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pending-approval",
+    role: "Mission approver",
+    title: "2. Review the plan",
+    body:
+      "Open a mission with ▼ View details. Check the departure and return dates against today, the planned route, crew size, required vehicle class, and transport mode. The mission record is the source of truth — fleet reservation, driver checklists, and trip checkout all build on what you approve here.",
+    suggestion: "Expand the sandbox mission now and look through its details.",
+  },
+  {
+    id: "ma-decide",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pending-approval",
+    role: "Mission approver",
+    title: "3. Make the decision",
+    body:
+      "Approve when the plan is valid. Revise & resubmit sends it back with your feedback (8+ characters) when details need fixing. Reject — with a clear reason — when the mission should not run. Every decision is written to the audit log with your name and timestamp.",
+    suggestion:
+      "Try it on the sandbox mission — approve it, or send it back. It is safe: nothing here reserves a real vehicle.",
+  },
+  {
+    id: "ma-after",
+    path: "/vehicle-requests",
+    target: "tutorial-vr-pending-approval",
+    role: "Mission approver",
+    title: "4. What happens next",
+    body:
+      "Once approved, the mission leaves this queue and fleet can reserve a specific vehicle against it; the driver checklist and trip checkout gates then apply. If you approved the sandbox mission, watch it vanish from the pending list — that is the state change real requesters wait for before anyone can depart.",
+    suggestion: "That is the whole loop: queue → review → decide. Approving before departure keeps crews, insurance, and audit covered.",
+  },
+];
+
 export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
   overview: { id: "overview", label: "Full app tour", steps: OVERVIEW_STEPS },
   fieldDeployment: {
     id: "fieldDeployment",
     label: "Field deployment (end-to-end)",
     steps: FIELD_DEPLOYMENT_STEPS,
+  },
+  missionApproval: {
+    id: "missionApproval",
+    label: "Approve a mission (approvers)",
+    steps: MISSION_APPROVAL_STEPS,
   },
   driverCheck: { id: "driverCheck", label: "Driver vehicle check", steps: DRIVER_CHECK_STEPS },
   vehicleInspection: {
@@ -905,6 +961,7 @@ export const TUTORIAL_TRACKS: Record<string, TutorialTrack> = {
 const TUTORIAL_TRACK_LABELS_FR: Record<string, string> = {
   overview: "Parcours complet de l'application",
   fieldDeployment: "Deploiement terrain (de bout en bout)",
+  missionApproval: "Approuver une mission (approbateurs)",
   driverCheck: "Controle conducteur du vehicule",
   vehicleInspection: "Inspection mecanique",
   vehicleRequest: "Demander un vehicule",
@@ -919,6 +976,7 @@ const TUTORIAL_TRACK_LABELS_FR: Record<string, string> = {
 export const TUTORIAL_TRACK_ORDER: string[] = [
   "overview",
   "fieldDeployment",
+  "missionApproval",
   "driverCheck",
   "ehsDriverRegister",
   "vehicleInspection",

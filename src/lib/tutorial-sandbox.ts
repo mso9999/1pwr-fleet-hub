@@ -4,6 +4,9 @@ import { v4 as uuidv4 } from "uuid";
 /** Stored in `missions.notes`; cleanup matches with `instr(notes, marker)`. */
 export const TUTORIAL_SANDBOX_MARKER = "[fleet-hub tutorial sandbox]";
 
+/** Marker for the approver-track practice mission (pending, never approved-seeded). */
+export const TUTORIAL_PENDING_MARKER = "[fleet-hub tutorial sandbox:pending]";
+
 function pickDestinationCode(db: Database.Database, organizationId: string): string {
   const row = db
     .prepare(
@@ -206,20 +209,91 @@ export function seedTutorialSandboxMission(
   };
 }
 
+export interface SandboxPendingMissionSeedResult {
+  missionId: string;
+  alreadyExisted: boolean;
+}
+
+/**
+ * One PENDING mission for the mission-approval tutorial track, so approvers can
+ * practice the real approve / revise / reject click. Deliberately inserted
+ * directly (not via POST /api/missions) so no approver-notification email goes
+ * out for a sandbox record. No vehicle or reservation — approval comes first.
+ * Idempotent per organisation; removed by the same tutorial cleanup.
+ */
+export function seedTutorialPendingMission(
+  db: Database.Database,
+  organizationId: string
+): SandboxPendingMissionSeedResult {
+  const existing = db
+    .prepare(`SELECT id FROM missions WHERE organization_id = ? AND instr(notes, ?) > 0 LIMIT 1`)
+    .get(organizationId, TUTORIAL_PENDING_MARKER) as { id: string } | undefined;
+  if (existing) {
+    return { missionId: existing.id, alreadyExisted: true };
+  }
+
+  const missionId = uuidv4();
+  const now = new Date().toISOString();
+  const start = new Date();
+  start.setUTCDate(start.getUTCDate() + 1);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 3);
+  const destination = pickDestinationCode(db, organizationId);
+
+  db.prepare(
+    `
+    INSERT INTO missions (
+      id, organization_id, title, destination, departure_date, return_date,
+      mission_type, passengers, loadout_summary, notes, status, trip_id, approval_status,
+      approved_by_id, approved_by_name, approved_at, rejection_reason,
+      mission_profile, required_vehicle_class, assigned_vehicle_id, rr_status,
+      assigned_at, assigned_by_id, assigned_by_name, lifecycle_status,
+      created_by_id, created_by_name, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, 'planned', NULL, 'pending',
+      '', '', NULL, '',
+      'local', '4wd', NULL, 'na',
+      NULL, '', '', 'active',
+      'tutorial', 'Tutorial sandbox', ?, ?
+    )
+  `
+  ).run(
+    missionId,
+    organizationId,
+    "Tutorial sandbox — practice approval",
+    destination,
+    start.toISOString().slice(0, 10),
+    end.toISOString().slice(0, 10),
+    "other",
+    "Tutorial",
+    "Sandbox loadout — not real cargo.",
+    `${TUTORIAL_PENDING_MARKER} Demo pending mission for the approver tutorial. Safe to approve, revise, or reject — removed automatically when the tutorial ends.`,
+    now,
+    now
+  );
+
+  return { missionId, alreadyExisted: false };
+}
+
 export interface SandboxCleanupResult {
   deletedMissions: number;
   deletedTrips: number;
   deletedReservations: number;
 }
 
-/** Removes sandbox missions, their reservations, and trips linked by mission_id (plus media rows). */
+/** Removes sandbox missions (approved-seed and pending-seed), their reservations, and trips linked by mission_id (plus media rows). */
 export function deleteTutorialSandboxMissionsAndTrips(
   db: Database.Database,
   organizationId: string
 ): SandboxCleanupResult {
   const mids = db
-    .prepare(`SELECT id FROM missions WHERE organization_id = ? AND instr(notes, ?) > 0`)
-    .all(organizationId, TUTORIAL_SANDBOX_MARKER) as Array<{ id: string }>;
+    .prepare(
+      `SELECT id FROM missions
+       WHERE organization_id = ?
+         AND (instr(notes, ?) > 0 OR instr(notes, ?) > 0)`
+    )
+    .all(organizationId, TUTORIAL_SANDBOX_MARKER, TUTORIAL_PENDING_MARKER) as Array<{ id: string }>;
 
   let deletedTrips = 0;
   let deletedReservations = 0;
