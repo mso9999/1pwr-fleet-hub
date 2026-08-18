@@ -45,11 +45,14 @@ jobs:
           FM_SMTP_PORT: ${{ secrets.FM_SMTP_PORT }}
           FM_SMTP_USER: ${{ secrets.FM_SMTP_USER }}
           FM_SMTP_PASSWORD: ${{ secrets.FM_SMTP_PASSWORD }}
+          WA_BRIDGE_URL: ${{ secrets.WA_BRIDGE_URL }}
+          WA_BRIDGE_SECRET: ${{ secrets.WA_BRIDGE_SECRET }}
+          WA_BRIDGE_GROUP_JID: ${{ secrets.WA_BRIDGE_GROUP_JID }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET,FLEET_HR_API_KEY,FLEET_HR_API_ALLOWED_IPS,FLEET_PUBLIC_BASE_URL,FM_SMTP_HOST,FM_SMTP_PORT,FM_SMTP_USER,FM_SMTP_PASSWORD
+          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET,FLEET_HR_API_KEY,FLEET_HR_API_ALLOWED_IPS,FLEET_PUBLIC_BASE_URL,FM_SMTP_HOST,FM_SMTP_PORT,FM_SMTP_USER,FM_SMTP_PASSWORD,WA_BRIDGE_URL,WA_BRIDGE_SECRET,WA_BRIDGE_GROUP_JID
           script: |
             set -e
             cd /var/www/fleet-hub
@@ -111,6 +114,22 @@ jobs:
               echo "FM_SMTP_* written to .env (host: $FM_SMTP_HOST, user: $FM_SMTP_USER)"
             else
               echo "WARNING: FM_SMTP_* secrets incomplete — mission approver notifications disabled"
+            fi
+            # WhatsApp bridge (CC host) for mission-approval group notifications.
+            # Optional: without these the app skips WhatsApp and audit-logs the skip.
+            sed -i.bak '/^WA_BRIDGE_URL=/d; /^WA_BRIDGE_SECRET=/d; /^WA_BRIDGE_GROUP_JID=/d' /var/www/fleet-hub/.env
+            if [ -n "$WA_BRIDGE_URL" ] && [ -n "$WA_BRIDGE_SECRET" ]; then
+              printf 'WA_BRIDGE_URL=%s\n' "$WA_BRIDGE_URL" >> /var/www/fleet-hub/.env
+              printf 'WA_BRIDGE_SECRET=%s\n' "$WA_BRIDGE_SECRET" >> /var/www/fleet-hub/.env
+              echo "WA_BRIDGE_URL/SECRET written to .env ($WA_BRIDGE_URL)"
+              if [ -n "$WA_BRIDGE_GROUP_JID" ]; then
+                printf 'WA_BRIDGE_GROUP_JID=%s\n' "$WA_BRIDGE_GROUP_JID" >> /var/www/fleet-hub/.env
+                echo "WA_BRIDGE_GROUP_JID written to .env ($WA_BRIDGE_GROUP_JID)"
+              else
+                echo "NOTE: WA_BRIDGE_GROUP_JID not set — WhatsApp notifications skipped until configured"
+              fi
+            else
+              echo "NOTE: WA_BRIDGE_URL/SECRET not set — WhatsApp notifications disabled"
             fi
 
             # Pin DB_PATH in .env so the app always opens the real database

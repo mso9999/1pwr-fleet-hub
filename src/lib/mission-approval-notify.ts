@@ -15,18 +15,55 @@
 import type Database from "better-sqlite3";
 import { fetchHrEmployeeDirectory } from "@/lib/hr-directory-client";
 import { countryFromOrganization } from "@/lib/hr-approval-roles";
-import { mailerConfigured, sendMail } from "@/lib/mailer";
+import { sendMail } from "@/lib/mailer";
 import { recordMutation } from "@/lib/record-mutation-log";
 
 const SYSTEM_ACTOR = { id: "system", name: "Fleet Hub", role: "", department: "" };
 
 export type ApprovalNotifyTrigger = "create" | "submit" | "resubmit" | "backfill";
 
+export interface WhatsAppNotifyResult {
+  ok: boolean;
+  skipped?: string;
+  error?: string;
+}
+
 export interface ApprovalNotifyOutcome {
   ok: boolean;
   recipients: string[];
   skipped?: string;
   error?: string;
+  whatsapp?: WhatsAppNotifyResult;
+}
+
+/**
+ * Post the approval notice to the ops WhatsApp group via the CC bridge
+ * (Baileys on the CC host, exposed to the fleet EC2 only through Caddy).
+ * Env: WA_BRIDGE_URL (e.g. https://cc.1pwrafrica.com/bridge),
+ * WA_BRIDGE_SECRET (shared bridge secret), WA_BRIDGE_GROUP_JID (target group).
+ * Any missing piece skips cleanly and is audit-logged.
+ */
+async function sendWhatsAppApprovalNotice(text: string): Promise<WhatsAppNotifyResult> {
+  const url = (process.env.WA_BRIDGE_URL || "").replace(/\/$/, "");
+  const secret = process.env.WA_BRIDGE_SECRET || "";
+  const jid = (process.env.WA_BRIDGE_GROUP_JID || "").trim();
+  if (!url || !secret) return { ok: false, skipped: "WA_BRIDGE_URL/SECRET not configured" };
+  if (!jid) return { ok: false, skipped: "WA_BRIDGE_GROUP_JID not configured" };
+  try {
+    const res = await fetch(`${url}/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bridge-Secret": secret },
+      body: JSON.stringify({ jid, text }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const body = (await res.text().catch(() => "")).slice(0, 120);
+      return { ok: false, error: `bridge ${res.status}: ${body}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 interface MissionRow {
@@ -72,6 +109,7 @@ export async function notifyMissionApproversOfSubmission(
         recipients: outcome.recipients,
         ...(outcome.skipped ? { skipped: outcome.skipped } : {}),
         ...(outcome.error ? { error: outcome.error } : {}),
+        ...(outcome.whatsapp ? { whatsapp: outcome.whatsapp } : {}),
       },
     });
   };
@@ -89,12 +127,6 @@ export async function notifyMissionApproversOfSubmission(
     log(outcome);
     return outcome;
   }
-  if (!mailerConfigured()) {
-    const outcome: ApprovalNotifyOutcome = { ok: false, recipients: [], error: "FM_SMTP_* not configured" };
-    log(outcome);
-    return outcome;
-  }
-
   const country = countryFromOrganization(db, mission.organization_id);
   const directory = await fetchHrEmployeeDirectory();
   if (!directory.ok || !directory.employees) {
@@ -181,9 +213,20 @@ export async function notifyMissionApproversOfSubmission(
   `;
 
   const result = await sendMail({ to: recipients, subject, text, html });
+
+  const waLines = [
+    `*Fleet Hub — mission approval needed*${trigger === "resubmit" ? " (resubmitted)" : ""}`,
+    `*Mission:* ${title}`,
+    `*Route:* ${route}`,
+    `*Departs:* ${mission.departure_date} → ${mission.return_date || "—"}`,
+    `*By:* ${mission.created_by_name} · ${mission.crew_size} pax · ${mission.required_vehicle_class || "any class"}`,
+    `Review: ${reviewUrl}`,
+  ];
+  const whatsapp = await sendWhatsAppApprovalNotice(waLines.join("\n"));
+
   const outcome: ApprovalNotifyOutcome = result.ok
-    ? { ok: true, recipients }
-    : { ok: false, recipients, error: result.error };
+    ? { ok: true, recipients, whatsapp }
+    : { ok: false, recipients, error: result.error, whatsapp };
   log(outcome);
   return outcome;
 }
