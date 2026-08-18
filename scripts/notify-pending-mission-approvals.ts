@@ -9,11 +9,17 @@ import { notifyMissionApproversOfSubmission } from "../src/lib/mission-approval-
  * approval_notify entry with ok:true. Everything else pending + active gets
  * one notification pass, recorded in the same log.
  *
+ * Scope: by default only missions departing within the last 14 days or in the
+ * future — older pending missions are stale queue, and notifying approvers
+ * about them is noise (the 2026-08-18 first run mailed 60+ stale entries).
+ * Pass --all to include every pending mission regardless of age.
+ *
  * Run locally:   npm run notify:pending-missions
  * Run on server: cd /var/www/fleet-hub && set -a && . ./.env && set +a \
  *                  && npx tsx scripts/notify-pending-mission-approvals.ts
  */
 async function main(): Promise<void> {
+  const includeAll = process.argv.includes("--all");
   const db = getDb();
   const pending = db
     .prepare(
@@ -21,6 +27,7 @@ async function main(): Promise<void> {
        FROM missions
        WHERE lower(COALESCE(approval_status, '')) = 'pending'
          AND lower(COALESCE(lifecycle_status, 'active')) = 'active'
+         ${includeAll ? "" : "AND (departure_date = '' OR date(departure_date) >= date('now', '-14 days'))"}
        ORDER BY created_at`,
     )
     .all() as Array<{
@@ -33,7 +40,7 @@ async function main(): Promise<void> {
   }>;
 
   if (pending.length === 0) {
-    console.log("No pending missions.");
+    console.log(includeAll ? "No pending missions." : "No pending missions in the recent window (try --all).");
     return;
   }
 
