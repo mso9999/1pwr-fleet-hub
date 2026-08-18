@@ -7,6 +7,7 @@ import {
 } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
+import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
 import { canViewPrivateDraft } from "@/lib/fleet-roles";
@@ -305,5 +306,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       stop_count: stops.length,
     },
   });
+  if (initialApprovalStatus === "pending") {
+    // Approvers are pull-only today — email them so a submission never sits
+    // unseen. Best-effort: outcome is audit-logged inside the notify call.
+    await notifyMissionApproversOfSubmission(db, id, "create");
+  }
   return NextResponse.json(row, { status: 201 });
 }

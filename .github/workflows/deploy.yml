@@ -41,11 +41,15 @@ jobs:
           FLEET_HR_API_KEY: ${{ secrets.FLEET_HR_API_KEY }}
           FLEET_HR_API_ALLOWED_IPS: ${{ secrets.FLEET_HR_API_ALLOWED_IPS }}
           FLEET_PUBLIC_BASE_URL: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
+          FM_SMTP_HOST: ${{ secrets.FM_SMTP_HOST }}
+          FM_SMTP_PORT: ${{ secrets.FM_SMTP_PORT }}
+          FM_SMTP_USER: ${{ secrets.FM_SMTP_USER }}
+          FM_SMTP_PASSWORD: ${{ secrets.FM_SMTP_PASSWORD }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET,FLEET_HR_API_KEY,FLEET_HR_API_ALLOWED_IPS,FLEET_PUBLIC_BASE_URL
+          envs: HR_API_BASE_URL,HR_API_KEY,FLEET_INTEGRATION_API_KEY,DRAFT_CLEANUP_SECRET,FLEET_HR_API_KEY,FLEET_HR_API_ALLOWED_IPS,FLEET_PUBLIC_BASE_URL,FM_SMTP_HOST,FM_SMTP_PORT,FM_SMTP_USER,FM_SMTP_PASSWORD
           script: |
             set -e
             cd /var/www/fleet-hub
@@ -95,6 +99,18 @@ jobs:
               echo "FLEET_PUBLIC_BASE_URL written to .env ($FLEET_PUBLIC_BASE_URL)"
             else
               echo "NOTE: FLEET_PUBLIC_BASE_URL not set — inspection_url falls back to https://fm.1pwrafrica.com"
+            fi
+            # SMTP for mission-approver notifications (mission-approval-notify.ts).
+            # Without these the app skips sending and audit-logs the skip.
+            sed -i.bak '/^FM_SMTP_HOST=/d; /^FM_SMTP_PORT=/d; /^FM_SMTP_USER=/d; /^FM_SMTP_PASSWORD=/d' /var/www/fleet-hub/.env
+            if [ -n "$FM_SMTP_HOST" ] && [ -n "$FM_SMTP_USER" ] && [ -n "$FM_SMTP_PASSWORD" ]; then
+              printf 'FM_SMTP_HOST=%s\n' "$FM_SMTP_HOST" >> /var/www/fleet-hub/.env
+              printf 'FM_SMTP_PORT=%s\n' "${FM_SMTP_PORT:-587}" >> /var/www/fleet-hub/.env
+              printf 'FM_SMTP_USER=%s\n' "$FM_SMTP_USER" >> /var/www/fleet-hub/.env
+              printf 'FM_SMTP_PASSWORD=%s\n' "$FM_SMTP_PASSWORD" >> /var/www/fleet-hub/.env
+              echo "FM_SMTP_* written to .env (host: $FM_SMTP_HOST, user: $FM_SMTP_USER)"
+            else
+              echo "WARNING: FM_SMTP_* secrets incomplete — mission approver notifications disabled"
             fi
 
             # Pin DB_PATH in .env so the app always opens the real database

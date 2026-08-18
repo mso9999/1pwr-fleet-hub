@@ -6,6 +6,7 @@ import {
   canArbitrateMissionCapacity,
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
 import { canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
@@ -279,6 +280,7 @@ export async function PATCH(
       after: missionAuditSubset(updated),
       reason: "draft_submitted_for_approval",
     });
+    await notifyMissionApproversOfSubmission(db, id, "submit");
     return NextResponse.json(updated);
   }
 
@@ -313,6 +315,7 @@ export async function PATCH(
       after: missionAuditSubset(updated),
       reason: "resubmitted_for_approval",
     });
+    await notifyMissionApproversOfSubmission(db, id, "resubmit");
     const hrRequestId = String(updated.hr_request_id || "").trim();
     if (hrRequestId) {
       await syncMissionDecisionToHr({
