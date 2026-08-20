@@ -46,6 +46,8 @@ interface AuthorizationRow {
   category_code: OperatorCategoryCode;
   grant: OperatorGrant;
   notes: string;
+  /** 'any' | 'automatic_only' — AT-only derate for driving categories. */
+  transmission_scope?: string;
   training_media_count: number;
   ready: boolean;
   grant_is_trainer: boolean;
@@ -862,12 +864,13 @@ function AuthorizationsMatrix({
   async function updateAuthorization(
     categoryCode: OperatorCategoryCode,
     grant: OperatorGrant,
-    notes: string
+    notes: string,
+    transmissionScope: string
   ): Promise<void> {
     const res = await fetch(`/api/ehs-approved-drivers/${operatorId}/authorizations`, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ categoryCode, grant, notes }),
+      body: JSON.stringify({ categoryCode, grant, notes, transmissionScope }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -899,7 +902,9 @@ function AuthorizationsMatrix({
                     auth={auth}
                     userName={userName}
                     userId={userId}
-                    onChange={(grant, notes) => updateAuthorization(meta.code, grant, notes)}
+                    onChange={(grant, notes, transmissionScope) =>
+                      updateAuthorization(meta.code, grant, notes, transmissionScope)
+                    }
                     onChanged={onChanged}
                   />
                 );
@@ -924,25 +929,31 @@ function AuthorizationRowView({
   auth: AuthorizationRow | undefined;
   userName: string;
   userId: string;
-  onChange: (grant: OperatorGrant, notes: string) => void | Promise<void>;
+  onChange: (grant: OperatorGrant, notes: string, transmissionScope: string) => void | Promise<void>;
   onChanged: () => void | Promise<void>;
 }): React.ReactElement {
   const { t } = useLocaleContext();
   const [grant, setGrant] = useState<OperatorGrant>(auth?.grant ?? "none");
   const [notes, setNotes] = useState<string>(auth?.notes ?? "");
+  const [scope, setScope] = useState<string>(auth?.transmission_scope ?? "any");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setGrant(auth?.grant ?? "none");
     setNotes(auth?.notes ?? "");
+    setScope(auth?.transmission_scope ?? "any");
   }, [auth]);
 
-  const dirty = grant !== (auth?.grant ?? "none") || notes !== (auth?.notes ?? "");
+  const isDriving = meta.group === "driving";
+  const dirty =
+    grant !== (auth?.grant ?? "none") ||
+    notes !== (auth?.notes ?? "") ||
+    (isDriving && scope !== (auth?.transmission_scope ?? "any"));
 
   async function commit(): Promise<void> {
     setBusy(true);
     try {
-      await onChange(grant, notes);
+      await onChange(grant, notes, isDriving ? scope : "any");
     } finally {
       setBusy(false);
     }
@@ -972,13 +983,37 @@ function AuthorizationRowView({
           </select>
         </div>
       </div>
+      {grant !== "none" && isDriving && (
+        <div className="mt-2 rounded-md border border-sky-100 bg-sky-50/50 p-2">
+          <label className="text-xs font-medium text-zinc-700">
+            Transmission scope
+            <span className="ml-1 font-normal text-zinc-500">
+              (derate when the road test was done in an automatic)
+            </span>
+          </label>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            className="mt-1 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white"
+          >
+            <option value="any">Any transmission</option>
+            <option value="automatic_only">Automatic only — not valid for manual vehicles</option>
+          </select>
+          {scope === "automatic_only" && (
+            <p className="mt-1 text-[11px] text-sky-800">
+              Trip checkout and the departing driver checklist will block this driver from vehicles
+              that are manual or have no transmission recorded.
+            </p>
+          )}
+        </div>
+      )}
       {grant !== "none" && (
         <div className="mt-2 space-y-2">
           <Input
             label="Notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. 'Automatic vehicles only' or 'Re-train before renewal'"
+            placeholder="e.g. 'Road test done in Pajero (automatic)' or 'Re-train before renewal'"
           />
           {meta.trainingRecordRequired && auth?.id && (
             <div className="rounded-md border border-zinc-200 bg-white p-2 space-y-1">

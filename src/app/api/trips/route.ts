@@ -6,6 +6,7 @@ import {
   ensureUnallocatedVehicle,
 } from "@/lib/mission-checkout";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import { evaluateTransmissionGate } from "@/lib/transmission-scope";
 import { v4 as uuidv4 } from "uuid";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
 import { canViewPrivateDraft } from "@/lib/fleet-roles";
@@ -302,6 +303,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       : Number(body.odoStart);
   const defaultApprovalStatus = "auto-approved";
 
+  // Transmission derate (EHS): the departing checklist carries the driver
+  // identity (checkout itself collects a free-text name). An automatic-only
+  // driver may not depart in a manual or unrecorded-transmission vehicle;
+  // the pairing is snapshotted onto the trip for the audit trail.
+  let driverTransmissionScope = "";
+  let vehicleTransmission = "";
+  if (!isNonCompanyMission && hasVehicle) {
+    const dvcDriver = db
+      .prepare(
+        `SELECT driver_id FROM driver_vehicle_checks
+         WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing'
+         ORDER BY datetime(created_at) DESC LIMIT 1`
+      )
+      .get(organizationId, effectiveVehicleId) as { driver_id?: string | null } | undefined;
+    const dvcDriverId = String(dvcDriver?.driver_id || "").trim();
+    if (dvcDriverId) {
+      const tg = evaluateTransmissionGate(db, {
+        organizationId,
+        operatorId: dvcDriverId,
+        vehicleId: effectiveVehicleId,
+      });
+      if (tg.status === "blocked") {
+        return NextResponse.json({ error: tg.detail }, { status: 409 });
+      }
+      driverTransmissionScope = tg.driverScope;
+      vehicleTransmission = tg.vehicleTransmission;
+    }
+  }
+
   db.prepare(`
     INSERT INTO trips (
       id, organization_id, vehicle_id, driver_id, driver_name, odo_start,
@@ -309,9 +339,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       passengers, load_out, load_in, checkout_at,
       authorized_driver_verified, approved_drivers, loadout_manifest,
       expected_return_at, mission_priority, approval_status, approved_by, am_allocation_ids,
-      mission_id, planned_departure_date
+      mission_id, planned_departure_date, driver_transmission_scope, vehicle_transmission
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     organizationId,
@@ -337,7 +367,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.approvedBy || "",
     JSON.stringify(body.amAllocationIds || []),
     missionIdRaw,
-    (mission && String(mission.departure_date || "").slice(0, 10)) || null
+    (mission && String(mission.departure_date || "").slice(0, 10)) || null,
+    driverTransmissionScope,
+    vehicleTransmission
   );
 
   db.prepare("UPDATE missions SET trip_id = ?, updated_at = ? WHERE id = ?").run(id, now, missionIdRaw);
@@ -373,6 +405,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       allocationStatus: isNonCompanyMission || hasVehicle ? "allocated" : "pending_fleet",
       tripShape: resolvedTripShape,
       stopPlanChanged,
+      ...(driverTransmissionScope ? { driverTransmissionScope, vehicleTransmission } : {}),
     },
     reason: stopPlanChanged ? routeChangeReasonRaw : "",
   });

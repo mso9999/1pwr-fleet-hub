@@ -19,9 +19,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const includeInactive = searchParams.get("includeInactive") === "true";
 
   const db = getDb();
+  // Additive fields (transmission, drivetrain, assetClass) — AM caches vehicle
+  // fields; the cross-repo contract allows additive changes only.
   let query = `
     SELECT id as fmVehicleId, organization_id as organizationId, code as fleetCode,
            make, model, year, license_plate as licensePlate, vin, engine_number as engineNumber,
+           transmission, drivetrain, asset_class as assetClass,
            status, pr_firestore_id as prFirestoreId, updated_at as updatedAt
     FROM vehicles WHERE organization_id = ?
   `;

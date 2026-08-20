@@ -1139,6 +1139,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
+    ["migrateTransmissionScope", () => migrateTransmissionScope(db)],
     ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
     ["migrateRecordMutationLog", () => migrateRecordMutationLog(db)],
     ["migrateVehicleStatusEnforcement", () => migrateVehicleStatusEnforcement(db)],
@@ -1357,6 +1358,36 @@ function migrateEhsOperatorRegister(db: Database.Database): void {
       datetime('now')
     FROM ehs_approved_drivers d
   `);
+}
+
+/**
+ * Transmission derate on driving authorizations + trip checkout snapshots.
+ *
+ * `ehs_operator_authorizations.transmission_scope`: 'any' (default) |
+ * 'automatic_only' — the derated grant for drivers whose road test was done in
+ * an automatic; valid only for vehicles with vehicles.transmission='automatic'.
+ *
+ * `trips.driver_transmission_scope` / `trips.vehicle_transmission`: snapshot at
+ * checkout so the trip record proves which scope/vehicle pairing was gated.
+ */
+function migrateTransmissionScope(db: Database.Database): void {
+  const authCols = db
+    .prepare("PRAGMA table_info(ehs_operator_authorizations)")
+    .all() as Array<{ name: string }>;
+  if (!authCols.some((c) => c.name === "transmission_scope")) {
+    db.exec(
+      `ALTER TABLE ehs_operator_authorizations ADD COLUMN transmission_scope TEXT NOT NULL DEFAULT 'any'`
+    );
+  }
+
+  const tripCols = db.prepare("PRAGMA table_info(trips)").all() as Array<{ name: string }>;
+  const tripHas = (col: string) => tripCols.some((c) => c.name === col);
+  if (!tripHas("driver_transmission_scope")) {
+    db.exec(`ALTER TABLE trips ADD COLUMN driver_transmission_scope TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!tripHas("vehicle_transmission")) {
+    db.exec(`ALTER TABLE trips ADD COLUMN vehicle_transmission TEXT NOT NULL DEFAULT ''`);
+  }
 }
 
 /**

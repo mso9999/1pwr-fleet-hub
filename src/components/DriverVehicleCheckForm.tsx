@@ -38,6 +38,8 @@ interface ApprovedDriverOption {
   email: string;
   displayName: string;
   hrEmployeeId: string;
+  /** 'any' | 'automatic_only' — AT-only drivers are derated (road test done in an automatic). */
+  transmissionScope?: string;
 }
 
 interface NonCompliantDriver {
@@ -45,6 +47,14 @@ interface NonCompliantDriver {
   displayName: string;
   email: string;
   reasons: string[];
+}
+
+interface RestrictedDriver {
+  id: string;
+  displayName: string;
+  email: string;
+  transmissionScope: string;
+  reason: string;
 }
 
 interface SiteOption {
@@ -65,6 +75,7 @@ function ApprovedDriverCombobox({
   matched,
   organizationId,
   nonCompliant = [],
+  restricted = [],
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -73,6 +84,7 @@ function ApprovedDriverCombobox({
   matched: ApprovedDriverOption | null;
   organizationId: string;
   nonCompliant?: NonCompliantDriver[];
+  restricted?: RestrictedDriver[];
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -190,12 +202,34 @@ function ApprovedDriverCombobox({
                           setOpen(false);
                         }}
                       >
-                        <span className="font-medium text-zinc-900">{o.displayName}</span>
+                        <span className="font-medium text-zinc-900">
+                          {o.displayName}
+                          {o.transmissionScope === "automatic_only" && (
+                            <span className="ml-2 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 align-middle">
+                              AT only
+                            </span>
+                          )}
+                        </span>
                         <span className="text-xs text-zinc-500">{o.email}</span>
                       </button>
                     </li>
                   );
                 })}
+                {restricted.length > 0 && (
+                  <>
+                    <li className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-400 border-t border-zinc-100 mt-1">
+                      Not eligible for this vehicle
+                    </li>
+                    {restricted.map((d) => (
+                      <li key={d.id} aria-disabled="true">
+                        <div className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-sm opacity-60 cursor-not-allowed">
+                          <span className="font-medium text-zinc-600">{d.displayName}</span>
+                          <span className="text-xs text-amber-700">{d.reason}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </>
+                )}
               </ul>
             )}
           </div>
@@ -335,6 +369,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [driverOptions, setDriverOptions] = useState<ApprovedDriverOption[]>([]);
   const [driverOptionsLoading, setDriverOptionsLoading] = useState(true);
   const [nonCompliantDrivers, setNonCompliantDrivers] = useState<NonCompliantDriver[]>([]);
+  const [restrictedDrivers, setRestrictedDrivers] = useState<RestrictedDriver[]>([]);
   const [driverName, setDriverName] = useState<string>(user?.name || "");
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [passengerManifest, setPassengerManifest] = useState<ManifestPassenger[]>([]);
@@ -364,18 +399,28 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     setDriverOptionsLoading(true);
     (async () => {
       try {
+        // Vehicle context lets the API hold back transmission-derated (AT-only)
+        // drivers when the selected vehicle is manual or unrecorded.
+        const vehicleParam = selectedVehicleId
+          ? `&vehicleId=${encodeURIComponent(selectedVehicleId)}`
+          : "";
         const res = await fetch(
-          `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}&category=${encodeURIComponent(driverCategory)}`,
+          `/api/ehs-approved-drivers/options?org=${encodeURIComponent(organizationId)}&category=${encodeURIComponent(driverCategory)}${vehicleParam}`,
           { headers: await jsonHeadersWithBearer() }
         );
         if (!res.ok) {
           if (!cancelled) setDriverOptions([]);
           return;
         }
-        const data = (await res.json()) as { options?: ApprovedDriverOption[]; nonCompliant?: NonCompliantDriver[] };
+        const data = (await res.json()) as {
+          options?: ApprovedDriverOption[];
+          nonCompliant?: NonCompliantDriver[];
+          restricted?: RestrictedDriver[];
+        };
         if (!cancelled) {
           setDriverOptions(Array.isArray(data.options) ? data.options : []);
           setNonCompliantDrivers(Array.isArray(data.nonCompliant) ? data.nonCompliant : []);
+          setRestrictedDrivers(Array.isArray(data.restricted) ? data.restricted : []);
         }
       } catch {
         if (!cancelled) setDriverOptions([]);
@@ -386,7 +431,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     return () => {
       cancelled = true;
     };
-  }, [organizationId, driverCategory]);
+  }, [organizationId, driverCategory, selectedVehicleId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -720,6 +765,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               matched={matchedDriver}
               organizationId={organizationId}
               nonCompliant={nonCompliantDrivers}
+              restricted={restrictedDrivers}
             />
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>

@@ -9,14 +9,19 @@ import {
   isKnownOperatorCategory,
   isOperatorGrant,
 } from "@/lib/ehs-operator-categories";
+import { normalizeTransmissionScope } from "@/lib/transmission-scope";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 /**
  * POST /api/ehs-approved-drivers/[id]/authorizations
- * Body: { categoryCode: string, grant: 'none'|'approved'|'trainer', notes?: string }
+ * Body: { categoryCode: string, grant: 'none'|'approved'|'trainer', notes?: string,
+ *         transmissionScope?: 'any'|'automatic_only' }
  *
  * Upserts a single authorization row for the operator. Any change clears the
  * operator-level attestation (EHS must re-tick and re-save on the card).
+ *
+ * transmissionScope is the AT-only derate for driving categories: the grant is
+ * then valid only for vehicles recorded as automatic (trip/DVC gates enforce).
  */
 export async function POST(
   request: NextRequest,
@@ -32,10 +37,12 @@ export async function POST(
     categoryCode?: string;
     grant?: string;
     notes?: string;
+    transmissionScope?: string;
   };
   const categoryCode = String(body.categoryCode || "").trim();
   const grant = String(body.grant || "").trim();
   const notes = String(body.notes ?? "").trim();
+  const transmissionScope = normalizeTransmissionScope(body.transmissionScope);
 
   if (!isKnownOperatorCategory(categoryCode)) {
     return NextResponse.json({ error: `Unknown categoryCode '${categoryCode}'` }, { status: 400 });
@@ -59,22 +66,22 @@ export async function POST(
       `SELECT * FROM ehs_operator_authorizations WHERE operator_id = ? AND category_code = ?`
     )
     .get(id, categoryCode) as
-    | { id: string; grant: string; notes: string }
+    | { id: string; grant: string; notes: string; transmission_scope?: string }
     | undefined;
 
   const tx = db.transaction(() => {
     if (existing) {
       db.prepare(
         `UPDATE ehs_operator_authorizations
-           SET grant = ?, notes = ?, updated_at = ?
+           SET grant = ?, notes = ?, transmission_scope = ?, updated_at = ?
          WHERE id = ?`
-      ).run(grant, notes, now, existing.id);
+      ).run(grant, notes, transmissionScope, now, existing.id);
     } else {
       db.prepare(
         `INSERT INTO ehs_operator_authorizations
-           (id, operator_id, category_code, grant, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(uuidv4(), id, categoryCode, grant, notes, now, now);
+           (id, operator_id, category_code, grant, notes, transmission_scope, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(uuidv4(), id, categoryCode, grant, notes, transmissionScope, now, now);
     }
 
     // Clear attestation and stamp updated_at/updated_by on the parent operator record
@@ -105,9 +112,10 @@ export async function POST(
           category_code: categoryCode,
           grant: existing.grant,
           notes: existing.notes,
+          transmission_scope: existing.transmission_scope || "any",
         }
-      : { category_code: categoryCode, grant: "none", notes: "" },
-    after: { category_code: categoryCode, grant, notes },
+      : { category_code: categoryCode, grant: "none", notes: "", transmission_scope: "any" },
+    after: { category_code: categoryCode, grant, notes, transmission_scope: transmissionScope },
     reason: "Authorization updated",
   });
 

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
+import { evaluateTransmissionGate } from "@/lib/transmission-scope";
 import { v4 as uuidv4 } from "uuid";
 
 const STATUS_CHECK_FIELDS = [
@@ -296,6 +297,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Snapshot the canonical HR employee ID on the checklist. This makes the
     // deployment durable even if the EHS operator register is edited later.
     const driverHrEmployeeId = String(registeredDriver?.hr_employee_id || "").trim();
+
+    // Transmission derate (EHS): an automatic-only driver may not depart in a
+    // manual or unrecorded-transmission vehicle. Returning checks are exempt —
+    // the vehicle is already out; the driver brings it back.
+    if (driverId && String(body.direction || "departing") === "departing") {
+      const tg = evaluateTransmissionGate(db, {
+        organizationId,
+        operatorId: driverId,
+        vehicleId: String(body.vehicleId || ""),
+      });
+      if (tg.status === "blocked") {
+        return NextResponse.json({ error: tg.detail, reason: "transmission_scope" }, { status: 409 });
+      }
+    }
 
     const cols = [
       "id", "organization_id", "vehicle_id", "trip_id", "driver_id", "driver_hr_employee_id", "driver_name",

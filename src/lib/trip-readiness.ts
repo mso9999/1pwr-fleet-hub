@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { registrationDiscMissionBlocked } from "@/lib/registration-disc";
+import { evaluateTransmissionGate } from "@/lib/transmission-scope";
 
 /** Short local runs vs multi-day field deployments — drives checklist + inspection rules. */
 export const MISSION_PROFILE = {
@@ -142,7 +143,7 @@ export function evaluateTripReadiness(
   const tripId = String(input.tripId || "").trim();
   const dvc = db
     .prepare(
-      `SELECT id, overall_pass, has_exceptions, exception_approved, check_date, valid_for_departure_on, created_at
+      `SELECT id, overall_pass, has_exceptions, exception_approved, check_date, valid_for_departure_on, created_at, driver_id
        FROM driver_vehicle_checks
        WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing'
          ${tripId ? "AND trip_id = ?" : ""}
@@ -159,6 +160,7 @@ export function evaluateTripReadiness(
         check_date: string;
         valid_for_departure_on: string | null;
         created_at: string;
+        driver_id: string | null;
       }
     | undefined;
 
@@ -201,6 +203,24 @@ export function evaluateTripReadiness(
     status: dvcGateOk ? "satisfied" : "blocked",
     detail: dvcDetail,
   });
+
+  // Transmission derate: when the departing checklist names a driver, an
+  // automatic-only authorization only pairs with a vehicle recorded as
+  // automatic. No DVC yet → the checklist gate above already blocks.
+  const dvcDriverId = String(dvc?.driver_id || "").trim();
+  if (dvcDriverId) {
+    const tg = evaluateTransmissionGate(db, {
+      organizationId: input.organizationId,
+      operatorId: dvcDriverId,
+      vehicleId: input.vehicleId,
+    });
+    gates.push({
+      id: "driver_transmission",
+      label: "Driver authorization vs transmission",
+      status: tg.status,
+      detail: tg.detail,
+    });
+  }
 
   if (missionProfile === MISSION_PROFILE.FIELD && input.skipMechanicalInspection !== true) {
     const cutoff = new Date(now.getTime() - MECHANICAL_INSPECTION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();

@@ -269,6 +269,7 @@ function AddVehicleForm({
       year: fd.get("year") ? Number(fd.get("year")) : null,
       licensePlate: fd.get("licensePlate"),
       assetClass: fd.get("assetClass"),
+      transmission: fd.get("transmission") || "",
       homeLocation: fd.get("homeLocation"),
       status: fd.get("status"),
     };
@@ -300,6 +301,11 @@ function AddVehicleForm({
             {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
               <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
             ))}
+          </Select>
+          <Select name="transmission" label="Transmission" defaultValue="">
+            <option value="">Not recorded</option>
+            <option value="automatic">Automatic</option>
+            <option value="manual">Manual</option>
           </Select>
           <Input name="homeLocation" label="Home Location" placeholder="HQ" defaultValue="HQ" />
           <Select name="status" label="Status" defaultValue="operational">

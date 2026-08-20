@@ -15,6 +15,11 @@ import {
   isKnownOperatorCategory,
   type OperatorCategoryCode,
 } from "@/lib/ehs-operator-categories";
+import {
+  getDriverTransmissionScope,
+  getVehicleTransmission,
+  type TransmissionScope,
+} from "@/lib/transmission-scope";
 
 function normalizeSearch(s: string): string {
   return s
@@ -25,11 +30,16 @@ function normalizeSearch(s: string): string {
 
 /**
  * GET /api/ehs-approved-drivers/options?org=&category=fleet_vehicle_onroad
- * &q=&page=&pageSize=
+ * &q=&page=&pageSize=&vehicleId=
  *
  * Without `page`, returns every compliant operator (backward compatible with the
  * vehicle-check combobox). With `page` (1-based), returns a slice plus `total`
  * for paginated pickers (vehicle logistics, etc.).
+ *
+ * With `vehicleId`, transmission-derated (automatic-only) drivers are moved to
+ * `restricted` when the vehicle is manual or has no transmission recorded —
+ * their grant is valid only for vehicles known to be automatic. Every option
+ * carries `transmissionScope` so pickers can badge "AT only".
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
@@ -122,15 +132,41 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }),
   }));
 
-  const options = evaluated
+  // Transmission derate: when a vehicle context is supplied, automatic-only
+  // drivers are only offered for vehicles recorded as automatic.
+  const vehicleIdRaw = (sp.get("vehicleId") || "").trim();
+  const vehicleCtx = vehicleIdRaw ? getVehicleTransmission(db, vehicleIdRaw) : null;
+
+  const withScopes = evaluated
     .filter(({ result }) => result.ready)
-    .map(({ row, result }) => ({
-      id: row.id,
-      email: row.email,
-      displayName: row.display_name || row.email,
-      hrEmployeeId: row.hr_employee_id || "",
-      isTrainer: result.grant === "trainer",
-    }));
+    .map(({ row, result }) => {
+      const transmissionScope: TransmissionScope = getDriverTransmissionScope(db, row.id, category);
+      return {
+        id: row.id,
+        email: row.email,
+        displayName: row.display_name || row.email,
+        hrEmployeeId: row.hr_employee_id || "",
+        isTrainer: result.grant === "trainer",
+        transmissionScope,
+      };
+    });
+
+  const isRestricted = (o: { transmissionScope: TransmissionScope }): boolean =>
+    vehicleCtx !== null &&
+    o.transmissionScope === "automatic_only" &&
+    vehicleCtx.transmission !== "automatic";
+
+  const options = withScopes.filter((o) => !isRestricted(o));
+  const restricted = withScopes.filter(isRestricted).map((o) => ({
+    id: o.id,
+    displayName: o.displayName,
+    email: o.email,
+    transmissionScope: o.transmissionScope,
+    reason:
+      vehicleCtx && vehicleCtx.transmission === "manual"
+        ? `Approved for automatic vehicles only — ${vehicleCtx.code || "this vehicle"} is manual.`
+        : `Approved for automatic vehicles only — ${vehicleCtx?.code || "this vehicle"} has no transmission recorded.`,
+  }));
 
   const nonCompliant = evaluated
     .filter(({ result }) => !result.ready)
@@ -151,7 +187,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : options;
 
   if (!usePagination) {
-    return NextResponse.json({ category, options: filtered, nonCompliant });
+    return NextResponse.json({ category, options: filtered, nonCompliant, restricted });
   }
 
   const total = filtered.length;
@@ -166,5 +202,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     page,
     pageSize,
     nonCompliant,
+    restricted,
   });
 }

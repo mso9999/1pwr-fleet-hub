@@ -18,6 +18,8 @@ type OptionRow = {
   displayName: string;
   hrEmployeeId: string;
   isTrainer?: boolean;
+  /** 'any' | 'automatic_only' — AT-only derate badge shown in the list. */
+  transmissionScope?: string;
 };
 
 export type DesignatedOperatorSelection = {
@@ -254,7 +256,14 @@ export function EhsCompliantDriverPickerField({
                         aria-selected={isSelected}
                       >
                         <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate font-medium text-zinc-900">{o.displayName}</span>
+                          <span className="truncate font-medium text-zinc-900">
+                            {o.displayName}
+                            {o.transmissionScope === "automatic_only" && (
+                              <span className="ml-2 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 align-middle">
+                                AT only
+                              </span>
+                            )}
+                          </span>
                           <span className="truncate text-xs text-zinc-500">{o.email}</span>
                           {o.hrEmployeeId ? (
                             <span className="text-[11px] text-zinc-400">HR: {o.hrEmployeeId}</span>

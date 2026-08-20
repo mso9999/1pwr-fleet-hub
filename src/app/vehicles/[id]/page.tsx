@@ -40,6 +40,7 @@ interface VehicleDetail {
   vin: string;
   engine_number: string;
   asset_class: AssetClass;
+  transmission?: string;
   home_location: string;
   current_location: string;
   status: VehicleStatus;
@@ -419,6 +420,7 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
       vin: fd.get("vin"),
       engineNumber: fd.get("engineNumber"),
       assetClass: fd.get("assetClass"),
+      transmission: fd.get("transmission") || "",
       homeLocation: fd.get("homeLocation"),
       notes: fd.get("notes"),
       registrationDiscExpiryDate: fd.get("registrationDiscExpiryDate") || "",
@@ -917,6 +919,11 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
                 {(Object.values(ASSET_CLASS) as AssetClass[]).map((c) => (
                   <option key={c} value={c}>{ASSET_CLASS_LABELS[c]}</option>
                 ))}
+              </Select>
+              <Select name="transmission" label="Transmission" defaultValue={vehicle.transmission || ""}>
+                <option value="">Not recorded</option>
+                <option value="automatic">Automatic</option>
+                <option value="manual">Manual</option>
               </Select>
               <Input name="homeLocation" label="Home Location" defaultValue={vehicle.home_location} />
               <Input
