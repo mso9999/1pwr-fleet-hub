@@ -51,6 +51,50 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "automatic-only-driver-derate",
+    title: "Automatic-only (AT) derate for driver authorizations",
+    summary:
+      "EHS can derate a driving authorization to Automatic only when the road test was done in an automatic — the grant then holds only for vehicles recorded as automatic, enforced at the departing checklist and trip checkout.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-08-20",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- EHS → Approved drivers → **Authorizations (D018)**: driving categories now have a **Transmission scope** — *Any transmission* (full grant) or *Automatic only* (derated).\n- An **Automatic only** driver is valid **only for vehicles recorded as automatic**. Manual vehicles — and vehicles with no transmission recorded — block the pairing.\n- Driver pickers badge AT-only drivers (**AT only**) and grey them out with the reason when the selected vehicle isn't a recorded automatic.\n- The departing driver checklist and trip checkout both enforce the rule server-side, and the trip record snapshots the driver scope + vehicle transmission for the audit trail.",
+      },
+      {
+        title: "What you need to do",
+        bodyMd:
+          "- **Fleet**: keep each vehicle's **Transmission** field current (vehicle page → Edit, or when adding a vehicle). An AT-only driver cannot depart in a vehicle whose transmission is blank — the block is deliberate, so the data stays honest.\n- **EHS**: set *Automatic only* when the road test was done in an automatic; lift it with one re-save after a manual road test (audit-logged like any authorization change).\n- Vehicle transmissions are also shared with the AM register automatically (additive field on the vehicles integration feed).",
+      },
+    ],
+  },
+  {
+    slug: "mission-approval-notifications",
+    title: "Approvers are notified the moment a mission is submitted",
+    summary:
+      "Mission submissions now email the mission-approver cohort and post to the 1PWR LS - DPO WhatsApp group within seconds — no more silent pending queue. A hands-on approver tutorial is also available.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-08-18",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- Creating, submitting, or resubmitting a mission instantly **emails the mission approvers** (Tumelo and Kopano for Lesotho; Matt globally) with the route, dates, requester, and a review link.\n- The same event **posts to the 1PWR LS - DPO WhatsApp group** so management sees submissions in chat.\n- Every notification — sent, skipped, or failed — is written to the mission's audit log (`approval_notify`), so “was anyone notified?” is always answerable.",
+      },
+      {
+        title: "For approvers",
+        bodyMd:
+          "- Approving still happens in Fleet Hub: **Requests → Missions pending management approval** → open the mission → **Approve**, **Revise & resubmit**, or **Reject** (with a reason).\n- New to approving? The tutorial menu now has a hands-on **“Approve a mission (approvers)”** track — pinned to the top for accounts with the approver grant — that seeds a safe practice mission you can actually approve or reject.",
+      },
+    ],
+  },
+  {
     slug: "mission-trip-allocation-checklist-progression",
     title: "Mission-to-departure steps now follow the operational sequence",
     summary:

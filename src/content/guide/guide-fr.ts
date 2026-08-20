@@ -434,6 +434,13 @@ export const guideFr: GuideContent = {
             B("saisie libre"),
             " et signalé en orange sous le champ — EHS devrait ajouter cette personne au registre si elle conduit régulièrement.",
           ],
+          [
+            "La liste tient aussi compte du véhicule choisi : les conducteurs avec une autorisation ",
+            B("Automatique uniquement"),
+            " (badge AT) apparaissent pour les véhicules automatiques mais sont bloqués — grisés avec la raison — si le véhicule est manuel ou si sa transmission n’est pas renseignée. La soumission d’un contrôle de départ avec une telle combinaison est refusée. Maintenez le champ ",
+            B("Transmission"),
+            " de chaque véhicule à jour (page du véhicule → Modifier) pour que le contrôle fonctionne.",
+          ],
         ],
       },
       {
@@ -580,6 +587,15 @@ export const guideFr: GuideContent = {
             B("Formateur"),
             " — ajoute des notes et charge une attestation de formation si requis.",
           ],
+          [
+            "Les catégories de conduite comportent aussi une ",
+            B("Portée transmission"),
+            " : conservez ",
+            B("Toutes transmissions"),
+            " pour une habilitation complète, ou choisissez ",
+            B("Automatique uniquement"),
+            " lorsque l’essai routier a été fait en boîte automatique. L’habilitation dérogatoire n’est valable que pour les véhicules enregistrés comme automatiques — le sélecteur de conducteur et les contrôles au départ l’appliquent (voir ci-dessous). Lever la dérogation après un essai en boîte manuelle se fait en une ré-enregistrement, tracé comme tout changement d’autorisation.",
+          ],
         ],
         bullets: [
           "Conduite : Véhicule 1PWR sur route, Poids lourd sur route, Moto sur route, Conduite défensive LDF.",
@@ -587,6 +603,7 @@ export const guideFr: GuideContent = {
           "Atelier d’usinage : Fraiseuse CNC, Fraisage / tournage manuel, Découpe plasma CNC, Soudeur MIG, Soudeur TIG, Atelier général.",
           "Formateur implique Agréé — un formateur peut opérer et encadrer les autres.",
           "Une attestation de formation est obligatoire pour toutes les catégories Engins et Atelier (le bouton Enregistrer reste désactivé sans fichier).",
+          "Portée transmission (catégories de conduite) : Automatique uniquement bloque le conducteur sur les véhicules manuels — et sur ceux sans transmission renseignée — au contrôle de départ et au départ de la mission.",
         ],
       },
       {

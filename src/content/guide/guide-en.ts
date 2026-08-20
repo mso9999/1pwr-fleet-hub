@@ -436,6 +436,13 @@ export const guideEn: GuideContent = {
             B("write-in"),
             " and flagged amber under the field — EHS should add that person to the register if they will be driving regularly.",
           ],
+          [
+            "The list is also scoped to the selected vehicle: drivers with an ",
+            B("Automatic only"),
+            " authorization (AT badge) appear for automatics but are held back — greyed out with the reason — when the vehicle is manual or has no transmission recorded. Submitting a departing check with such a pairing is blocked outright. Keep each vehicle’s ",
+            B("Transmission"),
+            " field current (vehicle page → Edit) so the gate can do its job.",
+          ],
         ],
       },
       {
@@ -582,6 +589,15 @@ export const guideEn: GuideContent = {
             B("Trainer"),
             " — adds optional notes, and uploads a training record where required.",
           ],
+          [
+            "Driving categories also carry a ",
+            B("Transmission scope"),
+            ": keep ",
+            B("Any transmission"),
+            " for a full grant, or choose ",
+            B("Automatic only"),
+            " when the road test was done in an automatic. The derated grant is valid only for vehicles recorded as automatic — the driver picker and the departure gates enforce it (see below). Lifting the derate after a manual road test is a single re-save, audit-logged like any other authorization change.",
+          ],
         ],
         bullets: [
           "Driving: Insured 1PWR vehicle on public roads, Heavy vehicle on public roads, Motorcycle on public roads, LDF Defensive driving.",
@@ -589,6 +605,7 @@ export const guideEn: GuideContent = {
           "Machine shop: CNC milling, Manual milling / turning, CNC plasma cutting, MIG welder, TIG welder, Machine shop general.",
           "Trainer implies Approved — a trainer is also cleared to operate and can supervise others.",
           "A training record upload is mandatory for any plant or machining category (Save authorization stays disabled until the file is attached).",
+          "Transmission scope (driving categories): Automatic only blocks the driver from manual vehicles — and from vehicles with no transmission recorded — at the departing checklist and at trip checkout.",
         ],
       },
       {
@@ -745,6 +762,14 @@ export const guideEn: GuideContent = {
             " badge when a registration disc expiry is within 60 days (amber) or 30 days / expired (red) — maintain the date under ",
             B("Edit"),
             " on the vehicle detail page.",
+          ],
+          [
+            B("Transmission: "),
+            "record each vehicle as automatic or manual under ",
+            B("Edit"),
+            " on the vehicle detail page (or when adding a vehicle). This feeds the EHS ",
+            B("Automatic only"),
+            " driver derate: AT-only drivers are blocked from manual vehicles — and from vehicles with no transmission recorded — at the departing checklist and at trip checkout, so keeping this field current is what makes the gate work.",
           ],
           [
             B("Changing operational / under-maintenance status: "),

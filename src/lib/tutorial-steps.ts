@@ -275,7 +275,7 @@ const DRIVER_CHECK_STEPS: TutorialStep[] = [
     target: "tutorial-dvc-form",
     title: "2. The checklist form",
     body:
-      "Everything below is one submission: direction, vehicle and driver, odometer with photo, four exterior photos, route, pass/fail lines, equipment, remarks, then Submit.",
+      "Everything below is one submission: direction, vehicle and driver, odometer with photo, four exterior photos, route, pass/fail lines, equipment, remarks, then Submit. The driver dropdown is scoped to the selected vehicle — its class and its transmission (drivers with an Automatic-only authorization show an AT badge and are held back for manual vehicles).",
   },
   {
     id: "dvc-direction",
@@ -697,7 +697,7 @@ const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
     target: "tutorial-ehs-authorizations",
     title: "8. D018 authorizations matrix",
     body:
-      "The accordion groups the 16 D018 categories (Driving / Plant / Machining). Set each grant to None, Approved, or Trainer. Plant and machining categories also need a training-record upload on the authorisation row before Save authorization unlocks.",
+      "The accordion groups the 16 D018 categories (Driving / Plant / Machining). Set each grant to None, Approved, or Trainer. Plant and machining categories also need a training-record upload on the authorisation row before Save authorization unlocks. Driving categories add a Transmission scope: choose Automatic only when the road test was done in an automatic — the grant then holds for automatic vehicles only, and the fleet gates enforce it.",
   },
   {
     id: "ehs-attest",
@@ -713,7 +713,7 @@ const EHS_DRIVER_REGISTER_STEPS: TutorialStep[] = [
     target: "tutorial-dvc-form",
     title: "10. How the register shows up on a vehicle check",
     body:
-      "The Driver field on the check form is a searchable dropdown of operators who are ready for the selected vehicle's class (standard on-road, heavy vehicle, tractor, etc.). Non-listed names can still be written in but are flagged amber. Suspending or changing an authorisation in EHS updates this dropdown immediately.",
+      "The Driver field on the check form is a searchable dropdown of operators who are ready for the selected vehicle's class (standard on-road, heavy vehicle, tractor, etc.) — and its transmission: Automatic-only drivers carry an AT badge and are held back, greyed out with the reason, when the vehicle is manual or unrecorded; submitting that pairing is blocked. Non-listed names can still be written in but are flagged amber. Suspending or changing an authorisation in EHS updates this dropdown immediately.",
   },
 ];
 
