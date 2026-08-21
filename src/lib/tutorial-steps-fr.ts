@@ -245,5 +245,5 @@ export const TUTORIAL_STEP_TRANSLATIONS_FR: Record<
   "wo-intro": { title: "Creer un ordre de travail", body: "Ce mini-parcours couvre creation rapide et verification de l'apparition dans le pipeline." },
   "wo-button": { title: "1. Bouton New work order", body: "Depuis Work Orders, cliquez New work order pour ouvrir le formulaire de creation." },
   "wo-form": { title: "2. Renseigner l'intervention", body: "Choisissez vehicule, titre, description, type, priorite, mecanicien et lieu de reparation." },
-  "wo-after": { title: "3. Apres creation", body: "La nouvelle intervention apparait dans la liste. Ouvrez-la pour suivi, liens PR/PO et progression jusqu'a completion." },
+  "wo-after": { title: "3. Apres creation", body: "La nouvelle intervention apparait dans la liste. Ouvrez-la pour suivi, liens PR/PO et progression jusqu'a completion. Note : un OT ne peut etre marque termine qu'avec au moins une ligne de main-d'oeuvre (ouvrier + heures) — les reparations tierces sont exemptees. Les DA pieces vehicule doivent reference l'OT avant de passer en approbation." },
 };

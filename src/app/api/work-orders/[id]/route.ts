@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canAdvanceWorkOrderStatus } from "@/lib/fleet-roles";
 import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
+import { laborGateForCompletion } from "@/lib/work-order-completion";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 
@@ -157,6 +158,18 @@ export async function PATCH(
       if (!insp) {
         return NextResponse.json(
           { error: "Closing inspection not found." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Labor-capture gate (2026-08-21): completing a work order requires logged
+    // effort — see lib/work-order-completion.ts.
+    if (body.status === "completed") {
+      const gate = laborGateForCompletion(db, existing as { id: string; repair_location?: string | null });
+      if (!gate.ok) {
+        return NextResponse.json(
+          { error: gate.reason, reason: "labor_required" },
           { status: 400 }
         );
       }

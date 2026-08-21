@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "wo-labor-gate-and-pr-linkage",
+    title: "Work orders now anchor vehicle repair cost: PR gate + labour capture",
+    summary:
+      "Vehicle parts/service PRs in the PR system must reference a Fleet Hub work order before they can reach an approver, and a work order can only be completed with logged labour — together they build the per-vehicle effort + cost record.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-08-21",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "The loop",
+        bodyMd:
+          "- **PR system → FM**: vehicle parts/service PRs (expense code 4) require a linked Fleet Hub work order at creation, and the link is re-validated before the PR can move to approval. No logged maintenance need → no parts. Fuel (11) and consumable fluids (4F) are exempt.\n- **FM → completion**: a work order can only be marked **completed** with at least one labour line (worker + hours). Third-party repairs are exempt — set Repair location to 3rd-party and capture the quote/invoice instead.\n- **Link-back is automatic**: creating the PR registers it on the work order (needs-parts → PR submitted), so the WO carries the procurement trail.",
+      },
+      {
+        title: "Why",
+        bodyMd:
+          "This is the data foundation for ranking vehicles by effort and cost to keep operational — and for retirement thresholds. Every substantial repair now traces to a documented issue (inspection finding or ticket), with parts cost from the PR and labour from the WO log.\n\n**If a PR is blocked**: log the maintenance need in Fleet Hub first (Work orders → New Work Order), then pick it on the PR form.",
+      },
+    ],
+  },
+  {
     slug: "automatic-only-driver-derate",
     title: "Automatic-only (AT) derate for driver authorizations",
     summary:

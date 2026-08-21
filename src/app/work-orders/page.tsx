@@ -737,6 +737,12 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
             <div className="text-xs font-medium text-zinc-500 uppercase">Labour Log ({detail.labor.length} entries · {(detail.total_labour_hours || 0).toFixed(1)}h total)</div>
             <Button size="sm" variant="outline" onClick={() => setShowAddLabor(!showAddLabor)}>+ Add Labour</Button>
           </div>
+          {detail.labor.length === 0 && detail.repair_location !== "3rd-party" && !["completed", "closed", "cancelled", "rejected"].includes(detail.status) && (
+            <p className="mb-2 rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5 text-[11px] text-amber-800">
+              No labour logged yet. At least one labour line (worker + hours) is required before this
+              work order can be completed — third-party repairs are exempt (set Repair location to 3rd-party).
+            </p>
+          )}
           {showAddLabor && (
             <LaborEntryForm
               onSubmit={addLabor}

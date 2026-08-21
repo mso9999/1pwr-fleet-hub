@@ -856,7 +856,7 @@ const WORK_ORDER_STEPS: TutorialStep[] = [
     target: "tutorial-work-orders-header",
     title: "3. After creation",
     body:
-      "The new job appears in the list. Open it to post updates, labour, parts, PR/PO links, and status—including needs-parts and PR submitted when procurement is in flight—through to completion.",
+      "The new job appears in the list. Open it to post updates, labour, parts, PR/PO links, and status—including needs-parts and PR submitted when procurement is in flight—through to completion. Note: a work order can only be marked completed once it has at least one labour line (worker + hours) — third-party repairs are exempt. Vehicle parts PRs in the PR system must reference the work order before they can reach an approver.",
   },
 ];
 
