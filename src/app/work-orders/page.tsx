@@ -551,7 +551,9 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
   async function postUpdate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setIsPostingUpdate(true);
-    const fd = new FormData(e.currentTarget);
+    // Capture before any await — React nulls event.currentTarget after the handler yields.
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     fd.set("postedById", user?.id || "");
     fd.set("postedByName", user?.name || user?.email || "");
     fd.set("updateType", "progress");
@@ -562,7 +564,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
     const res = await fetch(`/api/work-orders/${workOrderId}/updates`, { method: "POST", body: fd });
     if (res.ok) {
       setShowAddUpdate(false);
-      (e.target as HTMLFormElement).reset();
+      form.reset();
       loadUpdates();
     }
     setIsPostingUpdate(false);

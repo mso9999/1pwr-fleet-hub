@@ -2363,7 +2363,9 @@ function RequestForm({
     e.preventDefault();
     setMissionMessage(null);
     setMissionFormError("");
-    const fd = new FormData(e.currentTarget);
+    // Capture before any await — React nulls event.currentTarget after the handler yields.
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const intent = String(fd.get("intent") || "submit").toLowerCase();
     const saveAsDraft = intent === "savedraft";
     let destination = "";
@@ -2425,72 +2427,75 @@ function RequestForm({
             ]
           : normalizedStops;
     setMissionSubmitting(true);
-    const payload = {
-      organizationId,
-      title: String(fd.get("cmTitle") || "").slice(0, 240),
-      destination,
-      departureLocation: routeOrigin.trim() || "HQ",
-      departureDate,
-      returnDate: String(fd.get("cmReturnDate") || ""),
-      passengers: String(fd.get("cmPassengers") || ""),
-      crewSize: crewParsed,
-      loadoutSummary: String(fd.get("cmLoadout") || ""),
-      missionType: "other",
-      notes: String(fd.get("cmNotes") || ""),
-      missionProfile: String(fd.get("cmMissionProfile") || "local"),
-      tripShape: multiStopEnabled ? tripShape : "one_way",
-      stops: multiStopEnabled ? finalStops : [],
-      requiredVehicleClass: reqClass,
-      rrStatus: String(fd.get("cmRrStatus") || "na"),
-      transportMode,
-      publicTransportJustification: publicTransport
-        ? publicTransportJustification.trim()
-        : "",
-      assetsBeingMoved,
-    };
-    const headers = await jsonHeadersWithBearer();
-    let res: Response;
-    if (editingMissionDraftId) {
-      res = await fetch(`/api/missions/${editingMissionDraftId}`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      if (res.ok && !saveAsDraft) {
+    try {
+      const payload = {
+        organizationId,
+        title: String(fd.get("cmTitle") || "").slice(0, 240),
+        destination,
+        departureLocation: routeOrigin.trim() || "HQ",
+        departureDate,
+        returnDate: String(fd.get("cmReturnDate") || ""),
+        passengers: String(fd.get("cmPassengers") || ""),
+        crewSize: crewParsed,
+        loadoutSummary: String(fd.get("cmLoadout") || ""),
+        missionType: "other",
+        notes: String(fd.get("cmNotes") || ""),
+        missionProfile: String(fd.get("cmMissionProfile") || "local"),
+        tripShape: multiStopEnabled ? tripShape : "one_way",
+        stops: multiStopEnabled ? finalStops : [],
+        requiredVehicleClass: reqClass,
+        rrStatus: String(fd.get("cmRrStatus") || "na"),
+        transportMode,
+        publicTransportJustification: publicTransport
+          ? publicTransportJustification.trim()
+          : "",
+        assetsBeingMoved,
+      };
+      const headers = await jsonHeadersWithBearer();
+      let res: Response;
+      if (editingMissionDraftId) {
         res = await fetch(`/api/missions/${editingMissionDraftId}`, {
           method: "PATCH",
           headers,
-          body: JSON.stringify({ action: "submit" }),
+          body: JSON.stringify(payload),
+        });
+        if (res.ok && !saveAsDraft) {
+          res = await fetch(`/api/missions/${editingMissionDraftId}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ action: "submit" }),
+          });
+        }
+      } else {
+        res = await fetch("/api/missions", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...payload,
+            action: saveAsDraft ? "saveDraft" : "submit",
+          }),
         });
       }
-    } else {
-      res = await fetch("/api/missions", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          ...payload,
-          action: saveAsDraft ? "saveDraft" : "submit",
-        }),
-      });
-    }
-    setMissionSubmitting(false);
-    if (res.ok) {
-      setMissionMessage(
-        saveAsDraft
-          ? "Mission draft saved. Only you and admins can edit it until submission; IS&T may view it for diagnosis."
-          : "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
-      );
-      e.currentTarget.reset();
-      setDestinationChoice("");
-      setDestinationOther("");
-      setTripShape("one_way");
-      setRouteOrigin("HQ");
-      setRouteStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
-      setEditingMissionDraftId(null);
-      loadApprovedMissions();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setMissionFormError((err as { error?: string }).error || "Could not create mission.");
+      if (res.ok) {
+        setMissionMessage(
+          saveAsDraft
+            ? "Mission draft saved. Only you and admins can edit it until submission; IS&T may view it for diagnosis."
+            : "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
+        );
+        form.reset();
+        setDestinationChoice("");
+        setDestinationOther("");
+        setTripShape("one_way");
+        setRouteOrigin("HQ");
+        setRouteStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+        setEditingMissionDraftId(null);
+        loadApprovedMissions();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setMissionFormError((err as { error?: string }).error || "Could not create mission.");
+      }
+    } finally {
+      setMissionSubmitting(false);
     }
   }
 

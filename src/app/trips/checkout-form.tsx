@@ -349,6 +349,8 @@ export function TripCheckoutForm({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setCheckoutError(null);
+    // Capture before any await — React nulls event.currentTarget after the handler yields.
+    const form = e.currentTarget;
     if (!selectedMission || !missionSnapshot) {
       setCheckoutError("Select a mission that is approved, reserved, and ready for checkout.");
       return;
@@ -383,7 +385,7 @@ export function TripCheckoutForm({
       }
     }
 
-    const fd = new FormData(e.currentTarget);
+    const fd = new FormData(form);
     const dest =
       adjustMission && canMissionManage ? missionEdits.destination.trim() : selectedMission.destination;
     const mType =
