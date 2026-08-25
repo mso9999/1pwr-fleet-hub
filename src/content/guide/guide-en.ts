@@ -323,7 +323,7 @@ export const guideEn: GuideContent = {
           [
             "Logistics (step 2): pick the ",
             B("designated driver"),
-            " from the searchable EHS-approved list for your organisation (country); the request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
+            " from the searchable EHS register for your organisation (country). The full register is listed (search by name, email, or HR id); only fully compliant on-road operators can be selected, and incomplete files stay visible with the reason they are blocked. The request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
           ],
           [
             "When you choose a ",
@@ -675,7 +675,7 @@ export const guideEn: GuideContent = {
         title: "What the register controls",
         bullets: [
           "Vehicle check form → Driver field: only fully-compliant drivers for this organisation appear in the dropdown. Typed write-ins are accepted but flagged amber.",
-          "Vehicle requests → step 2 requires picking the designated driver from the compliant EHS list for the organisation (country); the register row is stored on the request. Managers with prerequisite override may bypass with a logged reason (8+ characters). Superadmin may test without the full gate.",
+          "Vehicle requests → step 2 lists the full EHS register for the organisation (country). Incomplete files appear as Not ready with the blocking reason; only a Ready on-road operator can be submitted. The register row is stored on the request. Managers with prerequisite override may bypass with a logged reason (8+ characters). Superadmin may test without the full gate.",
           "Admin → Vehicle-check approvers is a separate list (who may approve exception failures on a check). Being an approver does not by itself make someone an approved driver.",
         ],
       },

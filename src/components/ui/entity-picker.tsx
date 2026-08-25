@@ -398,7 +398,13 @@ const EntityPickerField = forwardRef<HTMLButtonElement, EntityPickerFieldProps>(
                                 ) : null}
                               </span>
                               {opt.description ? (
-                                <span className="mt-0.5 truncate text-xs text-zinc-500">
+                                <span
+                                  className={
+                                    opt.disabled
+                                      ? "mt-0.5 text-xs text-zinc-500 whitespace-normal"
+                                      : "mt-0.5 truncate text-xs text-zinc-500"
+                                  }
+                                >
                                   {opt.description}
                                 </span>
                               ) : null}

@@ -328,7 +328,7 @@ export const guideFr: GuideContent = {
           [
             "Logistique (étape 2) : choisissez le ",
             B("conducteur désigné"),
-            " dans la liste EHS filtrée par organisation (pays) ; la demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
+            " dans le registre EHS de votre organisation (pays). Toute la liste est affichée et recherchable (nom, e-mail, identifiant RH) ; seuls les opérateurs pleinement conformes pour la conduite sur route peuvent être sélectionnés, les dossiers incomplets restent visibles avec le motif de blocage. La demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
           ],
           [
             "Lorsque vous choisissez une ",
@@ -679,7 +679,7 @@ export const guideFr: GuideContent = {
         title: "Ce que le registre contrôle",
         bullets: [
           "Formulaire de contrôle → champ Conducteur : seuls les conducteurs pleinement conformes de cette organisation apparaissent. Les saisies libres sont acceptées mais signalées en orange.",
-          "Demandes de véhicules → l’étape 2 impose de choisir le conducteur désigné dans la liste EHS conforme pour l’organisation (pays) ; la ligne du registre est enregistrée sur la demande. Les managers avec dérogation prérequis peuvent contourner avec un motif tracé (8 caractères minimum). Le superadmin peut tester sans la barrière complète.",
+          "Demandes de véhicules → l’étape 2 affiche tout le registre EHS de l’organisation (pays). Les dossiers incomplets apparaissent en « Pas prêt » avec le motif ; seul un opérateur Prêt pour la conduite sur route peut être soumis. La ligne du registre est enregistrée sur la demande. Les managers avec dérogation prérequis peuvent contourner avec un motif tracé (8 caractères minimum). Le superadmin peut tester sans la barrière complète.",
           "Administration → Approbateurs de contrôles est une liste séparée (qui peut valider les exceptions d’un contrôle). Être approbateur ne rend pas automatiquement conducteur agréé.",
         ],
       },

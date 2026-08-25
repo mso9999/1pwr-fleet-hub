@@ -2984,7 +2984,7 @@ function RequestForm({
               onChange={setDesignatedOperator}
               required
               disabled={managerOverrideReady}
-              helperText="The list is scoped to your current organisation (country). Only fully compliant on-road operators appear. Pick the person who will drive; this links the request to the canonical EHS row."
+              helperText="Scoped to the organisation in the sidebar. Search the full EHS register; only Ready on-road operators can be submitted. Incomplete files stay in the list with the reason they are blocked."
             />
             {managerOverrideReady && (
               <p className="text-xs text-amber-800 rounded-md border border-amber-100 bg-amber-50/80 px-2 py-1.5">
