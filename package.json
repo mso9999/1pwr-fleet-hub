@@ -1,6 +1,6 @@
 {
   "name": "fleet-hub",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -18,6 +18,7 @@
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",
     "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts",
     "test:mission-trip-progression": "tsx scripts/test-mission-trip-progression.ts",
+    "test:eligible-departure": "tsx scripts/test-eligible-for-departure.ts",
     "test:stragglers-public-transport": "tsx scripts/test-stragglers-and-public-transport.ts",
     "notify:pending-missions": "tsx scripts/notify-pending-mission-approvals.ts",
     "test:deployment-employee-matching": "tsx scripts/test-deployment-employee-matching.ts"

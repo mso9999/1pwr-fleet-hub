@@ -1598,6 +1598,7 @@ function migrateDriverVehicleChecksSchema(db: Database.Database): void {
   const additions: Array<[string, string]> = [
     ["organization_id", "TEXT NOT NULL DEFAULT '1pwr_lesotho'"],
     ["trip_id", "TEXT DEFAULT NULL"],
+    ["mission_id", "TEXT DEFAULT NULL"],
     ["driver_id", "TEXT NOT NULL DEFAULT ''"],
     ["driver_hr_employee_id", "TEXT NOT NULL DEFAULT ''"],
     ["driver_name", "TEXT NOT NULL DEFAULT ''"],
@@ -1666,6 +1667,7 @@ function migrateDriverVehicleChecksSchema(db: Database.Database): void {
 
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_vehicle ON driver_vehicle_checks(vehicle_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_mission ON driver_vehicle_checks(mission_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_driver_hr_employee ON driver_vehicle_checks(driver_hr_employee_id)");
 }
@@ -1804,6 +1806,7 @@ function createPhase1Tables(db: Database.Database): void {
       organization_id TEXT NOT NULL DEFAULT '1pwr_lesotho',
       vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
       trip_id TEXT DEFAULT NULL,
+      mission_id TEXT DEFAULT NULL,
       driver_id TEXT NOT NULL DEFAULT '',
       -- Stable HR identity snapshot. driver_id points at Fleet's EHS operator
       -- record and is not an HR employee identifier.
@@ -1895,6 +1898,7 @@ function createPhase1Tables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_dvc_vehicle ON driver_vehicle_checks(vehicle_id);
     CREATE INDEX IF NOT EXISTS idx_dvc_trip ON driver_vehicle_checks(trip_id);
+    CREATE INDEX IF NOT EXISTS idx_dvc_mission ON driver_vehicle_checks(mission_id);
     CREATE INDEX IF NOT EXISTS idx_dvc_date ON driver_vehicle_checks(check_date);
     CREATE INDEX IF NOT EXISTS idx_dvc_valid_for ON driver_vehicle_checks(valid_for_departure_on);
     CREATE INDEX IF NOT EXISTS idx_dvc_driver_hr_employee ON driver_vehicle_checks(driver_hr_employee_id);

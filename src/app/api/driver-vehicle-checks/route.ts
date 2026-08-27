@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { evaluateTransmissionGate } from "@/lib/transmission-scope";
+import { resolveDepartingCheckAnchor } from "@/lib/eligible-for-departure";
 import { v4 as uuidv4 } from "uuid";
 
 const STATUS_CHECK_FIELDS = [
@@ -149,116 +150,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!dvcCols.some((c) => c.name === "driver_hr_employee_id")) {
       db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN driver_hr_employee_id TEXT NOT NULL DEFAULT ''");
     }
+    if (!dvcCols.some((c) => c.name === "mission_id")) {
+      db.exec("ALTER TABLE driver_vehicle_checks ADD COLUMN mission_id TEXT DEFAULT NULL");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_dvc_mission ON driver_vehicle_checks(mission_id)");
+    }
 
     const direction = String(body.direction || "departing").toLowerCase();
+    const organizationIdEarly = String(body.organizationId || "1pwr_lesotho");
+    let departingTripId: string | null = null;
+    let departingMissionId: string | null = null;
 
-    // Policy gate (2026-07-01): vehicles must not be deployed without the
-    // mission getting logged and approved. A departing DVC is the moment the
-    // driver documents who is on board and anchors HR's field-deployment
-    // clock, so it must reference an approved-mission trip. Returning checks
-    // are not deployments and stay ungated.
-    //
-    // We require an explicit tripId (no auto-link) and validate:
-    //   - the trip exists
-    //   - the trip's vehicle matches this DVC's vehicle
-    //   - the trip has a linked mission whose approval_status = 'approved'
-    //   - the trip has not yet departed (departed_at IS NULL)
-    //   - the trip has not been checked in (checkin_at IS NULL)
-    // If any check fails we return 400 with a clear reason so the driver /
-    // dispatch can fix the upstream step (create+approve the mission, or
-    // create+link the trip) before re-submitting.
+    // Policy gate: a departing check must name an approved mission (via its
+    // trip, or the mission itself when the trip has not been created yet).
+    // Returning checks are not deployments and stay ungated.
     if (direction === "departing") {
-      const tripId = String(body.tripId || "").trim();
-      if (!tripId) {
-        return NextResponse.json(
-          {
-            error:
-              "An approved mission / trip is required for a departing check. Pick one from the list, or ask dispatch to log and approve a mission for this vehicle first.",
-            reason: "missing_trip",
-          },
-          { status: 400 }
-        );
+      const anchor = resolveDepartingCheckAnchor(db, {
+        organizationId: organizationIdEarly,
+        vehicleId: String(body.vehicleId),
+        selectionId: String(body.tripId || ""),
+      });
+      if (!anchor.ok) {
+        return NextResponse.json({ error: anchor.error, reason: anchor.reason }, { status: 400 });
       }
-      const trip = db
-        .prepare(
-          `SELECT t.id, t.vehicle_id, t.mission_id, t.departed_at, t.checkin_at,
-                  m.approval_status  AS mission_approval_status,
-                  m.lifecycle_status AS mission_lifecycle_status,
-                  m.transport_mode   AS mission_transport_mode
-             FROM trips t
-             LEFT JOIN missions m ON t.mission_id = m.id
-            WHERE t.id = ?`
-        )
-        .get(tripId) as
-        | {
-            id: string;
-            vehicle_id: string;
-            mission_id: string | null;
-            departed_at: string | null;
-            checkin_at: string | null;
-            mission_approval_status: string | null;
-            mission_lifecycle_status: string | null;
-            mission_transport_mode: string | null;
-          }
-        | undefined;
-      if (!trip) {
-        return NextResponse.json(
-          { error: "Selected trip no longer exists. Refresh and pick again.", reason: "trip_not_found" },
-          { status: 400 }
-        );
-      }
-      // Scenario B: public-transport missions skip the DVC entirely — the
-      // trip checkout IS the deployment record. There's no real vehicle to
-      // inspect.
-      if (String(trip.mission_transport_mode || "company_vehicle").toLowerCase() === "public_transport") {
-        return NextResponse.json(
-          {
-            error:
-              "This trip is on a public-transport mission — no driver-vehicle-check is required or allowed. The trip checkout is the deployment record.",
-            reason: "public_transport_mission_no_dvc",
-          },
-          { status: 400 }
-        );
-      }
-      if (String(trip.vehicle_id || "") !== String(body.vehicleId)) {
-        return NextResponse.json(
-          { error: "Selected trip is for a different vehicle. Pick a trip matching this vehicle.", reason: "vehicle_mismatch" },
-          { status: 400 }
-        );
-      }
-      if (!trip.mission_id) {
-        return NextResponse.json(
-          { error: "Selected trip is not linked to a mission. Dispatch must attach an approved mission before departure.", reason: "missing_mission" },
-          { status: 400 }
-        );
-      }
-      if (String(trip.mission_approval_status || "").toLowerCase() !== "approved") {
-        return NextResponse.json(
-          {
-            error: `Mission is ${trip.mission_approval_status || "pending"} — not approved. A manager must approve the mission before this vehicle can deploy.`,
-            reason: "mission_not_approved",
-          },
-          { status: 400 }
-        );
-      }
-      if (String(trip.mission_lifecycle_status || "active").toLowerCase() !== "active") {
-        return NextResponse.json(
-          { error: `Mission lifecycle is ${trip.mission_lifecycle_status}. Only active missions can deploy.`, reason: "mission_not_active" },
-          { status: 400 }
-        );
-      }
-      if (trip.departed_at) {
-        return NextResponse.json(
-          { error: "Selected trip has already departed. Pick the next pending trip for this vehicle.", reason: "trip_already_departed" },
-          { status: 400 }
-        );
-      }
-      if (trip.checkin_at) {
-        return NextResponse.json(
-          { error: "Selected trip has already been checked in. Pick the next pending trip for this vehicle.", reason: "trip_already_checked_in" },
-          { status: 400 }
-        );
-      }
+      departingTripId = anchor.tripId;
+      departingMissionId = anchor.missionId;
     }
 
     const id = uuidv4();
@@ -313,7 +228,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const cols = [
-      "id", "organization_id", "vehicle_id", "trip_id", "driver_id", "driver_hr_employee_id", "driver_name",
+      "id", "organization_id", "vehicle_id", "trip_id", "mission_id", "driver_id", "driver_hr_employee_id", "driver_name",
       "mileage_km", "check_date", "route_from", "route_to", "direction",
       ...STATUS_CHECK_FIELDS,
       "failure_descriptions", "remarks", "travel_phone_number",
@@ -328,7 +243,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       id,
       body.organizationId || "1pwr_lesotho",
       body.vehicleId,
-      body.tripId || null,
+      direction === "departing" ? departingTripId : (body.tripId || null),
+      direction === "departing" ? departingMissionId : null,
       driverId,
       driverHrEmployeeId,
       body.driverName || "",
@@ -409,7 +325,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }),
       after: {
         vehicleId: body.vehicleId,
-        tripId: body.tripId || null,
+        tripId: direction === "departing" ? departingTripId : (body.tripId || null),
+        missionId: departingMissionId,
         overallPass,
         direction: body.direction || "departing",
         checkDate: body.checkDate || today,

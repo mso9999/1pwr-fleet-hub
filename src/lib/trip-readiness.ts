@@ -146,12 +146,24 @@ export function evaluateTripReadiness(
       `SELECT id, overall_pass, has_exceptions, exception_approved, check_date, valid_for_departure_on, created_at, driver_id
        FROM driver_vehicle_checks
        WHERE organization_id = ? AND vehicle_id = ? AND direction = 'departing'
-         ${tripId ? "AND trip_id = ?" : ""}
+         ${
+           tripId
+             ? `AND (
+                  trip_id = ?
+                  OR (
+                    (trip_id IS NULL OR trim(trip_id) = '')
+                    AND mission_id = (SELECT mission_id FROM trips WHERE id = ?)
+                  )
+                )`
+             : ""
+         }
        ORDER BY datetime(created_at) DESC LIMIT 1`
     )
-    .get(...(tripId
-      ? [input.organizationId, input.vehicleId, tripId]
-      : [input.organizationId, input.vehicleId])) as
+    .get(
+      ...(tripId
+        ? [input.organizationId, input.vehicleId, tripId, tripId]
+        : [input.organizationId, input.vehicleId])
+    ) as
     | {
         id: string;
         overall_pass: number;

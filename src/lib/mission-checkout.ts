@@ -33,9 +33,30 @@ export function syncAllocatedVehicleToPlannedTrip(
 ): void {
   db.prepare(
     `UPDATE trips SET vehicle_id = ?
-     WHERE id = (SELECT trip_id FROM missions WHERE id = ?)
-       AND departed_at IS NULL AND checkin_at IS NULL`
-  ).run(vehicleId, missionId);
+     WHERE departed_at IS NULL AND checkin_at IS NULL
+       AND (
+         id = (SELECT trip_id FROM missions WHERE id = ?)
+         OR mission_id = ?
+       )`
+  ).run(vehicleId, missionId, missionId);
+}
+
+/** Bind departing checks recorded against the mission before its trip existed. */
+export function attachOpenMissionDvcsToTrip(
+  db: Database.Database,
+  input: { tripId: string; missionId: string; vehicleId: string }
+): void {
+  db.prepare(
+    `UPDATE driver_vehicle_checks
+        SET trip_id = ?
+      WHERE (trip_id IS NULL OR trim(trip_id) = '')
+        AND lower(direction) = 'departing'
+        AND mission_id = ?
+        AND (
+          vehicle_id = ?
+          OR vehicle_id = (SELECT assigned_vehicle_id FROM missions WHERE id = ?)
+        )`
+  ).run(input.tripId, input.missionId, input.vehicleId, input.missionId);
 }
 
 export function assertMissionHasPlannedTripForVehicleAllocation(
