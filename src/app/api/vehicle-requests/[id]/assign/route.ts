@@ -13,6 +13,7 @@ import {
   registrationDiscMissionBlocked,
   registrationDiscOverrideAllowed,
 } from "@/lib/registration-disc";
+import { syncAllocatedVehicleToPlannedTrip } from "@/lib/mission-checkout";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
@@ -170,6 +171,7 @@ export async function POST(
         `UPDATE missions SET assigned_vehicle_id = ?, assigned_at = ?, assigned_by_id = ?, assigned_by_name = ?,
          updated_at = ? WHERE id = ?`
       ).run(body.vehicleId, now, approverId, approverName, now, missionId);
+      syncAllocatedVehicleToPlannedTrip(db, missionId, String(body.vehicleId));
     });
     tx();
   } else if (vehicle.status !== "operational") {

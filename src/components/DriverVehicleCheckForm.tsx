@@ -380,6 +380,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [eligibleTrips, setEligibleTrips] = useState<EligibleTrip[]>([]);
   const [eligibleTripsLoading, setEligibleTripsLoading] = useState(false);
   const [eligibleTripsError, setEligibleTripsError] = useState<string>("");
+  const [eligibleEmptyHint, setEligibleEmptyHint] = useState<string>("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
@@ -465,6 +466,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     if (direction !== "departing" || !selectedVehicleId) {
       setEligibleTrips([]);
       setEligibleTripsError("");
+      setEligibleEmptyHint("");
       return;
     }
     let cancelled = false;
@@ -479,16 +481,18 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         if (!res.ok) {
           if (!cancelled) {
             setEligibleTrips([]);
+            setEligibleEmptyHint("");
             setEligibleTripsError(
               `Could not load approved missions for this vehicle (HTTP ${res.status}).`
             );
           }
           return;
         }
-        const data = (await res.json()) as { trips?: EligibleTrip[] };
+        const data = (await res.json()) as { trips?: EligibleTrip[]; emptyHint?: string | null };
         if (!cancelled) {
           const list = Array.isArray(data.trips) ? data.trips : [];
           setEligibleTrips(list);
+          setEligibleEmptyHint(list.length === 0 ? String(data.emptyHint || "").trim() : "");
           // If the previously-selected trip is no longer in the eligible
           // list (e.g. it was started by another session, or the mission
           // was unapproved), clear the selection so we don't submit a
@@ -500,6 +504,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       } catch {
         if (!cancelled) {
           setEligibleTrips([]);
+          setEligibleEmptyHint("");
           setEligibleTripsError("Could not load approved missions for this vehicle.");
         }
       } finally {
@@ -607,7 +612,8 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     if (direction === "departing" && !selectedTripId) {
       setFormError(
         eligibleTrips.length === 0
-          ? "No approved mission for this vehicle today. Ask dispatch to log and approve a mission before departing."
+          ? eligibleEmptyHint ||
+            "No approved mission for this vehicle today. Ask dispatch to log and approve a mission before departing."
           : "Pick the mission / trip you are departing on. This anchors HR's field-deployment clock on an approved mission."
       );
       return;
@@ -867,8 +873,8 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Pick the approved mission you are departing on. This anchors the
                   field-deployment clock on a manager-approved mission — a vehicle
-                  cannot deploy without one. If the list is empty, ask dispatch to
-                  log and approve a mission for this vehicle first.
+                  cannot deploy without one. Approved missions reserved for this
+                  vehicle appear here even before the trip is created.
                 </p>
               </div>
 
@@ -878,8 +884,8 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 <p className="text-[11px] text-red-700">{eligibleTripsError}</p>
               ) : eligibleTrips.length === 0 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  No approved mission for this vehicle today. Ask dispatch to log
-                  and approve a mission before you depart.
+                  {eligibleEmptyHint ||
+                    "No approved mission for this vehicle today. Ask dispatch to log and approve a mission before you depart."}
                 </div>
               ) : (
                 <select

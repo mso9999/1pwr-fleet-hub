@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
   assertMissionEligibleForTripCreation,
+  attachOpenMissionDvcsToTrip,
   ensureUnallocatedVehicle,
 } from "@/lib/mission-checkout";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
@@ -373,6 +374,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   db.prepare("UPDATE missions SET trip_id = ?, updated_at = ? WHERE id = ?").run(id, now, missionIdRaw);
+  attachOpenMissionDvcsToTrip(db, {
+    tripId: id,
+    missionId: missionIdRaw,
+    vehicleId: effectiveVehicleId,
+  });
 
   // Insert multi-stop itinerary if provided
   if (incomingStops.length > 0) {
