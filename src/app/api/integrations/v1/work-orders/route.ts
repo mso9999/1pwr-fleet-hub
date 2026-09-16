@@ -13,7 +13,10 @@ import { verifyFleetIntegrationKey } from "@/lib/integration-auth";
  *   status     optional — single status or comma list; `open` expands to the
  *              non-terminal set (queued, submitted, in-progress, needs-parts,
  *              pr-submitted, awaiting-parts, return-repair)
+ *   q          optional — case-insensitive match on title, description, or vehicle code
  *   limit      optional, default 100, max 200
+ *   offset     optional, default 0 — for paged pickers
+ *   sort       optional — `recent` (default, created_at desc) | `priority` | `status`
  */
 const OPEN_STATUSES = [
   "queued",
@@ -34,7 +37,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const org = searchParams.get("org") || "1pwr_lesotho";
   const vehicleId = (searchParams.get("vehicleId") || "").trim();
   const statusRaw = (searchParams.get("status") || "").trim();
+  const q = (searchParams.get("q") || "").trim().toLowerCase();
   const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit") || "100") || 100));
+  const offset = Math.max(0, Number(searchParams.get("offset") || "0") || 0);
+  const sortRaw = (searchParams.get("sort") || "recent").toLowerCase();
+  const orderBy =
+    sortRaw === "priority"
+      ? `CASE wo.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END, datetime(wo.created_at) DESC`
+      : sortRaw === "status"
+        ? `wo.status ASC, datetime(wo.created_at) DESC`
+        : `datetime(wo.created_at) DESC`;
 
   const statuses = statusRaw
     ? statusRaw.toLowerCase() === "open"
@@ -42,30 +54,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : statusRaw.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
-  let sql = `
+  const whereParts: string[] = ["wo.organization_id = ?"];
+  const params: string[] = [org];
+  if (vehicleId) {
+    whereParts.push("wo.vehicle_id = ?");
+    params.push(vehicleId);
+  }
+  if (statuses.length > 0) {
+    whereParts.push(`wo.status IN (${statuses.map(() => "?").join(", ")})`);
+    params.push(...statuses);
+  }
+  if (q) {
+    whereParts.push("(lower(wo.title) LIKE ? OR lower(COALESCE(wo.description, '')) LIKE ? OR lower(v.code) LIKE ?)");
+    const like = `%${q}%`;
+    params.push(like, like, like);
+  }
+  const whereClause = whereParts.join(" AND ");
+  const fromClause = "FROM work_orders wo JOIN vehicles v ON wo.vehicle_id = v.id";
+
+  const db = getDb();
+  const total = (db.prepare(`SELECT COUNT(*) AS c ${fromClause} WHERE ${whereClause}`).get(...params) as { c: number }).c;
+
+  const sql = `
     SELECT wo.id, wo.organization_id as organizationId, wo.vehicle_id as vehicleId,
            wo.title, wo.description, wo.type, wo.priority, wo.status,
            wo.total_cost as totalCost, wo.total_labour_hours as totalLabourHours,
            wo.downtime_start as downtimeStart, wo.downtime_end as downtimeEnd,
            wo.created_at as createdAt, wo.updated_at as updatedAt,
            v.code as vehicleCode, v.make as vehicleMake, v.model as vehicleModel
-    FROM work_orders wo
-    JOIN vehicles v ON wo.vehicle_id = v.id
-    WHERE wo.organization_id = ?
+    ${fromClause}
+    WHERE ${whereClause}
+    ORDER BY ${orderBy} LIMIT ? OFFSET ?
   `;
-  const params: string[] = [org];
-  if (vehicleId) {
-    sql += " AND wo.vehicle_id = ?";
-    params.push(vehicleId);
-  }
-  if (statuses.length > 0) {
-    sql += ` AND wo.status IN (${statuses.map(() => "?").join(", ")})`;
-    params.push(...statuses);
-  }
-  sql += " ORDER BY datetime(wo.created_at) DESC LIMIT ?";
-  params.push(String(limit));
-
-  const db = getDb();
-  const rows = db.prepare(sql).all(...params);
-  return NextResponse.json({ organizationId: org, count: rows.length, workOrders: rows });
+  const rows = db.prepare(sql).all(...params, String(limit), String(offset));
+  return NextResponse.json({ organizationId: org, count: rows.length, total, workOrders: rows });
 }
