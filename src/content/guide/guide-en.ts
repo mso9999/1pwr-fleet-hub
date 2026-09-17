@@ -870,6 +870,18 @@ export const guideEn: GuideContent = {
             B("completed"),
             " once it has at least one labour line (worker + hours) in the Labour Log — effort is what makes the per-vehicle cost record meaningful. Third-party repairs are exempt (set Repair location to 3rd-party; their cost is captured via the quote/invoice fields).",
           ],
+          [
+            B("Numbers and the failure record: "),
+            "every work order gets a human number (e.g. WO-LS-2026-00042) at creation — use it when talking about jobs or linking PRs. Each job carries a structured ",
+            B("failure record"),
+            ": ",
+            B("Symptom"),
+            " (what was observed — required for corrective work), ",
+            B("Diagnosis / root cause"),
+            " (the confirmed cause, once known), and ",
+            B("Intervention"),
+            " (the work performed). Keep them distinct: “overheating” is a symptom, not a diagnosis; “replace clutch” is an intervention, not a symptom. In-form guides show good and bad examples next to each field.",
+          ],
         ],
       },
       {

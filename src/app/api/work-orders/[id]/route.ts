@@ -190,6 +190,9 @@ export async function PATCH(
   const allowedFields: Record<string, string> = {
     title: "title",
     description: "description",
+    symptom: "symptom",
+    diagnosis: "diagnosis",
+    intervention: "intervention",
     type: "type",
     priority: "priority",
     status: "status",

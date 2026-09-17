@@ -15,6 +15,7 @@
     "test:registration-disc": "tsx scripts/test-registration-disc.ts",
     "test:transmission-scope": "tsx scripts/test-transmission-scope.ts",
     "test:wo-labor-gate": "tsx scripts/test-wo-labor-gate.ts",
+    "test:wo-numbers": "tsx scripts/test-wo-numbers.ts",
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",
     "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts",
     "test:mission-trip-progression": "tsx scripts/test-mission-trip-progression.ts",

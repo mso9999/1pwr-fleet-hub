@@ -23,6 +23,7 @@ import {
 import { AssigneeCombo } from "@/components/AssigneeCombo";
 import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
+import { FailureFieldGuide } from "@/components/FailureFieldGuide";
 import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
 
 interface WorkOrderRow {
@@ -34,6 +35,10 @@ interface WorkOrderRow {
   vehicle_model: string;
   title: string;
   description: string;
+  work_order_number?: string;
+  symptom?: string;
+  diagnosis?: string;
+  intervention?: string;
   type: string;
   priority: WorkOrderPriority;
   status: WorkOrderStatus;
@@ -347,7 +352,12 @@ function WorkOrderListItem({ order, onClick }: { order: WorkOrderRow; onClick: (
           <div className="flex items-center gap-3 min-w-0">
             <Badge variant="secondary" className="text-base font-bold shrink-0">{order.vehicle_code}</Badge>
             <div className="min-w-0">
-              <div className="font-medium truncate">{order.title}</div>
+              <div className="font-medium truncate">
+                {order.work_order_number && (
+                  <span className="font-mono text-xs text-zinc-500 mr-1.5">{order.work_order_number}</span>
+                )}
+                {order.title}
+              </div>
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[order.status] || ""}`}>
                   {order.status}
@@ -393,6 +403,8 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddLabor, setShowAddLabor] = useState(false);
+  const [editingFailureField, setEditingFailureField] = useState<"symptom" | "diagnosis" | "intervention" | null>(null);
+  const failureFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const [showAddPO, setShowAddPO] = useState(false);
   const [showAddPart, setShowAddPart] = useState(false);
   const [transitionReason, setTransitionReason] = useState("");
@@ -583,7 +595,10 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
             <Badge variant="secondary" className="text-lg font-bold">{detail.vehicle_code}</Badge>
             <div>
               <CardTitle className="text-lg">{detail.title}</CardTitle>
-              <div className="text-sm text-zinc-500">{detail.vehicle_make} {detail.vehicle_model} · {detail.type}</div>
+              <div className="text-sm text-zinc-500">
+                {detail.work_order_number && <span className="font-mono font-medium text-zinc-700">{detail.work_order_number} · </span>}
+                {detail.vehicle_make} {detail.vehicle_model} · {detail.type}
+              </div>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
@@ -716,6 +731,64 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
             <div className="mt-1 text-sm whitespace-pre-wrap">{detail.description}</div>
           </div>
         )}
+
+        {/* Structured failure record: symptom → diagnosis → intervention */}
+        <div className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3">
+          <div className="text-xs font-medium text-zinc-500 uppercase">Failure record</div>
+          {([
+            { key: "symptom", label: "Symptom observed", value: detail.symptom },
+            { key: "diagnosis", label: "Diagnosis / root cause", value: detail.diagnosis },
+            { key: "intervention", label: "Intervention (work performed)", value: detail.intervention },
+          ] as const).map((f) => (
+            <div key={f.key}>
+              <div className="text-xs font-medium text-zinc-600">{f.label}</div>
+              {editingFailureField === f.key ? (
+                <div className="mt-1 space-y-1.5">
+                  <textarea
+                    rows={2}
+                    defaultValue={f.value || ""}
+                    autoFocus
+                    className="flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setEditingFailureField(null);
+                    }}
+                    ref={(el) => { failureFieldRef.current = el; }}
+                  />
+                  <FailureFieldGuide kind={f.key} />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const v = failureFieldRef.current?.value ?? "";
+                        void updateField(f.key, v);
+                        setEditingFailureField(null);
+                      }}
+                    >
+                      Save
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingFailureField(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="mt-0.5 text-sm whitespace-pre-wrap cursor-pointer group"
+                  onClick={() => setEditingFailureField(f.key)}
+                  title="Tap to edit"
+                >
+                  {f.value ? (
+                    f.value
+                  ) : (
+                    <span className="text-zinc-400 italic group-hover:text-zinc-500">
+                      Not recorded — tap to add
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
 
         {/* Status History Timeline */}
         <div>

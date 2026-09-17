@@ -84,8 +84,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const total = (db.prepare(`SELECT COUNT(*) AS c ${fromClause} WHERE ${whereClause}`).get(...params) as { c: number }).c;
 
   const sql = `
-    SELECT wo.id, wo.organization_id as organizationId, wo.vehicle_id as vehicleId,
-           wo.title, wo.description, wo.type, wo.priority, wo.status,
+    SELECT wo.id, wo.work_order_number as workOrderNumber, wo.organization_id as organizationId, wo.vehicle_id as vehicleId,
+           wo.title, wo.description, wo.symptom, wo.diagnosis, wo.intervention,
+           wo.type, wo.priority, wo.status,
            wo.total_cost as totalCost, wo.total_labour_hours as totalLabourHours,
            wo.downtime_start as downtimeStart, wo.downtime_end as downtimeEnd,
            wo.created_at as createdAt, wo.updated_at as updatedAt,

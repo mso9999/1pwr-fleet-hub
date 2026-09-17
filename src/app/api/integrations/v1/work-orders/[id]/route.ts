@@ -19,7 +19,8 @@ export async function GET(
   const db = getDb();
   const row = db
     .prepare(`
-    SELECT wo.id, wo.organization_id as organizationId, wo.vehicle_id as vehicleId, wo.title, wo.description,
+    SELECT wo.id, wo.work_order_number as workOrderNumber, wo.organization_id as organizationId, wo.vehicle_id as vehicleId,
+           wo.title, wo.description, wo.symptom, wo.diagnosis, wo.intervention,
            wo.type, wo.priority, wo.status, wo.downtime_start as downtimeStart, wo.downtime_end as downtimeEnd,
            wo.created_at as createdAt, wo.updated_at as updatedAt,
            v.code as vehicleCode, v.make as vehicleMake, v.model as vehicleModel

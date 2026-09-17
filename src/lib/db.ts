@@ -1140,6 +1140,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
     ["migrateTransmissionScope", () => migrateTransmissionScope(db)],
+    ["migrateWorkOrderFailureFields", () => migrateWorkOrderFailureFields(db)],
     ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
     ["migrateRecordMutationLog", () => migrateRecordMutationLog(db)],
     ["migrateVehicleStatusEnforcement", () => migrateVehicleStatusEnforcement(db)],
@@ -1387,6 +1388,90 @@ function migrateTransmissionScope(db: Database.Database): void {
   }
   if (!tripHas("vehicle_transmission")) {
     db.exec(`ALTER TABLE trips ADD COLUMN vehicle_transmission TEXT NOT NULL DEFAULT ''`);
+  }
+}
+
+/**
+ * Curated roster of fleet mechanics per organisation. Edited by admin / superadmin /
+ * manager / fleet_lead or PR department DPO / HR / IT / Fleet; read by everyone.
+ * Drives the Work Order Assign-to / Worker pickers (replacing the hardcoded list).
+ */
+/**
+ * Work-order human numbers + structured failure capture (2026-09-17).
+ *
+ * `work_order_number`: human UID (WO-LS-2026-00042) allocated from
+ * `work_order_seq` per org+year; backfilled for legacy rows in created order.
+ * `symptom` / `diagnosis` / `intervention`: the structured failure record —
+ * what was observed, the root cause found, the work performed. These feed
+ * per-vehicle failure-mode analysis for retire-vs-keep decisions.
+ */
+function migrateWorkOrderFailureFields(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_order_seq (
+      organization_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      seq INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (organization_id, year)
+    );
+  `);
+
+  const cols = db.prepare("PRAGMA table_info(work_orders)").all() as Array<{ name: string }>;
+  const has = (c: string) => cols.some((r) => r.name === c);
+  const additions: Array<[string, string]> = [
+    ["work_order_number", "TEXT NOT NULL DEFAULT ''"],
+    ["symptom", "TEXT NOT NULL DEFAULT ''"],
+    ["diagnosis", "TEXT NOT NULL DEFAULT ''"],
+    ["intervention", "TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE work_orders ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  // Backfill human numbers for existing rows that lack one, oldest first,
+  // sequenced within the WO's own created year so numbers stay chronological.
+  const orgs = db
+    .prepare("SELECT DISTINCT organization_id FROM work_orders WHERE work_order_number = ''")
+    .all() as Array<{ organization_id: string }>;
+  for (const { organization_id: orgId } of orgs) {
+    const years = db
+      .prepare(
+        `SELECT DISTINCT substr(created_at, 1, 4) AS y FROM work_orders
+         WHERE organization_id = ? AND work_order_number = '' ORDER BY y`
+      )
+      .all(orgId) as Array<{ y: string }>;
+    for (const { y } of years) {
+      const year = Number(y) || new Date().getFullYear();
+      const seqRow = db
+        .prepare("SELECT seq FROM work_order_seq WHERE organization_id = ? AND year = ?")
+        .get(orgId, year) as { seq: number } | undefined;
+      let seq = seqRow?.seq ?? 0;
+      const rows = db
+        .prepare(
+          `SELECT id FROM work_orders
+           WHERE organization_id = ? AND work_order_number = '' AND substr(created_at, 1, 4) = ?
+           ORDER BY datetime(created_at), id`
+        )
+        .all(orgId, y) as Array<{ id: string }>;
+      const orgCode = db
+        .prepare("SELECT code FROM organizations WHERE id = ?")
+        .get(orgId) as { code?: string } | undefined;
+      const short = (orgCode?.code || "ORG")
+        .replace(/^1PWR-/i, "")
+        .replace(/[^A-Za-z0-9]/g, "")
+        .slice(0, 4)
+        .toUpperCase() || "ORG";
+      const upd = db.prepare("UPDATE work_orders SET work_order_number = ? WHERE id = ?");
+      for (const r of rows) {
+        seq++;
+        upd.run(`WO-${short}-${year}-${String(seq).padStart(5, "0")}`, r.id);
+      }
+      db.prepare(
+        `INSERT INTO work_order_seq (organization_id, year, seq) VALUES (?, ?, ?)
+         ON CONFLICT(organization_id, year) DO UPDATE SET seq = excluded.seq`
+      ).run(orgId, year, seq);
+    }
   }
 }
 

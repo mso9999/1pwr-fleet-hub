@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
+import { allocateWorkOrderNumber } from "@/lib/work-order-numbers";
 import { v4 as uuidv4 } from "uuid";
 
 /** Sort modes for the WO list. priority is the legacy default for the global page. */
@@ -91,27 +92,52 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const initialStatus = body.status || "submitted";
   const orgId = body.organizationId || "1pwr_lesotho";
 
-  db.prepare(`
-    INSERT INTO work_orders (id, organization_id, vehicle_id, title, description, type, priority, status, assigned_to, repair_location, third_party_shop, reported_by, remarks, downtime_start, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    orgId,
-    body.vehicleId,
-    body.title,
-    body.description || "",
-    body.type || "corrective",
-    body.priority || "medium",
-    initialStatus,
-    body.assignedTo || "",
-    body.repairLocation || "hq",
-    body.thirdPartyShop || "",
-    body.reportedBy || "",
-    body.remarks || "",
-    body.downtimeStart || now,
-    now,
-    now
-  );
+  // Symptom is required for corrective / inspection-flagged WOs — the failure
+  // record starts from what was observed, not a guessed fix. Scheduled work
+  // (services) has no symptom.
+  const woType = body.type || "corrective";
+  const symptom = String(body.symptom || "").trim();
+  if (woType !== "scheduled" && symptom.length < 4) {
+    return NextResponse.json(
+      {
+        error:
+          "Describe the symptom observed (what you see/hear/measure — e.g. 'temperature gauge in red after 20 min', 'grinding noise when braking'). A work order starts from an observed symptom.",
+        reason: "symptom_required",
+      },
+      { status: 400 }
+    );
+  }
+
+  const insertTx = db.transaction(() => {
+    const workOrderNumber = allocateWorkOrderNumber(db, orgId);
+    db.prepare(`
+      INSERT INTO work_orders (id, organization_id, vehicle_id, title, description, type, priority, status, assigned_to, repair_location, third_party_shop, reported_by, remarks, downtime_start, created_at, updated_at, work_order_number, symptom, diagnosis, intervention)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      orgId,
+      body.vehicleId,
+      body.title,
+      body.description || "",
+      woType,
+      body.priority || "medium",
+      initialStatus,
+      body.assignedTo || "",
+      body.repairLocation || "hq",
+      body.thirdPartyShop || "",
+      body.reportedBy || "",
+      body.remarks || "",
+      body.downtimeStart || now,
+      now,
+      now,
+      workOrderNumber,
+      symptom,
+      String(body.diagnosis || "").trim(),
+      String(body.intervention || "").trim()
+    );
+    return workOrderNumber;
+  });
+  insertTx();
 
   // Record initial status in history
   db.prepare(`

@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "work-order-numbers-failure-record",
+    title: "Work orders get human numbers and a structured failure record",
+    summary:
+      "Every work order now has a readable number (WO-LS-2026-00042) plus three guided fields — Symptom, Diagnosis / root cause, Intervention — so repair data is accurate enough to rank vehicles and spot failure patterns.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-09-17",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- **Human numbers**: every work order is numbered at creation (e.g. `WO-LS-2026-00042`), shown on the list, the detail panel, and the PR system's work-order picker. Existing work orders were backfilled in creation order.\n- **Structured failure record**: each job carries **Symptom** (what was observed — required for corrective work), **Diagnosis / root cause**, and **Intervention** (work performed), editable on the work-order detail panel.\n- **In-form guides** next to each field show good and bad examples so the fields don't get conflated.",
+      },
+      {
+        title: "Getting it right",
+        bodyMd:
+          "- **Symptom** = what was observed: “temperature gauge in the red after 20 min”, “grinding noise when braking”. Not a fix (“replace clutch”) and not a guessed cause.\n- **Diagnosis** = the confirmed cause: “water pump bearing failed — coolant at the weep hole”. “Overheating” is a symptom, not a diagnosis.\n- **Intervention** = what was done: “replaced water pump, bled system, road-tested 15 min”.\n\nAccurate failure records are what make per-vehicle cost and reliability ranking possible.",
+      },
+    ],
+  },
+  {
     slug: "wo-labor-gate-and-pr-linkage",
     title: "Work orders now anchor vehicle repair cost: PR gate + labour capture",
     summary:

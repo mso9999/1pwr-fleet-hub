@@ -848,7 +848,7 @@ const WORK_ORDER_STEPS: TutorialStep[] = [
     target: "tutorial-wo-create-form",
     title: "2. Fill job details",
     body:
-      "Choose vehicle, title, and description. Set type (corrective, inspection-flagged, etc.), priority, assign a mechanic if known, and repair location (HQ vs third party).",
+      "Choose vehicle, title, and type. Describe the Symptom observed (required for corrective work — what was seen/heard/measured, not a guessed fix; the in-form guide shows examples). Set priority, assign a mechanic if known, and repair location (HQ vs third party). Every work order gets a human number (WO-…) for reference, and the detail panel carries the diagnosis and intervention as the job progresses.",
   },
   {
     id: "wo-after",

@@ -13,6 +13,7 @@ import { WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import { useAuth } from "@/lib/auth-context";
 import { AssigneeCombo } from "@/components/AssigneeCombo";
 import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
+import { FailureFieldGuide } from "@/components/FailureFieldGuide";
 
 export interface VehicleOption {
   id: string;
@@ -58,6 +59,7 @@ export function CreateWorkOrderForm({
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [repairLoc, setRepairLoc] = useState("hq");
+  const [woType, setWoType] = useState("corrective");
   const [assignedTo, setAssignedTo] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState(() => {
     if (defaultVehicleId) return defaultVehicleId;
@@ -132,20 +134,33 @@ export function CreateWorkOrderForm({
             />
           )}
           <Input name="title" label="Title *" required placeholder="e.g. Engine rebuild" />
+          <Select name="type" label="Type *" required value={woType} onChange={(e) => setWoType(e.target.value)}>
+            {Object.values(WORK_ORDER_TYPE).map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </Select>
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium text-zinc-700">
+              Symptom observed {woType !== "scheduled" ? "*" : "(optional for scheduled work)"}
+            </label>
+            <textarea
+              name="symptom"
+              rows={2}
+              required={woType !== "scheduled"}
+              className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              placeholder="What was observed — seen, heard, smelled, or measured"
+            />
+            <div className="mt-1"><FailureFieldGuide kind="symptom" /></div>
+          </div>
           <div className="sm:col-span-2">
             <label className="text-sm font-medium text-zinc-700">Description</label>
             <textarea
               name="description"
               rows={2}
               className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-              placeholder="Detailed description of the issue and work needed"
+              placeholder="Anything else useful: when it happens, conditions, recent work"
             />
           </div>
-          <Select name="type" label="Type *" required>
-            {Object.values(WORK_ORDER_TYPE).map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </Select>
           <Select name="priority" label="Priority *" required>
             {Object.values(WORK_ORDER_PRIORITY).map((p) => (
               <option key={p} value={p}>{p}</option>

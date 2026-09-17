@@ -281,6 +281,18 @@ export const guideFr: GuideContent = {
             B("terminé"),
             " qu’avec au moins une ligne de main-d’œuvre (ouvrier + heures) dans le journal — l’effort rend la fiche de coût par véhicule exploitable. Les réparations tierces sont exemptées (définissez Lieu de réparation sur tiers ; leur coût passe par les champs devis/facture).",
           ],
+          [
+            B("Numérotation et fiche de panne : "),
+            "chaque OT reçoit un numéro lisible (ex. WO-LS-2026-00042) à la création — utilisez-le pour parler des travaux ou lier les DA. Chaque intervention porte une ",
+            B("fiche de panne"),
+            " structurée : ",
+            B("Symptôme"),
+            " (ce qui a été observé — obligatoire pour le correctif), ",
+            B("Diagnostic / cause racine"),
+            " (la cause confirmée, une fois connue), et ",
+            B("Intervention"),
+            " (le travail réalisé). Ne les confondez pas : « surchauffe » est un symptôme, pas un diagnostic ; « remplacer l’embrayage » est une intervention, pas un symptôme. Des guides dans le formulaire montrent des exemples corrects et incorrects.",
+          ],
         ],
       },
       {
