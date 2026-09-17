@@ -12,7 +12,9 @@ import { verifyFleetIntegrationKey } from "@/lib/integration-auth";
  *   vehicleId  optional — only WOs for this FM vehicle UUID
  *   status     optional — single status or comma list; `open` expands to the
  *              non-terminal set (queued, submitted, in-progress, needs-parts,
- *              pr-submitted, awaiting-parts, return-repair)
+ *              pr-submitted, awaiting-parts, return-repair), `closed` expands to
+ *              the terminal set (completed, closed, cancelled, rejected), `all`
+ *              disables the filter
  *   q          optional — case-insensitive match on title, description, or vehicle code
  *   limit      optional, default 100, max 200
  *   offset     optional, default 0 — for paged pickers
@@ -27,6 +29,7 @@ const OPEN_STATUSES = [
   "awaiting-parts",
   "return-repair",
 ];
+const CLOSED_STATUSES = ["completed", "closed", "cancelled", "rejected"];
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!verifyFleetIntegrationKey(request)) {
@@ -48,10 +51,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         ? `wo.status ASC, datetime(wo.created_at) DESC`
         : `datetime(wo.created_at) DESC`;
 
+  const statusLower = statusRaw.toLowerCase();
   const statuses = statusRaw
-    ? statusRaw.toLowerCase() === "open"
+    ? statusLower === "open"
       ? OPEN_STATUSES
-      : statusRaw.split(",").map((s) => s.trim()).filter(Boolean)
+      : statusLower === "closed"
+        ? CLOSED_STATUSES
+        : statusLower === "all"
+          ? []
+          : statusRaw.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
 
   const whereParts: string[] = ["wo.organization_id = ?"];
