@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { hasFleetAction } from "@/lib/fleet-authz";
+import { isFleetManagementRole } from "@/lib/fleet-roles";
 import { runStaleWoNudge } from "@/lib/stale-work-orders";
 
 /**
@@ -21,7 +21,8 @@ function hasCronSecret(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(req);
-  const authorizedByRole = !!user && hasFleetAction(user, "administer_fleet");
+  const role = String(user?.role || "").toLowerCase();
+  const authorizedByRole = !!user && (isFleetManagementRole(user.role || "") || role === "superadmin" || role === "admin");
   if (!authorizedByRole && !hasCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
