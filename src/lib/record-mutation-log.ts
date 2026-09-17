@@ -29,6 +29,7 @@ export type MutationAction =
   | "reject"
   | "admin_config"
   | "approval_notify"
+  | "stale_wo_nudge"
   | "backdate_departure";
 
 export type MutationEntityType =

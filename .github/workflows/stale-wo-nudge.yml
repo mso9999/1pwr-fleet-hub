@@ -1,0 +1,53 @@
+name: Stale Work Order Nudge
+
+on:
+  schedule:
+    # Weekdays 05:30 UTC = 07:30 SAST — lands at the start of the workday
+    - cron: "30 5 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  nudge:
+    name: Nudge fleet team on stalled work orders
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call stale-WO nudge endpoint
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          NUDGE_KEY: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${NUDGE_KEY:-}" ]; then
+            echo "::error::EC2_HOST and DRAFT_CLEANUP_SECRET secrets are required"
+            exit 1
+          fi
+
+          call_url() {
+            local url="$1"
+            local status body
+            body="$(curl -sS -X POST \
+              -H "X-API-Key: ${NUDGE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{}' \
+              --connect-timeout 8 --max-time 30 \
+              -w '\n%{http_code}' "$url" || true)"
+            status="$(echo "$body" | tail -n 1)"
+            body="$(echo "$body" | sed '$d')"
+            if [ "$status" = "200" ]; then
+              echo "Nudge OK via ${url}"
+              echo "$body"
+              return 0
+            fi
+            echo "Nudge failed via ${url} (status: ${status})"
+            echo "$body"
+            return 1
+          }
+
+          if call_url "http://${HOST}/api/sync/nudge-stale-work-orders"; then
+            exit 0
+          elif call_url "http://${HOST}:3100/api/sync/nudge-stale-work-orders"; then
+            exit 0
+          else
+            echo "::error::Stale WO nudge failed via both :80 and :3100"
+            exit 1
+          fi

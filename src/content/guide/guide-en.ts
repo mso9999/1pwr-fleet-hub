@@ -882,6 +882,10 @@ export const guideEn: GuideContent = {
             B("Intervention"),
             " (the work performed). Keep them distinct: “overheating” is a symptom, not a diagnosis; “replace clutch” is an intervention, not a symptom. In-form guides show good and bad examples next to each field.",
           ],
+          [
+            B("Stalled-job nudges: "),
+            "on weekday mornings the system flags open work orders with no movement (no status change, update, labour line, or PR/PO link) for 3+ days. The assignee gets an email, fleet supervisors get a digest, and the fleet WhatsApp group gets a summary. Posting an update or advancing the status clears the flag.",
+          ],
         ],
       },
       {

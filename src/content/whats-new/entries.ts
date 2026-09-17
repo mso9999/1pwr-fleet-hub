@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "stale-work-order-nudges",
+    title: "Stalled work orders now nudge the fleet team",
+    summary:
+      "Open work orders with no movement for 3+ days trigger a weekday-morning prompt: an email to the assignee, a digest to fleet supervisors, and a summary in the fleet WhatsApp group.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-09-17",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "How it works",
+        bodyMd:
+          "- A work order counts as **stalled** when nothing has moved for 3+ days: no status change, no progress update, no labour line, no PR/PO link.\n- Weekday mornings (07:30), the assignee gets an email listing their stalled jobs; fleet supervisors get a digest; the fleet WhatsApp group gets a summary.\n- **To clear a stall**: post an update, log labour, or advance the status on the work order.",
+      },
+      {
+        title: "Why",
+        bodyMd:
+          "A stalled work order usually means a stalled vehicle. Movement on the record keeps repairs visible, keeps the per-vehicle effort and cost data honest, and catches jobs that would otherwise sit for weeks.",
+      },
+    ],
+  },
+  {
     slug: "work-order-numbers-failure-record",
     title: "Work orders get human numbers and a structured failure record",
     summary:

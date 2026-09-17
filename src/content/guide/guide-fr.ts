@@ -293,6 +293,10 @@ export const guideFr: GuideContent = {
             B("Intervention"),
             " (le travail réalisé). Ne les confondez pas : « surchauffe » est un symptôme, pas un diagnostic ; « remplacer l’embrayage » est une intervention, pas un symptôme. Des guides dans le formulaire montrent des exemples corrects et incorrects.",
           ],
+          [
+            B("Rappels pour travaux en souffrance : "),
+            "chaque matin de semaine, le système signale les OT ouverts sans mouvement (statut, note, main-d’œuvre ou lien DA/PO) depuis 3 jours ou plus. L’assigné reçoit un e-mail, les superviseurs un récapitulatif, et le groupe WhatsApp flotte un résumé. Publier une note ou avancer le statut efface le signalement.",
+          ],
         ],
       },
       {
