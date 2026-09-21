@@ -20,6 +20,7 @@ function resolveCommit(): string {
 }
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["heic-convert", "heic-decode"],
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
     NEXT_PUBLIC_APP_NAME: pkg.name,

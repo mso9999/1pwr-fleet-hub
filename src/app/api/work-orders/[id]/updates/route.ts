@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
+import { isHeicUpload, jpegBufferFromHeic } from "@/lib/media-heic";
 import { v4 as uuidv4 } from "uuid";
 
 export async function GET(
@@ -70,16 +71,19 @@ export async function POST(
 
     for (const file of validFiles) {
       const mediaId = uuidv4();
-      const ext = path.extname(file.name) || "";
+      const rawBuffer = Buffer.from(await file.arrayBuffer());
+      const heic = isHeicUpload(file.name, file.type || "");
+      const buffer = heic ? await jpegBufferFromHeic(rawBuffer) : rawBuffer;
+      const ext = heic ? ".jpg" : path.extname(file.name) || "";
+      const mimeType = heic ? "image/jpeg" : file.type;
       const safeFileName = `${mediaId}${ext}`;
 
-      const buffer = Buffer.from(await file.arrayBuffer());
       await writeFile(path.join(uploadDir, safeFileName), buffer);
 
       db.prepare(`
         INSERT INTO media_attachments (id, entity_type, entity_id, file_name, original_name, mime_type, size_bytes, caption, category, uploaded_by_id, uploaded_by_name)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(mediaId, "work_order_update", updateId, safeFileName, file.name, file.type, file.size, "", "progress", postedById, postedByName);
+      `).run(mediaId, "work_order_update", updateId, safeFileName, file.name, mimeType, buffer.length, "", "progress", postedById, postedByName);
 
       photoCount++;
     }

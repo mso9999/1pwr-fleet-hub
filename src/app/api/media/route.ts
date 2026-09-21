@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { syncVehicleOrthoPhotoUrl } from "@/lib/vehicle-ortho";
+import { isHeicUpload, jpegBufferFromHeic } from "@/lib/media-heic";
 import { MEDIA_CATEGORY } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -61,20 +62,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const db = getDb();
     const id = uuidv4();
-    const ext = path.extname(file.name) || "";
+    const rawBuffer = Buffer.from(await file.arrayBuffer());
+    const heic = isHeicUpload(file.name, file.type || "");
+    const buffer = heic ? await jpegBufferFromHeic(rawBuffer) : rawBuffer;
+    const ext = heic ? ".jpg" : path.extname(file.name) || "";
+    const mimeType = heic ? "image/jpeg" : file.type;
     const safeFileName = `${id}${ext}`;
 
     const subDir = path.join(UPLOAD_DIR, entityType, entityId);
     await mkdir(subDir, { recursive: true });
 
     const filePath = path.join(subDir, safeFileName);
-    const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(filePath, buffer);
 
     db.prepare(`
       INSERT INTO media_attachments (id, entity_type, entity_id, file_name, original_name, mime_type, size_bytes, caption, category, uploaded_by_id, uploaded_by_name)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, entityType, entityId, safeFileName, file.name, file.type, file.size, caption, category, uploadedById, uploadedByName);
+    `).run(id, entityType, entityId, safeFileName, file.name, mimeType, buffer.length, caption, category, uploadedById, uploadedByName);
 
     if (entityType === "vehicle" && category === MEDIA_CATEGORY.VEHICLE_ORTHO) {
       syncVehicleOrthoPhotoUrl(db, entityId);

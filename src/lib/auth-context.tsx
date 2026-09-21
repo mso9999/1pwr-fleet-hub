@@ -180,7 +180,10 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
           // fields on updates (see /api/users/sync).
           fetch("/api/users/sync", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${await fbUser.getIdToken()}`,
+            },
             body: JSON.stringify(fleetUser),
           }).catch(() => {});
         } else {
