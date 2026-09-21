@@ -99,6 +99,12 @@ const LEGACY_SITE_COORDINATES: Record<string, { lat: number; lng: number }> = {
   OTHER: { lat: -29.3387, lng: 27.4618 },
 };
 
+function coordOrNull(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function readSiteCoordsFromMeta(meta: string | null | undefined): { lat: number; lng: number } | null {
   if (!meta || !meta.trim()) return null;
   try {
@@ -108,11 +114,13 @@ function readSiteCoordsFromMeta(meta: string | null | undefined): { lat: number;
       latitude?: unknown;
       longitude?: unknown;
     };
-    const latRaw = parsed.lat ?? parsed.latitude;
-    const lngRaw = parsed.lng ?? parsed.longitude;
-    const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
-    const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const lat = coordOrNull(parsed.lat ?? parsed.latitude);
+    const lng = coordOrNull(parsed.lng ?? parsed.longitude);
+    if (lat === null || lng === null) return null;
+    // Firestore sync stores missing GPS as JSON null. Number(null) is 0, which
+    // used to overwrite the real site coordinates and drop every untracked
+    // vehicle on null island.
+    if (lat === 0 && lng === 0) return null;
     return { lat, lng };
   } catch {
     return null;

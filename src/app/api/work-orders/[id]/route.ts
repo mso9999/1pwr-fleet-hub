@@ -6,6 +6,7 @@ import { WORK_ORDER_VALID_TRANSITIONS } from "@/lib/work-order-transitions";
 import { laborGateForCompletion } from "@/lib/work-order-completion";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
+import { cachePRStatusForWorkOrder } from "@/lib/firestore-sync";
 
 function workOrderAudit(r: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -24,6 +25,33 @@ interface WORow {
   status: string;
   closing_inspection_id: string | null;
   [key: string]: unknown;
+}
+
+const PR_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+
+function prCacheIsStale(
+  db: ReturnType<typeof getDb>,
+  prNumbers: string[]
+): boolean {
+  const placeholders = prNumbers.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT pr_number, last_synced_at, pr_created_at FROM pr_cost_cache WHERE pr_number IN (${placeholders})`
+    )
+    .all(...prNumbers) as Array<{
+      pr_number?: string | null;
+      last_synced_at?: string | null;
+      pr_created_at?: string | null;
+    }>;
+  const byNumber = new Map(rows.map((r) => [String(r.pr_number || ""), r]));
+  const cutoff = Date.now() - PR_CACHE_MAX_AGE_MS;
+  return prNumbers.some((n) => {
+    const row = byNumber.get(n);
+    if (!row) return true;
+    if (!String(row.pr_created_at || "").trim()) return true;
+    const synced = Date.parse(String(row.last_synced_at || "").replace(" ", "T") + "Z");
+    return !Number.isFinite(synced) || synced < cutoff;
+  });
 }
 
 export async function GET(
@@ -70,7 +98,17 @@ export async function GET(
   const prNumbers = (poLinks as Array<{ pr_number?: string | null }>)
     .map((p) => String(p.pr_number || "").trim())
     .filter(Boolean);
-  let prCacheByNumber: Record<string, { pr_status?: string | null; approved_amount?: number | null; currency?: string | null; description?: string | null; pr_system_url?: string | null }> = {};
+  if (prNumbers.length > 0 && prCacheIsStale(db, prNumbers)) {
+    await cachePRStatusForWorkOrder(id);
+  }
+  let prCacheByNumber: Record<string, {
+    pr_status?: string | null;
+    approved_amount?: number | null;
+    currency?: string | null;
+    description?: string | null;
+    pr_created_at?: string | null;
+    status_changed_at?: string | null;
+  }> = {};
   if (prNumbers.length > 0) {
     const placeholders = prNumbers.map(() => "?").join(", ");
     const cacheRows = db
@@ -81,6 +119,8 @@ export async function GET(
         approved_amount?: number | null;
         currency?: string | null;
         description?: string | null;
+        pr_created_at?: string | null;
+        status_changed_at?: string | null;
       }>;
     prCacheByNumber = {};
     for (const c of cacheRows) {
@@ -90,6 +130,8 @@ export async function GET(
           approved_amount: c.approved_amount,
           currency: c.currency,
           description: c.description,
+          pr_created_at: c.pr_created_at,
+          status_changed_at: c.status_changed_at,
         };
       }
     }

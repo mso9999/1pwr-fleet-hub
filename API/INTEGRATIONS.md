@@ -79,6 +79,16 @@ Fleet Hub is the **source of truth** for the vehicle registry. The PR system kee
 
 Response shape: `{ organizationId, count, vehicles: [{ fmVehicleId, organizationId, fleetCode, make, model, year, licensePlate, vin, engineNumber, status, prFirestoreId, updatedAt }] }`.
 
+## EHS written off-road
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/integrations/v1/ehs-operators/written-offroad` | After a passing EHS written test, set `written_offroad_result = pass` and `written_test_passed_at` on the matching D018 operator. Lookup is org + normalized email. **Does not clear attestation.** Does not create operators. Idempotent if already pass. |
+
+Body: `{ email, organizationId, passed: true, score, attemptId, passedAt }`. Auth: `X-Fleet-Integration-Key`.
+
+404 `{ found: false }` if no operator matches. Consumer: `1pwr-ehs`.
+
 PR stores `purchaseRequests.vehicle` = `fmVehicleId`. Run PR `scripts/migrate-pr-vehicle-refs.ts` once to remap legacy Firestore doc ids.
 
 ## Related scripts

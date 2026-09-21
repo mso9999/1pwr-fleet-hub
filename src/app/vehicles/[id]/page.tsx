@@ -15,6 +15,7 @@ import {
   ASSET_CLASS,
   ASSET_CLASS_LABELS,
   TRACKER_STATUS,
+  MEDIA_CATEGORY,
   assetClassLabel,
 } from "@/types";
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
@@ -1093,13 +1094,41 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
         </CardContent>
       </Card>
 
-      {/* Media Attachments */}
+      {/* Canonical ortho + other media */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Canonical ortho photo</CardTitle>
+          <p className="text-sm font-normal text-zinc-500">
+            One overhead / square identification shot for this vehicle. It appears on the vehicles board.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <MediaUpload
+            entityType="vehicle"
+            entityId={id}
+            organizationId={vehicle.organization_id}
+            uploadedById={user?.id || ""}
+            uploadedByName={user?.name || user?.email || ""}
+            defaultCategory={MEDIA_CATEGORY.VEHICLE_ORTHO}
+            allowedCategories={[MEDIA_CATEGORY.VEHICLE_ORTHO]}
+            hint="Use Take photo on a phone or tablet for a direct camera shot. Prefer a clear top-down view of the whole vehicle."
+          />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Photos & Documents</CardTitle>
         </CardHeader>
         <CardContent>
-          <MediaUpload entityType="vehicle" entityId={id} />
+          <MediaUpload
+            entityType="vehicle"
+            entityId={id}
+            organizationId={vehicle.organization_id}
+            uploadedById={user?.id || ""}
+            uploadedByName={user?.name || user?.email || ""}
+            excludeCategories={[MEDIA_CATEGORY.VEHICLE_ORTHO]}
+          />
         </CardContent>
       </Card>
     </div>

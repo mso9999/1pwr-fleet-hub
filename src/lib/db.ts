@@ -421,6 +421,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
   });
 
   safeMigrate(db, "migrateMissionsApprovalColumns", migrateMissionsApprovalColumns);
+  safeMigrate(db, "migrateStaleApprovalColumns", migrateStaleApprovalColumns);
   safeMigrate(db, "migrateMissionsCentricAndReservations", migrateMissionsCentricAndReservations);
   // Now that migrateMissionsCentricAndReservations has added the transport_mode column
   // (via guarded ALTER), create its index. Doing this earlier (in the CREATE TABLE block
@@ -675,6 +676,21 @@ function migrateMissionsApprovalColumns(db: Database.Database): void {
     `UPDATE missions SET approval_status = 'approved'
      WHERE EXISTS (SELECT 1 FROM vehicle_requests vr WHERE vr.mission_id = missions.id)`
   ).run();
+}
+
+function migrateStaleApprovalColumns(db: Database.Database): void {
+  const add = (table: string, column: string) => {
+    const exists = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+      .get(table);
+    if (!exists) return;
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT DEFAULT ''`);
+    }
+  };
+  add("missions", "stale_approval_warned_at");
+  add("vehicle_requests", "stale_approval_warned_at");
 }
 
 function ensureWhatsNewSeenTable(db: Database.Database): void {
@@ -2068,6 +2084,8 @@ function createPhase1Tables(db: Database.Database): void {
       currency TEXT DEFAULT 'LSL',
       description TEXT DEFAULT '',
       last_synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+      pr_created_at TEXT DEFAULT '',
+      status_changed_at TEXT DEFAULT '',
       UNIQUE(pr_number)
     );
 
@@ -2126,6 +2144,8 @@ function migratePrCostCacheSchema(db: Database.Database): void {
     ["currency", "TEXT DEFAULT 'LSL'"],
     ["description", "TEXT DEFAULT ''"],
     ["last_synced_at", "TEXT NOT NULL DEFAULT (datetime('now'))"],
+    ["pr_created_at", "TEXT DEFAULT ''"],
+    ["status_changed_at", "TEXT DEFAULT ''"],
   ];
   for (const [col, def] of additions) {
     if (!has(col)) {

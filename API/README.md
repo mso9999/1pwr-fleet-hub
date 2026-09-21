@@ -16,6 +16,7 @@ This directory is the single entry point for **all API surfaces** the Fleet Hub 
 | **PR ↔ Work Order integration** (PR system links POs to WOs) | `X-Fleet-Integration-Key: FLEET_INTEGRATION_API_KEY` | `GET /api/integrations/v1/work-orders/[id]`, `POST /api/integrations/v1/work-orders/[id]/pr-links` | [`INTEGRATIONS.md`](./INTEGRATIONS.md) |
 | **Vehicles export to PR** (PR mirrors FM vehicle registry) | `X-Fleet-Integration-Key: FLEET_INTEGRATION_API_KEY` | `GET /api/integrations/v1/vehicles` | [`INTEGRATIONS.md`](./INTEGRATIONS.md#vehicles-fm--pr-mirror) |
 | **Missions integration (HR per-diem)** | `X-Fleet-Integration-Key` | `GET /api/integrations/v1/missions`, `GET /api/integrations/v1/missions/[id]` | [`INTEGRATIONS.md`](./INTEGRATIONS.md) |
+| **EHS written off-road pass** | `X-Fleet-Integration-Key` | `POST /api/integrations/v1/ehs-operators/written-offroad` | [`INTEGRATIONS.md`](./INTEGRATIONS.md#ehs-written-off-road) |
 | **PR → FM site ingest** (realtime fanout from PR hub) | `X-API-Key: SITE_SYNC_FANOUT_API_KEY` or Firebase bearer | `POST /api/sync/site-ingest` | [`SITE_SYNC_INGEST.md`](./SITE_SYNC_INGEST.md) |
 | **Trip departure** (records canonical field-deployment start) | Firebase bearer (Fleet user) | `POST /api/trips/[id]/depart` | [`TRIP_DEPARTURE.md`](./TRIP_DEPARTURE.md) |
 | **Draft cleanup** (scheduled purge of stale mission/trip drafts) | `X-API-Key: DRAFT_CLEANUP_SECRET` or admin/superadmin | `POST /api/sync/cleanup-drafts` | inline in repo [`README.md`](../README.md#missiontrip-drafts) |

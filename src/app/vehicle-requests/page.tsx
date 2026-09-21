@@ -1173,6 +1173,7 @@ export default function VehicleRequestsPage() {
             <CardTitle className="text-base">Missions pending management approval</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
               Open a mission to review trip-plan details before approving or rejecting. Drivers can only request a vehicle after mission approval.
+              If it is still unapproved after 20 days, Fleet Hub emails a warning. After 30 days it is rejected automatically.
             </p>
           </CardHeader>
           <CardContent className="space-y-2">

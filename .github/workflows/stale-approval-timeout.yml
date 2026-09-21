@@ -1,0 +1,51 @@
+name: Stale approval timeout
+
+on:
+  schedule:
+    # Daily 06:30 UTC = 08:30 SAST
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  timeout:
+    name: Warn or reject unapproved requests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call stale-approval endpoint
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          CLEANUP_KEY: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${CLEANUP_KEY:-}" ]; then
+            echo "::error::EC2_HOST and DRAFT_CLEANUP_SECRET secrets are required"
+            exit 1
+          fi
+
+          call_url() {
+            local url="$1"
+            local status body
+            body="$(curl -sS -X POST \
+              -H "X-API-Key: ${CLEANUP_KEY}" \
+              --connect-timeout 8 --max-time 60 \
+              -w '\n%{http_code}' "$url" || true)"
+            status="$(echo "$body" | tail -n 1)"
+            body="$(echo "$body" | sed '$d')"
+            if [ "$status" = "200" ]; then
+              echo "Stale approval OK via ${url}"
+              echo "$body"
+              return 0
+            fi
+            echo "Stale approval failed via ${url} (status: ${status})"
+            echo "$body"
+            return 1
+          }
+
+          if call_url "http://${HOST}/api/sync/stale-approvals"; then
+            exit 0
+          elif call_url "http://${HOST}:3100/api/sync/stale-approvals"; then
+            exit 0
+          else
+            echo "::error::Stale approval timeout failed via both :80 and :3100"
+            exit 1
+          fi

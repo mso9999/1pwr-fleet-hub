@@ -568,6 +568,8 @@ export const MEDIA_CATEGORY = {
   DOCUMENT: "document",
   INSURANCE: "insurance",
   MILEAGE_EVIDENCE: "mileage-evidence",
+  /** Fleet vehicle — single canonical overhead / orthogonal identification shot */
+  VEHICLE_ORTHO: "vehicle-ortho",
   /** Driver vehicle check — exterior angles */
   DVC_EXTERIOR_FRONT: "dvc-exterior-front",
   DVC_EXTERIOR_REAR: "dvc-exterior-rear",
@@ -580,6 +582,29 @@ export const MEDIA_CATEGORY = {
 } as const;
 
 export type MediaCategory = (typeof MEDIA_CATEGORY)[keyof typeof MEDIA_CATEGORY];
+
+export const MEDIA_CATEGORY_LABELS: Record<MediaCategory, string> = {
+  [MEDIA_CATEGORY.GENERAL]: "General",
+  [MEDIA_CATEGORY.BEFORE_PHOTO]: "Before photo",
+  [MEDIA_CATEGORY.AFTER_PHOTO]: "After photo",
+  [MEDIA_CATEGORY.DAMAGE]: "Damage",
+  [MEDIA_CATEGORY.RECEIPT]: "Receipt",
+  [MEDIA_CATEGORY.INSPECTION]: "Inspection",
+  [MEDIA_CATEGORY.DOCUMENT]: "Document",
+  [MEDIA_CATEGORY.INSURANCE]: "Insurance",
+  [MEDIA_CATEGORY.MILEAGE_EVIDENCE]: "Mileage evidence",
+  [MEDIA_CATEGORY.VEHICLE_ORTHO]: "Canonical ortho",
+  [MEDIA_CATEGORY.DVC_EXTERIOR_FRONT]: "Exterior front",
+  [MEDIA_CATEGORY.DVC_EXTERIOR_REAR]: "Exterior rear",
+  [MEDIA_CATEGORY.DVC_EXTERIOR_LEFT]: "Exterior left",
+  [MEDIA_CATEGORY.DVC_EXTERIOR_RIGHT]: "Exterior right",
+  [MEDIA_CATEGORY.DVC_ODOMETER]: "Odometer",
+  [MEDIA_CATEGORY.TRIP_ODO]: "Trip odometer",
+};
+
+export function mediaCategoryLabel(category: string): string {
+  return MEDIA_CATEGORY_LABELS[category as MediaCategory] || category.replace(/-/g, " ");
+}
 
 export interface MediaAttachment {
   id: string;

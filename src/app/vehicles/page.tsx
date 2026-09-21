@@ -25,8 +25,12 @@ interface VehicleRow {
   home_location: string;
   current_location: string;
   status: VehicleStatus;
+  photo_url?: string | null;
   registration_disc_expiry_date?: string | null;
 }
+
+type VehiclesViewMode = "tiles" | "list";
+const VIEW_STORAGE_KEY = "fleet-vehicles-view";
 
 interface VehicleFilterOptions {
   assetClasses: string[];
@@ -40,6 +44,7 @@ export default function VehiclesPage(): React.ReactElement {
   const todayYmd = new Date().toISOString().slice(0, 10);
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<VehiclesViewMode>("tiles");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssetClass, setFilterAssetClass] = useState("");
   const [filterPool, setFilterPool] = useState("");
@@ -52,6 +57,24 @@ export default function VehiclesPage(): React.ReactElement {
     pools: [],
   });
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === "list" || saved === "tiles") setViewMode(saved);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function changeView(mode: VehiclesViewMode): void {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
 
   const loadVehicles = useCallback(() => {
     const params = new URLSearchParams();
@@ -162,6 +185,26 @@ export default function VehiclesPage(): React.ReactElement {
             </Button>
           )}
           <span className="text-sm text-zinc-500 pb-2 sm:ml-1">{vehicles.length} vehicles</span>
+          <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 mb-0.5" role="group" aria-label="View mode">
+            <button
+              type="button"
+              onClick={() => changeView("tiles")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                viewMode === "tiles" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              Tiles
+            </button>
+            <button
+              type="button"
+              onClick={() => changeView("list")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                viewMode === "list" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              List
+            </button>
+          </div>
         </div>
         <span data-tutorial="tutorial-vehicles-add">
           <Button onClick={() => setIsAddOpen(!isAddOpen)}>
@@ -183,11 +226,53 @@ export default function VehiclesPage(): React.ReactElement {
 
       {isLoading ? (
         <div className="text-zinc-500 text-center py-12">Loading vehicles...</div>
+      ) : viewMode === "tiles" ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {vehicles.map((v, idx) => (
+            <Link
+              key={v.id}
+              href={`/vehicles/${v.id}`}
+              className="group rounded-xl border border-zinc-200 bg-white overflow-hidden hover:border-zinc-300 hover:shadow-sm transition-all"
+              data-tutorial={idx === 0 ? "tutorial-vehicles-first-link" : undefined}
+            >
+              <div className="aspect-square bg-zinc-100 relative">
+                {v.photo_url ? (
+                  <img
+                    src={v.photo_url}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-zinc-400 px-2 text-center">
+                    <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="text-[11px]">No ortho</span>
+                  </div>
+                )}
+                <div className="absolute top-1.5 right-1.5">
+                  <VehicleStatusBadge status={v.status} />
+                </div>
+              </div>
+              <div className="px-2.5 py-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-zinc-900 group-hover:text-blue-600">{v.code}</span>
+                  <DiscBadge todayYmd={todayYmd} expiry={v.registration_disc_expiry_date} />
+                </div>
+                <div className="text-xs text-zinc-500 truncate">
+                  {[v.make, v.model].filter(Boolean).join(" ") || assetClassLabel(v.asset_class)}
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <th className="pb-3 pr-4 w-12"></th>
                 <th className="pb-3 pr-4">Code</th>
                 <th className="pb-3 pr-4">Vehicle</th>
                 <th className="pb-3 pr-4 hidden sm:table-cell">License</th>
@@ -199,6 +284,15 @@ export default function VehiclesPage(): React.ReactElement {
             <tbody>
               {vehicles.map((v, idx) => (
                 <tr key={v.id} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                  <td className="py-2 pr-3">
+                    <div className="h-10 w-10 rounded-md overflow-hidden bg-zinc-100 border border-zinc-200">
+                      {v.photo_url ? (
+                        <img src={v.photo_url} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-[10px] text-zinc-400">—</div>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-3 pr-4">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Link
@@ -208,24 +302,7 @@ export default function VehiclesPage(): React.ReactElement {
                       >
                         {v.code}
                       </Link>
-                      {(() => {
-                        const exp = (v.registration_disc_expiry_date || "").trim().slice(0, 10);
-                        if (!exp) return null;
-                        const tier = registrationDiscDashboardTier(todayYmd, exp);
-                        if (!tier) return null;
-                        if (tier === "expired" || tier === "within_30") {
-                          return (
-                            <Badge variant="destructive" className="text-[10px] font-semibold">
-                              Disc {tier === "expired" ? "expired" : "≤30d"}
-                            </Badge>
-                          );
-                        }
-                        return (
-                          <Badge variant="secondary" className="text-[10px] font-semibold bg-amber-100 text-amber-900">
-                            Disc ≤60d
-                          </Badge>
-                        );
-                      })()}
+                      <DiscBadge todayYmd={todayYmd} expiry={v.registration_disc_expiry_date} />
                     </div>
                   </td>
                   <td className="py-3 pr-4">
@@ -243,6 +320,31 @@ export default function VehiclesPage(): React.ReactElement {
         </div>
       )}
     </div>
+  );
+}
+
+function DiscBadge({
+  todayYmd,
+  expiry,
+}: {
+  todayYmd: string;
+  expiry?: string | null;
+}): React.ReactElement | null {
+  const exp = (expiry || "").trim().slice(0, 10);
+  if (!exp) return null;
+  const tier = registrationDiscDashboardTier(todayYmd, exp);
+  if (!tier) return null;
+  if (tier === "expired" || tier === "within_30") {
+    return (
+      <Badge variant="destructive" className="text-[10px] font-semibold">
+        Disc {tier === "expired" ? "expired" : "≤30d"}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="text-[10px] font-semibold bg-amber-100 text-amber-900">
+      Disc ≤60d
+    </Badge>
   );
 }
 

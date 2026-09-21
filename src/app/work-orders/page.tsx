@@ -84,6 +84,16 @@ interface POLinkEntry {
   amount: number;
   currency: string;
   status: string;
+  created_at?: string;
+}
+
+interface PrCacheEntry {
+  pr_status?: string | null;
+  approved_amount?: number | null;
+  currency?: string | null;
+  description?: string | null;
+  pr_created_at?: string | null;
+  status_changed_at?: string | null;
 }
 
 interface WorkOrderDetail extends WorkOrderRow {
@@ -93,7 +103,7 @@ interface WorkOrderDetail extends WorkOrderRow {
   po_links: POLinkEntry[];
   parts: Array<{ id: string; description: string; quantity: number; unit_cost: number; supplier: string; pr_status: string; delivery_eta?: string }>;
   closing_inspection_id?: string | null;
-  pr_cache_by_number?: Record<string, { pr_status?: string | null; approved_amount?: number | null; currency?: string | null; description?: string | null }>;
+  pr_cache_by_number?: Record<string, PrCacheEntry>;
   pr_system_base_url?: string;
 }
 
@@ -110,6 +120,35 @@ const STATUS_COLORS: Record<string, string> = {
   "cancelled": "bg-zinc-100 text-zinc-500",
   "rejected": "bg-red-200 text-red-900",
 };
+
+function parseFleetInstant(value: string | null | undefined): number | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const iso = raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+}
+
+function wholeDaysSince(value: string | null | undefined): number | null {
+  const t = parseFleetInstant(value);
+  if (t == null) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+}
+
+function formatFleetDate(value: string | null | undefined): string {
+  const t = parseFleetInstant(value);
+  if (t == null) return "—";
+  return new Date(t).toLocaleDateString();
+}
+
+function formatMoney(amount: number, currency: string): string {
+  const code = currency || "LSL";
+  return `${code} ${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function prettyStatus(status: string): string {
+  return status.replace(/[_-]+/g, " ");
+}
 
 function WorkOrdersPageContent(): React.ReactElement {
   const { organizationId } = useAuth();
@@ -940,7 +979,7 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
             </form>
           )}
           {detail.po_links.length > 0 && (
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-zinc-50">
                   <tr>
@@ -948,15 +987,22 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                     <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">PO #</th>
                     <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Vendor</th>
                     <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Amount</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Link status</th>
-                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">PR approval</th>
-                    <th className="w-8"></th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Created</th>
+                    <th className="text-left px-3 py-2 text-xs font-medium text-zinc-500">Status</th>
+                    <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Days since created</th>
+                    <th className="text-right px-3 py-2 text-xs font-medium text-zinc-500">Days in status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detail.po_links.map((po) => {
                     const cache = detail.pr_cache_by_number?.[po.pr_number || ""];
                     const prBaseUrl = detail.pr_system_base_url || "https://pr.1pwrafrica.com";
+                    const amount = cache?.approved_amount != null ? Number(cache.approved_amount) : Number(po.amount || 0);
+                    const currency = cache?.currency || po.currency || "LSL";
+                    const created = cache?.pr_created_at || po.created_at || "";
+                    const status = cache?.pr_status || po.status || "";
+                    const daysCreated = wholeDaysSince(created);
+                    const daysInStatus = wholeDaysSince(cache?.status_changed_at);
                     return (
                       <tr key={po.id} className="border-t">
                         <td className="px-3 py-2 font-mono text-blue-600">
@@ -968,32 +1014,13 @@ function WorkOrderDetailPanel({ workOrderId, onClose, onUpdated, organizationId 
                         </td>
                         <td className="px-3 py-2 font-mono">{po.po_number || "—"}</td>
                         <td className="px-3 py-2">{po.vendor || "—"}</td>
-                        <td className="px-3 py-2 text-right">R{po.amount.toFixed(0)}</td>
-                        <td className="px-3 py-2">
-                          <Badge variant="outline" className="text-xs capitalize">{po.status}</Badge>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">{formatMoney(amount, currency)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatFleetDate(created)}</td>
+                        <td className="px-3 py-2 text-xs capitalize">
+                          {status ? prettyStatus(status) : <span className="text-zinc-400">unknown</span>}
                         </td>
-                        <td className="px-3 py-2 text-xs">
-                          {cache?.pr_status ? (
-                            <span className="capitalize">
-                              {cache.pr_status}
-                              {cache.approved_amount != null ? ` · R${Number(cache.approved_amount).toFixed(0)}` : ""}
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400">not synced</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {po.pr_number && (
-                            <a
-                              href={`${prBaseUrl}/?pr=${encodeURIComponent(po.pr_number)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[11px] text-blue-600 hover:underline whitespace-nowrap"
-                            >
-                              Open in PR →
-                            </a>
-                          )}
-                        </td>
+                        <td className="px-3 py-2 text-right">{daysCreated == null ? "—" : daysCreated}</td>
+                        <td className="px-3 py-2 text-right">{daysInStatus == null ? "—" : daysInStatus}</td>
                       </tr>
                     );
                   })}

@@ -266,7 +266,7 @@ export async function PATCH(
     db.prepare(
       `UPDATE missions
        SET approval_status = 'pending', approved_by_id = '', approved_by_name = '',
-           approved_at = NULL, rejection_reason = '', updated_at = ?
+           approved_at = NULL, rejection_reason = '', stale_approval_warned_at = '', updated_at = ?
        WHERE id = ?`
     ).run(now, id);
     const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
@@ -302,7 +302,7 @@ export async function PATCH(
     const beforeSnap = missionAuditSubset(row);
     db.prepare(
       `UPDATE missions SET approval_status = 'pending', approved_by_id = '', approved_by_name = '',
-       approved_at = NULL, rejection_reason = '', updated_at = ? WHERE id = ?`
+       approved_at = NULL, rejection_reason = '', stale_approval_warned_at = '', updated_at = ? WHERE id = ?`
     ).run(now, id);
     const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
     recordMutation(db, {

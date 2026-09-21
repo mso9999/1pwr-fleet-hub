@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { MEDIA_CATEGORY } from "@/types";
+import { MEDIA_CATEGORY, mediaCategoryLabel } from "@/types";
 import { mediaAttachmentFileUrl } from "@/lib/media-file-url";
 import { bearerAuthHeaders } from "@/lib/client-bearer";
 
@@ -29,8 +29,14 @@ interface MediaUploadProps {
   uploadedById?: string;
   /** Pre-select category for uploads (e.g. insurance vs mileage evidence). */
   defaultCategory?: string;
+  /** Limit the category dropdown to these values. */
+  allowedCategories?: string[];
+  /** Hide attachments whose category is in this list (e.g. ortho shown elsewhere). */
+  excludeCategories?: string[];
   /** Called after uploads or deletes refresh the attachment list from the server. */
   onAttachmentsChanged?: () => void;
+  /** Short hint under the upload controls. */
+  hint?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -58,7 +64,10 @@ export function MediaUpload({
   uploadedByName = "",
   uploadedById = "",
   defaultCategory = "general",
+  allowedCategories,
+  excludeCategories = [],
   onAttachmentsChanged,
+  hint,
 }: MediaUploadProps): React.ReactElement {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,6 +79,14 @@ export function MediaUpload({
   const fileRef = useRef<HTMLInputElement>(null);
   /** Opens device camera on phones/tablets (rear camera when available). */
   const cameraRef = useRef<HTMLInputElement>(null);
+
+  const categoryOptions = allowedCategories?.length
+    ? allowedCategories
+    : Object.values(MEDIA_CATEGORY);
+
+  useEffect(() => {
+    setCategory(defaultCategory);
+  }, [defaultCategory]);
 
   const fetchAttachments = useCallback(() => {
     setIsLoading(true);
@@ -144,8 +161,9 @@ export function MediaUpload({
     if (e.dataTransfer.files.length > 0) handleUpload(e.dataTransfer.files);
   }
 
-  const images = attachments.filter((a) => isImage(a.mime_type));
-  const docs = attachments.filter((a) => !isImage(a.mime_type));
+  const visible = attachments.filter((a) => !excludeCategories.includes(a.category));
+  const images = visible.filter((a) => isImage(a.mime_type));
+  const docs = visible.filter((a) => !isImage(a.mime_type));
 
   return (
     <div className="space-y-4">
@@ -216,20 +234,24 @@ export function MediaUpload({
               onChange={(e) => setCategory(e.target.value)}
               className="rounded border border-zinc-200 px-2 py-1 text-xs"
             >
-              {Object.values(MEDIA_CATEGORY).map((c) => (
-                <option key={c} value={c}>{c.replace("-", " ")}</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>{mediaCategoryLabel(c)}</option>
               ))}
             </select>
           </div>
           <p className="text-xs text-zinc-400">
-            On a phone, <strong>Take photo</strong> opens the camera. <strong>Choose files</strong> picks from gallery or documents. Max 20MB per file.
+            {hint || (
+              <>
+                On a phone, <strong>Take photo</strong> opens the camera. <strong>Choose files</strong> picks from gallery or documents. Max 20MB per file.
+              </>
+            )}
           </p>
         </div>
       </div>
 
       {isLoading ? (
         <p className="text-sm text-zinc-400">Loading attachments...</p>
-      ) : attachments.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="text-sm text-zinc-400">No attachments yet.</p>
       ) : (
         <>
@@ -250,7 +272,7 @@ export function MediaUpload({
                       <div className="w-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         {a.caption && <p className="text-white text-xs truncate">{a.caption}</p>}
                         <div className="flex items-center justify-between">
-                          <span className="text-white/70 text-[10px]">{a.category}</span>
+                          <span className="text-white/70 text-[10px]">{mediaCategoryLabel(a.category)}</span>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDelete(a.id); }}
                             className="text-red-300 hover:text-red-100 text-[10px]"
@@ -260,6 +282,11 @@ export function MediaUpload({
                         </div>
                       </div>
                     </div>
+                    {a.category === MEDIA_CATEGORY.VEHICLE_ORTHO && (
+                      <span className="absolute top-1 left-1 rounded bg-emerald-700/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                        Ortho
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -283,7 +310,7 @@ export function MediaUpload({
                       <div className="flex items-center gap-2 text-xs text-zinc-400">
                         <span>{formatSize(a.size_bytes)}</span>
                         {a.caption && <span>— {a.caption}</span>}
-                        <span>{a.category}</span>
+                        <span>{mediaCategoryLabel(a.category)}</span>
                       </div>
                     </div>
                     <button onClick={() => handleDelete(a.id)} className="text-xs text-red-400 hover:text-red-600">

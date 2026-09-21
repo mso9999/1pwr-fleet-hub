@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { FleetPerformancePanel } from "@/components/FleetPerformancePanel";
 
 interface TcoRow {
   vehicleId: string;
@@ -51,7 +52,7 @@ interface PerfCohort {
   avgMileageKm: number;
 }
 
-type ViewTab = "tco" | "eol" | "ranking";
+type ViewTab = "performance" | "tco" | "eol" | "ranking";
 
 export default function TcoPage() {
   const { organizationId } = useAuth();
@@ -59,7 +60,7 @@ export default function TcoPage() {
   const [eol, setEol] = useState<EolRow[]>([]);
   const [perf, setPerf] = useState<PerfCohort[]>([]);
   const [perfGroupBy, setPerfGroupBy] = useState("make");
-  const [view, setView] = useState<ViewTab>("tco");
+  const [view, setView] = useState<ViewTab>("performance");
   const [isLoading, setIsLoading] = useState(true);
 
   const loadTco = useCallback(() => {
@@ -94,7 +95,7 @@ export default function TcoPage() {
     <div className="space-y-6">
       {/* Tab switcher */}
       <div className="flex flex-wrap gap-2">
-        {([["tco", "Cost of Ownership"], ["eol", "End of Life"], ["ranking", "Performance Ranking"]] as const).map(([key, label]) => (
+        {([["performance", "Fleet performance"], ["tco", "Cost of Ownership"], ["eol", "End of Life"], ["ranking", "Performance Ranking"]] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setView(key)}
@@ -107,7 +108,9 @@ export default function TcoPage() {
         ))}
       </div>
 
-      {isLoading ? (
+      {view === "performance" ? (
+        <FleetPerformancePanel organizationId={organizationId} />
+      ) : isLoading ? (
         <div className="text-zinc-500 text-center py-12">Loading analytics…</div>
       ) : view === "tco" ? (
         <div className="space-y-6">

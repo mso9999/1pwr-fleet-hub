@@ -111,6 +111,10 @@ function buildHistoryChain(v: VehicleLocation): Array<{ lat: number; lng: number
   return chain;
 }
 
+function isPlottable(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+}
+
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
@@ -320,6 +324,7 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
     const boundsPoints: L.LatLngExpression[] = [];
 
     filtered.forEach((v) => {
+      if (!isPlottable(v.lat, v.lng)) return;
       const hasTracker = !!(v.trackerImei && v.trackerStatus === "active");
       const baseColor = STATUS_COLORS[v.status] || "#6b7280";
 
@@ -327,6 +332,7 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
       if (chain.length >= 2) {
         const nSeg = chain.length - 1;
         for (let i = 0; i < nSeg; i++) {
+          if (!isPlottable(chain[i].lat, chain[i].lng) || !isPlottable(chain[i + 1].lat, chain[i + 1].lng)) continue;
           const opacity = 0.15 + 0.85 * ((i + 1) / nSeg);
           L.polyline(
             [
@@ -345,7 +351,7 @@ export default function FleetMap({ onVehicleClick, onMissionClick }: FleetMapPro
       }
       for (let i = 0; i < chain.length - 1; i++) {
         const p = chain[i];
-        if (p.hoursLabel != null) {
+        if (p.hoursLabel != null && isPlottable(p.lat, p.lng)) {
           L.marker([p.lat, p.lng], {
             icon: createVehicleIcon(v.status, hasTracker, false, {
               hoursLabel: p.hoursLabel,

@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
+import { syncVehicleOrthoPhotoUrl } from "@/lib/vehicle-ortho";
+import { MEDIA_CATEGORY } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { writeFile, mkdir } from "fs/promises";
@@ -73,6 +75,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       INSERT INTO media_attachments (id, entity_type, entity_id, file_name, original_name, mime_type, size_bytes, caption, category, uploaded_by_id, uploaded_by_name)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, entityType, entityId, safeFileName, file.name, file.type, file.size, caption, category, uploadedById, uploadedByName);
+
+    if (entityType === "vehicle" && category === MEDIA_CATEGORY.VEHICLE_ORTHO) {
+      syncVehicleOrthoPhotoUrl(db, entityId);
+    }
 
     const attachment = db.prepare("SELECT * FROM media_attachments WHERE id = ?").get(id) as Record<string, unknown>;
 
@@ -145,5 +151,13 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   }
 
   db.prepare("DELETE FROM media_attachments WHERE id = ?").run(id);
+
+  if (
+    attachment.entity_type === "vehicle" &&
+    String(attachment.category || "") === MEDIA_CATEGORY.VEHICLE_ORTHO
+  ) {
+    syncVehicleOrthoPhotoUrl(db, attachment.entity_id);
+  }
+
   return NextResponse.json({ success: true });
 }

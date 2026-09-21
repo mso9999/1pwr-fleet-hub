@@ -302,12 +302,14 @@ export async function cachePRStatusForWorkOrder(
       for (const r of results) {
         if (!r) continue;
         db.prepare(
-          `INSERT INTO pr_cost_cache (id, work_order_id, vehicle_code, pr_number, pr_status, approved_amount, currency, description, last_synced_at)
-           VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `INSERT INTO pr_cost_cache (id, work_order_id, vehicle_code, pr_number, pr_status, approved_amount, currency, description, last_synced_at, pr_created_at, status_changed_at)
+           VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
            ON CONFLICT(pr_number) DO UPDATE SET
              pr_status = excluded.pr_status,
              approved_amount = excluded.approved_amount,
              description = excluded.description,
+             pr_created_at = excluded.pr_created_at,
+             status_changed_at = excluded.status_changed_at,
              last_synced_at = datetime('now')`
         ).run(
           r.workOrderId,
@@ -316,7 +318,9 @@ export async function cachePRStatusForWorkOrder(
           r.prStatus,
           r.approvedAmount,
           r.currency,
-          r.description
+          r.description,
+          r.prCreatedAt,
+          r.statusChangedAt
         );
         upserted++;
       }
@@ -339,6 +343,34 @@ interface CachedPR {
   approvedAmount: number;
   currency: string;
   description: string;
+  prCreatedAt: string;
+  statusChangedAt: string;
+}
+
+function firestoreTimeToIso(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      const d = (value as { toDate: () => Date }).toDate();
+      return d instanceof Date && Number.isFinite(d.getTime()) ? d.toISOString() : "";
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function statusChangedAtFromHistory(data: Record<string, unknown>, status: string): string {
+  const history = Array.isArray(data.statusHistory) ? data.statusHistory : [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const item = history[i] as { status?: string; timestamp?: unknown } | null;
+    if (!item || String(item.status || "") !== status) continue;
+    const iso = firestoreTimeToIso(item.timestamp);
+    if (iso) return iso;
+  }
+  return firestoreTimeToIso(data.updatedAt) || firestoreTimeToIso(data.createdAt);
 }
 
 async function cacheSinglePR(
@@ -357,16 +389,19 @@ async function cacheSinglePR(
     if (snapshot.empty) return null;
 
     const doc = snapshot.docs[0];
-    const data = doc.data();
+    const data = doc.data() as Record<string, unknown>;
+    const prStatus = String(data.status || "");
 
     return {
       workOrderId,
-      vehicleCode: data.vehicle?.code || data.vehicleCode || "",
+      vehicleCode: String((data.vehicle as { code?: string } | undefined)?.code || data.vehicleCode || ""),
       prNumber,
-      prStatus: data.status || "",
-      approvedAmount: data.totalAmount || data.approvedAmount || 0,
-      currency: data.currency || "LSL",
-      description: data.description || data.title || "",
+      prStatus,
+      approvedAmount: Number(data.totalAmount || data.approvedAmount || 0) || 0,
+      currency: String(data.currency || "LSL"),
+      description: String(data.description || data.title || ""),
+      prCreatedAt: firestoreTimeToIso(data.createdAt),
+      statusChangedAt: statusChangedAtFromHistory(data, prStatus),
     };
   } catch {
     return null;

@@ -22,6 +22,7 @@ The key is provisioned in FM's `.env` and shared with PR + AM.
 | GET | `/api/integrations/v1/missions` | Mission list | `{count, missions[]}` | HR, PR |
 | GET | `/api/integrations/v1/missions/{id}` | Mission detail | `{...}` | HR, PR |
 | GET/POST | `/api/integrations/v1/work-orders/{id}` + `/pr-links` | Work order ↔ PR link | `{...}` | PR |
+| POST | `/api/integrations/v1/ehs-operators/written-offroad` | Mark D018 `written_offroad_result=pass` after EHS written test | `{found, operatorId, writtenOffroadResult}` | EHS |
 
 Vehicle item shape: `fmVehicleId, organizationId, fleetCode, make, model, year, licensePlate, vin, engineNumber, status, prFirestoreId, updatedAt` (camelCase).
 
