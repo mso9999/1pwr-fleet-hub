@@ -1,11 +1,5 @@
 import path from "path";
 
-type HeicConvert = (options: {
-  buffer: Buffer;
-  format: "JPEG";
-  quality: number;
-}) => Promise<ArrayBuffer>;
-
 export function isHeicUpload(fileName: string, mimeType: string): boolean {
   const ext = path.extname(fileName).toLowerCase();
   const mime = mimeType.toLowerCase();
@@ -17,7 +11,7 @@ export function isHeicUpload(fileName: string, mimeType: string): boolean {
  * an img tag, so the photo looks like it never saved. Store a JPEG instead.
  */
 export async function jpegBufferFromHeic(buffer: Buffer): Promise<Buffer> {
-  const convert = (await import("heic-convert")).default as HeicConvert;
+  const { default: convert } = await import("heic-convert");
   const jpeg = await convert({ buffer, format: "JPEG", quality: 0.85 });
   return Buffer.from(jpeg);
 }
