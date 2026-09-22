@@ -35,7 +35,7 @@ function main() {
   ).get(vehicleId, tag + "%") as { n: number };
   console.log(`DB=${DB_PATH}`);
   console.log(`Existing imputed rows for 36: ${existing.n}`);
-  console.log(`Will insert: ${payload.readings.filter(r => r.kind !== "checkpoint" || (r.leg_km ?? 0) > 0 || r.kind === "base").length}`);
+  console.log(`Will insert: ${payload.readings.length}`);
 
   if (!apply) {
     console.log("[dry-run] no writes. Pass --apply to load.");
@@ -55,11 +55,9 @@ function main() {
   const tx = db.transaction(() => {
     del.run(vehicleId, tag + "%");
     for (const r of payload.readings) {
-      if (r.kind === "checkpoint" && !(r.leg_km && r.leg_km > 0) && r.kind !== "base") continue;
-      // always keep base
       const id = crypto.randomUUID().replace(/-/g, "");
       const remarks = `${tag}${r.kind} ${r.route_from || ""}→${r.route_to || ""} +${r.leg_km || 0}km [${r.confidence || ""}] | ${r.caption}`.slice(0, 500);
-      const ts = (r as any).time || `${r.date}T12:00:00.000Z`;
+      const ts = (r as { time?: string }).time || `${r.date}T12:00:00.000Z`;
       ins.run(id, org, vehicleId, r.km, r.date, r.route_from || "", r.route_to || "", remarks, ts, ts);
     }
     db.prepare(`UPDATE vehicles SET total_mileage_km = MAX(COALESCE(total_mileage_km,0), ?) WHERE id = ?`)
