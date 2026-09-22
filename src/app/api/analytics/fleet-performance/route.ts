@@ -25,7 +25,16 @@ export function GET(): NextResponse {
   const vehicles = db
     .prepare(
       `SELECT v.id, v.code, v.year, v.purchase_price, v.purchase_date, v.status,
-              o.country, o.currency
+              o.country, o.currency,
+              (SELECT COUNT(*) FROM work_orders wo WHERE wo.vehicle_id = v.id) as wo_count,
+              (SELECT COUNT(*) FROM work_orders wo WHERE wo.vehicle_id = v.id AND (
+                 COALESCE(wo.total_cost,0) > 0
+                 OR COALESCE(wo.parts_cost,0)+COALESCE(wo.labour_cost,0)+COALESCE(wo.third_party_cost,0) > 0
+                 OR EXISTS (SELECT 1 FROM pr_cost_cache p WHERE p.work_order_id = wo.id AND COALESCE(p.approved_amount,0) > 0)
+                 OR EXISTS (SELECT 1 FROM work_order_po_links l WHERE l.work_order_id = wo.id AND COALESCE(l.amount,0) > 0)
+                 OR EXISTS (SELECT 1 FROM parts pt WHERE pt.work_order_id = wo.id AND COALESCE(pt.quantity,0)*COALESCE(pt.unit_cost,0) > 0)
+                 OR EXISTS (SELECT 1 FROM work_order_labor lb WHERE lb.work_order_id = wo.id AND COALESCE(lb.hours,0)*COALESCE(lb.rate_per_hour,0) > 0)
+              )) as wo_with_cost
        FROM vehicles v
        JOIN organizations o ON o.id = v.organization_id
        WHERE COALESCE(v.is_synthetic, 0) = 0
@@ -40,6 +49,8 @@ export function GET(): NextResponse {
       status: string;
       country: string;
       currency: string;
+      wo_count: number;
+      wo_with_cost: number;
     }>;
 
   const vehicleIds = new Set(vehicles.map((v) => v.id));
@@ -94,7 +105,9 @@ export function GET(): NextResponse {
               COALESCE(wo.parts_cost, 0) + COALESCE(wo.labour_cost, 0) + COALESCE(wo.third_party_cost, 0) as summed,
               COALESCE(wo.total_cost, 0) as total_cost,
               COALESCE((SELECT SUM(approved_amount) FROM pr_cost_cache p WHERE p.work_order_id = wo.id), 0) as pr_amt,
-              COALESCE((SELECT SUM(amount) FROM work_order_po_links l WHERE l.work_order_id = wo.id), 0) as po_amt
+              COALESCE((SELECT SUM(amount) FROM work_order_po_links l WHERE l.work_order_id = wo.id), 0) as po_amt,
+              COALESCE((SELECT SUM(COALESCE(quantity,0)*COALESCE(unit_cost,0)) FROM parts pt WHERE pt.work_order_id = wo.id), 0) as parts_lines,
+              COALESCE((SELECT SUM(COALESCE(hours,0)*COALESCE(rate_per_hour,0)) FROM work_order_labor lb WHERE lb.work_order_id = wo.id), 0) as labour_lines
        FROM work_orders wo`
     )
     .all() as Array<{
@@ -107,6 +120,8 @@ export function GET(): NextResponse {
       total_cost: number;
       pr_amt: number;
       po_amt: number;
+      parts_lines: number;
+      labour_lines: number;
     }>;
 
   const repairs: SpendEvent[] = [];
@@ -115,7 +130,8 @@ export function GET(): NextResponse {
     if (!vehicleIds.has(row.vehicle_id)) continue;
     const date = asDay(row.created_at);
     const total = row.total_cost > 0 ? row.total_cost : row.summed;
-    const chosen = chooseRepairAmount(row.pr_amt, row.po_amt, total);
+    const lineItems = row.parts_lines + row.labour_lines;
+    const chosen = chooseRepairAmount(row.pr_amt, row.po_amt, total, lineItems);
     if (chosen && date) {
       repairs.push({ vehicleId: row.vehicle_id, date, amount: chosen.amount, source: chosen.source });
     }
@@ -139,6 +155,8 @@ export function GET(): NextResponse {
       purchasePrice: v.purchase_price || 0,
       purchaseDate: asDay(v.purchase_date),
       status: v.status,
+      workOrderCount: v.wo_count || 0,
+      workOrdersWithCost: v.wo_with_cost || 0,
     })),
     odo,
     repairs,

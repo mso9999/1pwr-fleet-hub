@@ -16,6 +16,10 @@ export type VehicleRow = {
   purchasePrice: number;
   purchaseDate: string | null;
   status: string;
+  /** Total work orders on record (for cost-coverage warnings). */
+  workOrderCount?: number;
+  /** Work orders with a non-zero recorded cost (WO header, PR, PO, or line items). */
+  workOrdersWithCost?: number;
 };
 
 export type OdoPoint = { vehicleId: string; date: string; km: number };
@@ -54,13 +58,18 @@ export type VehicleMetric = {
   downtimeDays: number;
   readingsKept: number;
   readingsExcluded: number;
+  workOrderCount: number;
+  workOrdersWithCost: number;
 };
 
 export type MonthPoint = {
   month: string;
   odo: number | null;
+  /** Cumulative purchase + repairs through month end. */
   spend: number;
-  byVehicle: Record<string, { odo: number | null; spend: number }>;
+  /** Cumulative repairs only (no purchase) through month end — for odo overlay. */
+  repair: number;
+  byVehicle: Record<string, { odo: number | null; spend: number; repair: number }>;
 };
 
 export type BracketBar = { label: string; spend: number; vehicles: number };
@@ -108,12 +117,16 @@ export function asDay(value: string | null | undefined): string | null {
 export function chooseRepairAmount(
   pr: number,
   po: number,
-  total: number
+  total: number,
+  lineItems = 0
 ): { amount: number; source: "pr" | "work-order" } | null {
-  if (total > 0) return { amount: total, source: "work-order" };
-  if (pr > 0) return { amount: pr, source: "pr" };
-  if (po > 0) return { amount: po, source: "pr" };
-  return null;
+  // Prefer the larger recorded figure so a thin WO total does not hide a bigger
+  // approved PR/PO or parts/labour lines that were never rolled into total_cost.
+  const wo = Math.max(total, lineItems);
+  const best = Math.max(wo, pr, po);
+  if (best <= 0) return null;
+  if (wo >= pr && wo >= po) return { amount: wo, source: "work-order" };
+  return { amount: best, source: "pr" };
 }
 
 export function mileageFromInspectionItems(itemsJson: string): number | null {
@@ -360,6 +373,8 @@ export function buildFleetPerformance(input: {
       downtimeDays,
       readingsKept: kept.length,
       readingsExcluded: Math.max(0, rawCount - kept.length),
+      workOrderCount: vehicle.workOrderCount ?? 0,
+      workOrdersWithCost: vehicle.workOrdersWithCost ?? 0,
     };
   });
 
@@ -456,22 +471,26 @@ function buildMonths(
     let odoSum = 0;
     let odoCount = 0;
     let spendSum = 0;
+    let repairSum = 0;
     for (const vehicle of vehicles) {
       const code = label.get(vehicle.id) ?? vehicle.code;
-    const cap = to && to < endDay ? to : endDay;
-    const reading = lastOnOrBefore(keptById.get(vehicle.id) ?? [], cap);
+      const cap = to && to < endDay ? to : endDay;
+      const reading = lastOnOrBefore(keptById.get(vehicle.id) ?? [], cap);
       const visibleOdo = reading ? reading.km : null;
-      const spend = (spendById.get(vehicle.id) ?? [])
-        .filter((event) => event.date <= endDay)
+      const events = spendById.get(vehicle.id) ?? [];
+      const spend = events.filter((event) => event.date <= endDay).reduce((sum, event) => sum + event.amount, 0);
+      const repair = events
+        .filter((event) => event.date <= endDay && event.source !== "purchase")
         .reduce((sum, event) => sum + event.amount, 0);
-      byVehicle[code] = { odo: visibleOdo, spend };
+      byVehicle[code] = { odo: visibleOdo, spend, repair };
       if (visibleOdo != null) {
         odoSum += visibleOdo;
         odoCount += 1;
       }
       spendSum += spend;
+      repairSum += repair;
     }
-    return { month, odo: odoCount ? odoSum : null, spend: spendSum, byVehicle };
+    return { month, odo: odoCount ? odoSum : null, spend: spendSum, repair: repairSum, byVehicle };
   });
 }
 

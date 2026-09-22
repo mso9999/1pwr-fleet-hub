@@ -10,6 +10,7 @@ import {
   type FleetSourceData,
   type MonthPoint,
 } from "@/lib/fleet-performance";
+import { DualAxisLineChart } from "@/components/fleet-performance-charts";
 
 const COLORS = ["#1e4d3a", "#1d4ed8", "#b45309", "#be123c", "#6d28d9", "#0f766e", "#0369a1", "#a16207", "#334155", "#9f1239"];
 
@@ -89,19 +90,30 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
 
   const showEach = split && vehicleId === "all";
   const odoSeries = seriesFrom(perf.months, showEach, "odo");
+  const repairSeries = seriesFrom(perf.months, showEach, "repair").map((line) => ({ ...line, dashed: true }));
   const spendSeries = seriesFrom(perf.months, showEach, "spend");
   const missingPurchase = selected.filter((v) => !v.purchasePrice || v.purchasePrice <= 0).length;
+  const woTotal = selected.reduce((sum, v) => sum + (v.workOrderCount ?? 0), 0);
+  const woCosted = selected.reduce((sum, v) => sum + (v.workOrdersWithCost ?? 0), 0);
+  const woMissing = Math.max(0, woTotal - woCosted);
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-zinc-600 max-w-3xl">
         Compare vehicles side by side. Odometer readings that would make a series fall are left out until the photo review is loaded
         {perf.excludedNonMonotonic > 0 ? ` (${perf.excludedNonMonotonic} left out, ${perf.readingsKept} kept)` : ""}.
-        Repair spend is the work-order total (parts, labour, and third party). A purchase-request amount is used only when that work order has no cost of its own.
+        Repair spend uses the larger of work-order totals, parts/labour line items, and linked PR/PO amounts.
         {missingPurchase > 0
           ? ` ${missingPurchase} vehicle${missingPurchase === 1 ? "" : "s"} in this filter still have no purchase price — their TCO is repairs only.`
           : " Purchase price is included from the vehicle record."}
       </p>
+
+      {woMissing > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Cost coverage in this filter: <strong>{woCosted}</strong> of <strong>{woTotal}</strong> work orders have a recorded
+          amount ({woMissing} still blank). Totals understate real spend until those jobs are costed or linked to PRs.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <Select label="Country" value={country} onChange={(e) => { setCountry(e.target.value); setVehicleId("all"); }}>
@@ -143,9 +155,25 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Cumulative odometer</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Odometer with cumulative repairs</CardTitle></CardHeader>
         <CardContent>
-          <LineChart months={perf.months.map((point) => point.month)} series={odoSeries} zero={false} />
+          <p className="text-xs text-zinc-500 mb-2">
+            Solid = odometer (left axis). Dashed = cumulative recorded repair spend (right axis)
+            {moneyOk ? ` in ${currency}` : ""}.
+          </p>
+          {moneyOk || repairSeries.every((s) => s.values.every((v) => v == null || v === 0)) ? (
+            <DualAxisLineChart
+              months={perf.months.map((point) => point.month)}
+              left={odoSeries}
+              right={moneyOk ? repairSeries : []}
+              rightLabel={currency || "spend"}
+            />
+          ) : (
+            <>
+              <p className="text-sm text-zinc-500 mb-2">Repair overlay needs one currency — choose a country. Odometer shown alone:</p>
+              <LineChart months={perf.months.map((point) => point.month)} series={odoSeries} zero={false} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -205,6 +233,7 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
                 <th className="pb-2 pr-3 text-right">Age</th>
                 <th className="pb-2 pr-3 text-right">Purchase</th>
                 <th className="pb-2 pr-3 text-right">Repairs</th>
+                <th className="pb-2 pr-3 text-right">WO costed</th>
                 <th className="pb-2 pr-3 text-right">TCO</th>
                 <th className="pb-2 pr-3 text-right">TCO/km</th>
                 <th className="pb-2 pr-3 text-right">TCO ÷ km/yr</th>
@@ -226,6 +255,11 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
                     <td className="py-2 pr-3 text-right">{metric.ageYears == null ? "—" : metric.ageYears}</td>
                     <td className="py-2 pr-3 text-right">{moneyOk ? fmt(metric.purchasePrice, 0) : "—"}</td>
                     <td className="py-2 pr-3 text-right">{moneyOk ? fmt(metric.repairSpend, 0) : "—"}</td>
+                    <td className="py-2 pr-3 text-right">
+                      <span className={metric.workOrderCount > 0 && metric.workOrdersWithCost < metric.workOrderCount ? "text-amber-700" : ""}>
+                        {metric.workOrdersWithCost}/{metric.workOrderCount}
+                      </span>
+                    </td>
                     <td className="py-2 pr-3 text-right font-semibold">{moneyOk ? fmt(metric.tco, 0) : "—"}</td>
                     <td className="py-2 pr-3 text-right">{moneyOk ? fmt(metric.costPerKm, 2) : "—"}</td>
                     <td className="py-2 pr-3 text-right">{moneyOk ? fmt(metric.tcoPerKmYear, 0) : "—"}</td>
@@ -240,19 +274,25 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
   );
 }
 
-function seriesFrom(months: MonthPoint[], each: boolean, field: "odo" | "spend"): { name: string; color: string; values: (number | null)[] }[] {
+function seriesFrom(months: MonthPoint[], each: boolean, field: "odo" | "spend" | "repair"): { name: string; color: string; values: (number | null)[] }[] {
   if (!each) {
     return [{
       name: "Portfolio",
       color: COLORS[0],
-      values: months.map((point) => (field === "odo" ? point.odo : point.spend)),
+      values: months.map((point) => (field === "odo" ? point.odo : field === "repair" ? point.repair : point.spend)),
     }];
   }
   const names = [...new Set(months.flatMap((point) => Object.keys(point.byVehicle)))];
   return names.map((name, index) => ({
     name,
     color: COLORS[index % COLORS.length],
-    values: months.map((point) => point.byVehicle[name]?.[field] ?? null),
+    values: months.map((point) => {
+      const row = point.byVehicle[name];
+      if (!row) return null;
+      if (field === "odo") return row.odo;
+      if (field === "repair") return row.repair;
+      return row.spend;
+    }),
   }));
 }
 

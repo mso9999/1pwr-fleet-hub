@@ -38,6 +38,12 @@ assert.equal(workOrder?.amount, 5000);
 const prOnly = chooseRepairAmount(1800, 0, 0);
 assert.equal(prOnly?.source, "pr");
 assert.equal(prOnly?.amount, 1800);
+const prBeatsThinWo = chooseRepairAmount(12_000, 0, 500);
+assert.equal(prBeatsThinWo?.amount, 12_000);
+assert.equal(prBeatsThinWo?.source, "pr");
+const linesBeatHeader = chooseRepairAmount(0, 0, 100, 2_500);
+assert.equal(linesBeatHeader?.amount, 2_500);
+assert.equal(linesBeatHeader?.source, "work-order");
 
 const vehicle = (id: string, year: number, price = 0): VehicleRow => ({
   id,

@@ -8,6 +8,7 @@ import {
   type FleetSourceData,
   type VehicleMetric,
 } from "@/lib/fleet-performance";
+import { DualAxisLineChart, LineChart, fmt } from "@/components/fleet-performance-charts";
 
 type Props = {
   vehicleId: string;
@@ -15,7 +16,7 @@ type Props = {
 };
 
 /**
- * Single-vehicle performance (odo + spend cumulative, figures of merit).
+ * Single-vehicle performance (odo + repair spend overlay, figures of merit).
  * Comparison across the fleet lives on /tco.
  */
 export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): ReactElement {
@@ -71,10 +72,20 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
   const metric: VehicleMetric | undefined = perf.metrics[0];
   const currency = vehicle.currency || "LSL";
   const purchaseMissing = !vehicle.purchasePrice || vehicle.purchasePrice <= 0;
-  const odoSeries = [{
+  const woTotal = metric?.workOrderCount ?? vehicle.workOrderCount ?? 0;
+  const woCosted = metric?.workOrdersWithCost ?? vehicle.workOrdersWithCost ?? 0;
+  const woMissing = Math.max(0, woTotal - woCosted);
+  const months = perf.months.map((point) => point.month);
+  const odoLeft = [{
     name: vehicle.code,
     color: "#1e4d3a",
     values: perf.months.map((point) => point.odo),
+  }];
+  const repairRight = [{
+    name: vehicle.code,
+    color: "#1d4ed8",
+    values: perf.months.map((point) => point.repair),
+    dashed: true,
   }];
   const spendSeries = [{
     name: vehicle.code,
@@ -90,15 +101,23 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
           {perf.excludedNonMonotonic > 0
             ? ` (${perf.excludedNonMonotonic} non-monotonic left out, ${perf.readingsKept} kept)`
             : ""}.
-          Spend is purchase (if recorded) plus work-order / PR repairs.
+          Repair spend is the larger of work-order totals, parts/labour lines, and linked PR/PO amounts.
           {purchaseMissing
-            ? " Purchase price is missing on this vehicle — TCO is repairs only until it is filled in."
+            ? " Purchase price is missing — TCO is repairs only until it is filled in."
             : ""}
         </p>
         <Link href="/tco" className="text-sm text-blue-700 hover:underline whitespace-nowrap">
           Compare across fleet →
         </Link>
       </div>
+
+      {woMissing > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Cost coverage: <strong>{woCosted}</strong> of <strong>{woTotal}</strong> work orders have a recorded
+          amount{woMissing > 0 ? ` — ${woMissing} jobs (e.g. overhauls, gearboxes) still have no cost entered` : ""}.
+          Charts only reflect what is in Fleet Hub, so repair totals can look low until those WOs are costed or linked to PRs.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
@@ -136,9 +155,9 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Latest odometer" value={fmt(metric?.latestOdo ?? null, 0)} detail={`${fmt(metric?.kmPerYear ?? null, 0)} km/yr`} />
         <Stat
-          label="Total cost of ownership"
-          value={money(metric?.tco ?? 0, currency)}
-          detail={`${money(metric?.purchasePrice ?? 0, currency)} purchase · ${money(metric?.repairSpend ?? 0, currency)} repairs`}
+          label="Recorded repair spend"
+          value={money(metric?.repairSpend ?? 0, currency)}
+          detail={`${woCosted}/${woTotal} WOs costed · ${money(metric?.purchasePrice ?? 0, currency)} purchase`}
         />
         <Stat
           label="TCO per km / year"
@@ -153,16 +172,26 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Cumulative odometer</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Odometer with cumulative repairs</CardTitle>
+        </CardHeader>
         <CardContent>
-          <LineChart months={perf.months.map((point) => point.month)} series={odoSeries} zero={false} />
+          <p className="text-xs text-zinc-500 mb-2">
+            Solid line = odometer (left axis). Dashed line = cumulative recorded repair spend (right axis).
+          </p>
+          <DualAxisLineChart
+            months={months}
+            left={odoLeft}
+            right={repairRight}
+            rightLabel={currency}
+          />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader><CardTitle>Cumulative spend ({currency})</CardTitle></CardHeader>
         <CardContent>
-          <LineChart months={perf.months.map((point) => point.month)} series={spendSeries} zero />
+          <LineChart months={months} series={spendSeries} zero />
         </CardContent>
       </Card>
     </div>
@@ -179,79 +208,6 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-function LineChart({
-  months,
-  series,
-  zero,
-}: {
-  months: string[];
-  series: { name: string; color: string; values: (number | null)[] }[];
-  zero: boolean;
-}): ReactElement {
-  const nums = series.flatMap((line) => line.values.filter((value): value is number => value != null));
-  if (months.length === 0 || nums.length === 0) {
-    return <p className="text-sm text-zinc-500">No points in this range.</p>;
-  }
-  const width = 720;
-  const height = 220;
-  const pad = { l: 64, r: 16, t: 12, b: 28 };
-  const min = zero ? 0 : Math.min(...nums);
-  const max = Math.max(...nums, min + 1);
-  const x = (index: number) =>
-    pad.l + (months.length === 1 ? (width - pad.l - pad.r) / 2 : (index / (months.length - 1)) * (width - pad.l - pad.r));
-  const y = (value: number) => pad.t + (1 - (value - min) / (max - min)) * (height - pad.t - pad.b);
-  const ticks = [min, min + (max - min) / 2, max];
-  const labelEvery = Math.max(1, Math.ceil(months.length / 6));
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" role="img">
-      {ticks.map((tick) => (
-        <g key={tick}>
-          <line x1={pad.l} x2={width - pad.r} y1={y(tick)} y2={y(tick)} stroke="#e7e5e4" />
-          <text x={pad.l - 8} y={y(tick) + 4} textAnchor="end" fontSize="11" fill="#78716c">{compact(tick)}</text>
-        </g>
-      ))}
-      {series.map((line) => (
-        <path key={line.name} d={linePath(line.values, x, y)} fill="none" stroke={line.color} strokeWidth="2" />
-      ))}
-      {months.map((month, index) =>
-        index % labelEvery === 0 ? (
-          <text key={month} x={x(index)} y={height - 8} textAnchor="middle" fontSize="11" fill="#78716c">
-            {month}
-          </text>
-        ) : null
-      )}
-    </svg>
-  );
-}
-
-function linePath(values: (number | null)[], x: (index: number) => number, y: (value: number) => number): string {
-  let path = "";
-  let open = false;
-  values.forEach((value, index) => {
-    if (value == null) {
-      open = false;
-      return;
-    }
-    path += `${open ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`;
-    open = true;
-  });
-  return path;
-}
-
-function fmt(value: number | null, digits: number): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
-}
-
 function money(value: number, currency: string): string {
   return `${currency} ${fmt(value, 0)}`;
-}
-
-function compact(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 10_000) return `${Math.round(value / 1000)}k`;
-  if (abs >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  return Math.round(value).toLocaleString();
 }
