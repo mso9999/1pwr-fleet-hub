@@ -93,6 +93,13 @@ export default function TcoPage() {
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-zinc-900">Fleet comparison</h1>
+        <p className="text-sm text-zinc-600 mt-1 max-w-3xl">
+          Portfolio metrics across vehicles. Open any vehicle page for that unit&apos;s individual odometer and spend charts.
+        </p>
+      </div>
+
       {/* Tab switcher */}
       <div className="flex flex-wrap gap-2">
         {([["performance", "Fleet performance"], ["tco", "Cost of Ownership"], ["eol", "End of Life"], ["ranking", "Performance Ranking"]] as const).map(([key, label]) => (

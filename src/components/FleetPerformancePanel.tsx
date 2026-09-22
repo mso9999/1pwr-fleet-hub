@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactElement } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import {
@@ -12,12 +13,13 @@ import {
 
 const COLORS = ["#1e4d3a", "#1d4ed8", "#b45309", "#be123c", "#6d28d9", "#0f766e", "#0369a1", "#a16207", "#334155", "#9f1239"];
 
+/** Fleet-wide comparison charts and ranking. Per-vehicle view lives on the vehicle page. */
 export function FleetPerformancePanel({ organizationId }: { organizationId: string }): ReactElement {
   const [data, setData] = useState<FleetSourceData | null>(null);
   const [error, setError] = useState("");
   const [country, setCountry] = useState("");
   const [vehicleId, setVehicleId] = useState("all");
-  const [split, setSplit] = useState(false);
+  const [split, setSplit] = useState(true);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -88,16 +90,16 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
   const showEach = split && vehicleId === "all";
   const odoSeries = seriesFrom(perf.months, showEach, "odo");
   const spendSeries = seriesFrom(perf.months, showEach, "spend");
+  const missingPurchase = selected.filter((v) => !v.purchasePrice || v.purchasePrice <= 0).length;
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-zinc-600 max-w-3xl">
-        Odometer readings that would make a vehicle&apos;s series fall are left out until the photo review is finished
+        Compare vehicles side by side. Odometer readings that would make a series fall are left out until the photo review is loaded
         {perf.excludedNonMonotonic > 0 ? ` (${perf.excludedNonMonotonic} left out, ${perf.readingsKept} kept)` : ""}.
-        Repair spend is the work-order total (parts, labour, and third party). A purchase-request amount is used only when that work order has no cost of its own, so the two are not added twice.
-        Open work orders count as downtime through today; overlapping orders on the same vehicle are counted once.
-        {perf.portfolio.totalPurchase === 0
-          ? " Purchase prices are not on the vehicle records yet, so total cost of ownership is repairs only."
+        Repair spend is the work-order total (parts, labour, and third party). A purchase-request amount is used only when that work order has no cost of its own.
+        {missingPurchase > 0
+          ? ` ${missingPurchase} vehicle${missingPurchase === 1 ? "" : "s"} in this filter still have no purchase price — their TCO is repairs only.`
           : " Purchase price is included from the vehicle record."}
       </p>
 
@@ -108,15 +110,15 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
             <option key={code} value={code}>{name}</option>
           ))}
         </Select>
-        <Select label="Vehicle" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
+        <Select label="Highlight vehicle" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
           <option value="all">All vehicles</option>
           {inCountry.map((vehicle) => (
             <option key={vehicle.id} value={vehicle.id}>{vehicle.code}</option>
           ))}
         </Select>
         <Select label="Lines" value={showEach ? "each" : "sum"} onChange={(e) => setSplit(e.target.value === "each")} disabled={vehicleId !== "all"}>
-          <option value="sum">One portfolio line</option>
           <option value="each">One line per vehicle</option>
+          <option value="sum">One portfolio line</option>
         </Select>
         <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
           From
@@ -136,7 +138,7 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Mean km / year" value={fmt(perf.portfolio.meanKmPerYear, 0)} detail={spread(perf.portfolio.stdevKmPerYear, perf.portfolio.ratedVehicles, "km/yr")} />
         <Stat label="Total cost of ownership" value={moneyOk ? money(perf.portfolio.totalTco, currency) : "—"} detail={moneyOk ? `${money(perf.portfolio.totalPurchase, currency)} purchase · ${money(perf.portfolio.totalRepairs, currency)} repairs` : "Pick one country"} />
-        <Stat label="TCO per km / year" value={moneyOk ? fmt(perf.portfolio.meanTcoPerKmYear, 0) : "—"} detail={moneyOk ? spread(perf.portfolio.stdevTcoPerKmYear, perf.portfolio.ratedVehicles, currency) : "Currencies differ"} />
+        <Stat label="TCO per km / year" value={moneyOk ? fmt(perf.portfolio.meanTcoPerKmYear, 2) : "—"} detail={moneyOk ? spread(perf.portfolio.stdevTcoPerKmYear, perf.portfolio.ratedVehicles, currency, 2) : "Currencies differ"} />
         <Stat label="TCO per km on the clock" value={moneyOk ? fmt(perf.portfolio.costPerKm, 2) : "—"} detail={`${fmt(perf.portfolio.totalDowntimeDays, 0)} downtime days`} />
       </div>
 
@@ -178,8 +180,8 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-zinc-500">
-              Mean {fmt(perf.portfolio.meanTcoPerKmYear, 0)} {currency}, sample standard deviation {fmt(perf.portfolio.stdevTcoPerKmYear, 0)}, median {fmt(perf.portfolio.medianTcoPerKmYear, 0)}.
-              {" "}{perf.portfolio.ratedVehicles} vehicles have both a cost and at least 90 days of rising odometer. The rest are left out of the distribution.
+              Mean {fmt(perf.portfolio.meanTcoPerKmYear, 2)} {currency}, sample standard deviation {fmt(perf.portfolio.stdevTcoPerKmYear, 2)}, median {fmt(perf.portfolio.medianTcoPerKmYear, 2)}.
+              {" "}{perf.portfolio.ratedVehicles} vehicles have both a cost and at least 90 days of rising odometer.
             </p>
             <BarChart
               bars={perf.metrics
@@ -214,7 +216,11 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
                 .sort((a, b) => (b.tcoPerKmYear ?? -1) - (a.tcoPerKmYear ?? -1))
                 .map((metric) => (
                   <tr key={metric.id} className="border-b border-zinc-50">
-                    <td className="py-2 pr-3 font-semibold">{metric.code}</td>
+                    <td className="py-2 pr-3 font-semibold">
+                      <Link href={`/vehicles/${metric.id}`} className="text-blue-700 hover:underline">
+                        {metric.code}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-3 text-right">{fmt(metric.latestOdo, 0)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(metric.kmPerYear, 0)}</td>
                     <td className="py-2 pr-3 text-right">{metric.ageYears == null ? "—" : metric.ageYears}</td>
@@ -363,9 +369,9 @@ function money(value: number, currency: string): string {
   return `${currency} ${fmt(value, 0)}`;
 }
 
-function spread(stdev: number | null, count: number, unit: string): string {
+function spread(stdev: number | null, count: number, unit: string, digits = 0): string {
   if (stdev == null) return count ? `${count} vehicle` : "Not enough history";
-  return `σ ${fmt(stdev, 0)} ${unit} · n=${count}`;
+  return `σ ${fmt(stdev, digits)} ${unit} · n=${count}`;
 }
 
 function compact(value: number): string {

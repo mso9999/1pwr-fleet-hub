@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
+import { VehiclePerformancePanel } from "@/components/VehiclePerformancePanel";
 
 interface Props {
   vehicleId: string;
   vehicleCode: string;
 }
 
-type Tab = "overview" | "trips" | "maintenance" | "costs";
+type Tab = "overview" | "performance" | "trips" | "maintenance" | "costs";
 
 export function VehicleDashboardTabs({ vehicleId, vehicleCode }: Props) {
   const { organizationId } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useState<Tab>("performance");
   const [tco, setTco] = useState<Record<string, unknown> | null>(null);
   const [eol, setEol] = useState<Record<string, unknown> | null>(null);
   const [trips, setTrips] = useState<Array<Record<string, unknown>>>([]);
@@ -55,6 +56,7 @@ export function VehicleDashboardTabs({ vehicleId, vehicleCode }: Props) {
   }, [vehicleId, organizationId]);
 
   const tabs: Array<{ key: Tab; label: string }> = [
+    { key: "performance", label: "Performance" },
     { key: "overview", label: "Overview" },
     { key: "trips", label: `Trips (${trips.length})` },
     { key: "maintenance", label: "Maintenance" },
@@ -86,6 +88,10 @@ export function VehicleDashboardTabs({ vehicleId, vehicleCode }: Props) {
       </div>
 
       <CardContent className="pt-4">
+        {activeTab === "performance" && (
+          <VehiclePerformancePanel vehicleId={vehicleId} vehicleCode={vehicleCode} />
+        )}
+
         {activeTab === "overview" && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
