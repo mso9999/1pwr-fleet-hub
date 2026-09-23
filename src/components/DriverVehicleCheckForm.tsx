@@ -266,7 +266,7 @@ function ApprovedDriverCombobox({
       ) : (
         <p className="text-[11px] text-zinc-500">
           {options.length} approved driver{options.length === 1 ? "" : "s"} for {organizationId} · managed by
-          EHS
+          EHS · FM app quiz required for Ready status
         </p>
       )}
     </div>

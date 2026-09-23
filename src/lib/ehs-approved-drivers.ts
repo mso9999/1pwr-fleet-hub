@@ -43,6 +43,10 @@ export type EhsDriverRow = {
   attested_by_id: string;
   attested_by_name: string;
   attested_at: string | null;
+  /** ISO timestamp when the operator passed the Fleet Hub app-use quiz (null = not passed). */
+  fm_app_quiz_passed_at: string | null;
+  fm_app_quiz_score: number | null;
+  fm_app_quiz_version: string;
 };
 
 export type EhsOperatorAuthorization = {
@@ -154,6 +158,7 @@ export interface OperatorComplianceResult {
  * - Licence scan on file and (if required) covers the two-year continuity rule.
  * - Training record on file for the authorization row (when the category metadata says so).
  * - Grant for the category is 'approved' or 'trainer' (not 'none').
+ * - Fleet Hub app-use quiz passed (fm_app_quiz_passed_at set).
  */
 export function evaluateOperatorCompliance(
   input: OperatorComplianceInput
@@ -255,6 +260,11 @@ export function evaluateOperatorCompliance(
       reasons.push("No training record on file for this authorization.");
       result.ready = false;
     }
+  }
+
+  if (!String(input.row.fm_app_quiz_passed_at || "").trim()) {
+    reasons.push("Fleet Hub app-use quiz not passed.");
+    result.ready = false;
   }
 
   return result;

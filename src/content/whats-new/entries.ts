@@ -51,6 +51,33 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "fm-app-quiz-driver-gate",
+    title: "FM app quiz required for approved drivers",
+    summary:
+      "To be designated on a logistics request or driver checklist, you must pass the Fleet Hub app-use quiz (mission → trip → allocate → checklist).",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-09-23",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "EHS compliance still covers licence, assessments, and attestation. **Additionally**, operators must pass the **FM app quiz** before they appear as Ready for on-road designation.\n\n- Take it at **FM app quiz** in the sidebar (`/fm-quiz`).\n- Pass mark: **80%**. Retake until you pass.\n- Existing drivers are **not** grandfathered — pass once, then you stay cleared until we introduce re-certification.",
+      },
+      {
+        title: "Who owns each step (reminder)",
+        bodyMd:
+          "1. Requestor creates the mission.\n2. PM approves the mission.\n3. Requestor/driver creates the trip.\n4. Fleet lead allocates the vehicle.\n5. Driver completes the departing checklist.\n\nThe quiz checks that you know this flow.",
+      },
+      {
+        title: "WhatsApp note for requestors",
+        bodyMd:
+          "Pasteable:\n\n*Fleet Hub — driver designation*\nTo be named as the designated driver on a logistics request (or picked on the departing checklist), you must pass the *FM app quiz* in Fleet Hub (sidebar → FM app quiz). Pass mark 80%. Existing drivers are not grandfathered — take it once, then you’re clear.",
+      },
+    ],
+  },
+  {
     slug: "mission-next-owner-trip-then-allocate",
     title: "Who acts next on a mission is now named",
     summary:

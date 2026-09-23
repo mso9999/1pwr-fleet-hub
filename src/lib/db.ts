@@ -779,6 +779,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   safeMigrate(db, "migratePostDeploymentChecksSchema", migratePostDeploymentChecksSchema);
   safeMigrate(db, "migrateEhsApprovedDrivers", migrateEhsApprovedDrivers);
   safeMigrate(db, "migrateEhsOperatorRegister", migrateEhsOperatorRegister);
+  safeMigrate(db, "migrateFmAppQuizPasses", migrateFmAppQuizPasses);
   safeMigrate(db, "ensureWhatsNewSeenTable", ensureWhatsNewSeenTable);
   safeMigrate(db, "backfillMissionDepartureLocation", backfillMissionDepartureLocation);
   safeMigrate(db, "migrateFleetMechanics", migrateFleetMechanics);
@@ -1155,6 +1156,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateVehicleCheckOverrideApprovers", () => migrateVehicleCheckOverrideApprovers(db)],
     ["migrateEhsApprovedDrivers", () => migrateEhsApprovedDrivers(db)],
     ["migrateEhsOperatorRegister", () => migrateEhsOperatorRegister(db)],
+    ["migrateFmAppQuizPasses", () => migrateFmAppQuizPasses(db)],
     ["migrateTransmissionScope", () => migrateTransmissionScope(db)],
     ["migrateWorkOrderFailureFields", () => migrateWorkOrderFailureFields(db)],
     ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
@@ -1322,6 +1324,9 @@ function migrateEhsOperatorRegister(db: Database.Database): void {
     ["attested_by_name", "TEXT NOT NULL DEFAULT ''"],
     ["attested_at", "TEXT DEFAULT NULL"],
     ["license_originally_issued", "TEXT NOT NULL DEFAULT ''"],
+    ["fm_app_quiz_passed_at", "TEXT DEFAULT NULL"],
+    ["fm_app_quiz_score", "REAL DEFAULT NULL"],
+    ["fm_app_quiz_version", "TEXT NOT NULL DEFAULT ''"],
   ];
   const needBackfill = additions.some(([c]) => !has(c));
   for (const [col, def] of additions) {
@@ -1374,6 +1379,24 @@ function migrateEhsOperatorRegister(db: Database.Database): void {
       datetime('now'),
       datetime('now')
     FROM ehs_approved_drivers d
+  `);
+}
+
+/**
+ * Email-keyed FM app quiz pass ledger. Stamped when a user passes the quiz even
+ * before they appear on ehs_approved_drivers; synced onto operator rows by email.
+ */
+function migrateFmAppQuizPasses(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fm_app_quiz_passes (
+      email TEXT PRIMARY KEY,
+      passed_at TEXT NOT NULL,
+      score REAL NOT NULL,
+      version TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_fm_quiz_passed_at ON fm_app_quiz_passes(passed_at);
   `);
 }
 

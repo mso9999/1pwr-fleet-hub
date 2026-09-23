@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,8 @@ interface OperatorRecord {
   };
   license_media_count: number;
   fully_compliant: boolean;
+  fm_app_quiz_passed_at?: string | null;
+  fm_app_quiz_score?: number | null;
   authorizations: AuthorizationRow[];
   category_readiness: Record<string, boolean>;
 }
@@ -219,7 +222,17 @@ export default function EhsApprovedDriversPage(): React.ReactElement {
         D018 approved operator register. Every signed-in user can view the list. The{" "}
         <strong>EHS department</strong> (synced from PR) and admins maintain the five physical and
         proficiency assessments, the per-category authorizations matrix, and the EHS sign-off on
-        each record.
+        each record. Ready status also requires the{" "}
+        <Link href="/fm-quiz" className="text-blue-700 underline">
+          FM app quiz
+        </Link>{" "}
+        (pass once; not grandfathered).
+      </p>
+      <p className="text-sm">
+        <Link href="/fm-quiz" className="text-blue-700 underline font-medium">
+          Take FM quiz
+        </Link>
+        <span className="text-zinc-500"> — required before you can be designated as a driver.</span>
       </p>
 
       {canEdit && (
@@ -508,6 +521,11 @@ function OperatorCard({
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
                 <Badge variant={d.status === "active" ? "success" : "secondary"}>{d.status}</Badge>
+                {d.fm_app_quiz_passed_at ? (
+                  <Badge variant="success">FM quiz</Badge>
+                ) : (
+                  <Badge variant="warning">FM quiz needed</Badge>
+                )}
                 {fleetReady ? (
                   <Badge variant="success">Ready (fleet vehicle)</Badge>
                 ) : (

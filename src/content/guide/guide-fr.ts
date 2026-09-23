@@ -344,7 +344,11 @@ export const guideFr: GuideContent = {
           [
             "Logistique (étape 2) : choisissez le ",
             B("conducteur désigné"),
-            " dans le registre EHS de votre organisation (pays). Toute la liste est affichée et recherchable (nom, e-mail, identifiant RH) ; seuls les opérateurs pleinement conformes pour la conduite sur route peuvent être sélectionnés, les dossiers incomplets restent visibles avec le motif de blocage. La demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
+            " dans le registre EHS de votre organisation (pays). Toute la liste est affichée et recherchable (nom, e-mail, identifiant RH) ; seuls les opérateurs pleinement conformes pour la conduite sur route peuvent être sélectionnés (permis + évaluations + attestation EHS + ",
+            B("quiz appli FM"),
+            "), les dossiers incomplets restent visibles avec le motif de blocage. Passez le quiz via ",
+            L("/fm-quiz", "Quiz appli FM"),
+            ". La demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
           ],
           [
             "Lorsque vous choisissez une ",
@@ -695,7 +699,7 @@ export const guideFr: GuideContent = {
         title: "Ce que le registre contrôle",
         bullets: [
           "Formulaire de contrôle → champ Conducteur : seuls les conducteurs pleinement conformes de cette organisation apparaissent. Les saisies libres sont acceptées mais signalées en orange.",
-          "Demandes de véhicules → l’étape 2 affiche tout le registre EHS de l’organisation (pays). Les dossiers incomplets apparaissent en « Pas prêt » avec le motif ; seul un opérateur Prêt pour la conduite sur route peut être soumis. La ligne du registre est enregistrée sur la demande. Les managers avec dérogation prérequis peuvent contourner avec un motif tracé (8 caractères minimum). Le superadmin peut tester sans la barrière complète.",
+          "Demandes de véhicules → l’étape 2 affiche tout le registre EHS de l’organisation (pays). Les dossiers incomplets apparaissent en « Pas prêt » avec le motif (y compris quiz appli FM non réussi) ; seul un opérateur Prêt pour la conduite sur route peut être soumis. Les conducteurs passent le quiz une fois via /fm-quiz. La ligne du registre est enregistrée sur la demande. Les managers avec dérogation prérequis peuvent contourner avec un motif tracé (8 caractères minimum). Le superadmin peut tester sans la barrière complète.",
           "Administration → Approbateurs de contrôles est une liste séparée (qui peut valider les exceptions d’un contrôle). Être approbateur ne rend pas automatiquement conducteur agréé.",
         ],
       },
@@ -703,9 +707,9 @@ export const guideFr: GuideContent = {
         id: "troubleshooting",
         title: "Dépannage",
         bullets: [
-          "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche, passer les évaluations à Réussi, confirmer que le niveau pour la catégorie attendue (ex. véhicule sur route) est Agréé ou Formateur et que la fiche est ré-attestée.",
+          "Un conducteur n’apparaît pas dans la liste du contrôle → ouvrir sa fiche, passer les évaluations à Réussi, confirmer que le niveau pour la catégorie attendue (ex. véhicule sur route) est Agréé ou Formateur, que la fiche est ré-attestée, et qu’il a réussi le quiz appli FM.",
           "Message « Pas sur la liste des conducteurs agréés » sous le champ Conducteur → EHS n’a pas ajouté ou habilité cette personne pour la classe de véhicule sélectionnée (les poids lourds nécessitent une ligne d’autorisation distincte).",
-          "Pas de badge Prêt sur une autorisation → vérifier les exigences de la catégorie (attestation de formation, test écrit pour engins / atelier).",
+          "Pas de badge Prêt sur une autorisation → vérifier les exigences de la catégorie (attestation de formation, test écrit pour engins / atelier) et le badge quiz FM sur la fiche.",
           "La liste RH est vide → le chargeur RH n’est visible que pour EHS, la direction flotte et les admins.",
           "Fiche affichée en Brouillon après une modification → c’est voulu ; cocher la case d’attestation et cliquer sur Attester et enregistrer pour la remettre en Prêt.",
           "Vous n’accédez pas à la page → connectez-vous à Fleet Hub ; le registre est visible par tout utilisateur connecté. Seuls les contrôles d’édition nécessitent des droits EHS / admin.",

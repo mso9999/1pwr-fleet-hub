@@ -2229,6 +2229,12 @@ function RequestForm({
   const [requestedForChoice, setRequestedForChoice] = useState("");
   const [requestedForOther, setRequestedForOther] = useState("");
   const [designatedOperator, setDesignatedOperator] = useState<DesignatedOperatorSelection | null>(null);
+  const [eligibility, setEligibility] = useState<{
+    canRequestVehicle: boolean;
+    isApprovedDriver: boolean;
+    fmAppQuizPassed: boolean;
+    fmQuizPath: string;
+  } | null>(null);
   const [routeEstimateLoading, setRouteEstimateLoading] = useState(false);
   const [routeEstimate, setRouteEstimate] = useState<{
     ok: boolean;
@@ -2294,6 +2300,38 @@ function RequestForm({
 
   useEffect(() => {
     setDesignatedOperator(null);
+  }, [organizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const headers = await jsonHeadersWithBearer();
+        const res = await fetch(
+          `/api/me/vehicle-request-eligibility?org=${encodeURIComponent(organizationId)}`,
+          { headers }
+        );
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as {
+          canRequestVehicle?: boolean;
+          isApprovedDriver?: boolean;
+          fmAppQuizPassed?: boolean;
+          fmQuizPath?: string;
+        };
+        if (cancelled) return;
+        setEligibility({
+          canRequestVehicle: !!j.canRequestVehicle,
+          isApprovedDriver: !!j.isApprovedDriver,
+          fmAppQuizPassed: !!j.fmAppQuizPassed,
+          fmQuizPath: j.fmQuizPath || "/fm-quiz",
+        });
+      } catch {
+        if (!cancelled) setEligibility(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [organizationId]);
 
   useEffect(() => {
@@ -3054,9 +3092,28 @@ function RequestForm({
           <CardTitle className="text-base">2. Driver logistics request (EHS approved drivers)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
             Links an approved mission to a pool queue row (purpose, priority, notes). Required vehicle class is taken from the mission when set; fleet reserves a specific vehicle on the mission after line approval.
+            Designated drivers must be EHS-compliant <strong>and</strong> have passed the{" "}
+            <Link href="/fm-quiz" className="text-blue-700 underline">
+              FM app quiz
+            </Link>
+            .
           </p>
         </CardHeader>
         <CardContent>
+          {eligibility && !eligibility.fmAppQuizPassed && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              You have not passed the FM app quiz yet. Drivers must pass it before they can be designated.{" "}
+              <Link href={eligibility.fmQuizPath} className="font-medium underline">
+                Take the FM app quiz
+              </Link>
+              .
+            </div>
+          )}
+          {eligibility && eligibility.fmAppQuizPassed && !eligibility.isApprovedDriver && !managerOverrideReady && (
+            <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+              Quiz passed — ask EHS to finish your approved-driver file (assessments + attestation) if you need to be designated yourself.
+            </div>
+          )}
           <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
             <EhsCompliantDriverPickerField
               organizationId={organizationId}
@@ -3064,7 +3121,7 @@ function RequestForm({
               onChange={setDesignatedOperator}
               required
               disabled={managerOverrideReady}
-              helperText="Scoped to the organisation in the sidebar. Search the full EHS register; only Ready on-road operators can be submitted. Incomplete files stay in the list with the reason they are blocked."
+              helperText="Scoped to the organisation in the sidebar. Search the full EHS register; only Ready on-road operators (including FM app quiz pass) can be submitted. Incomplete files stay in the list with the reason they are blocked."
             />
             {managerOverrideReady && (
               <p className="text-xs text-amber-800 rounded-md border border-amber-100 bg-amber-50/80 px-2 py-1.5">

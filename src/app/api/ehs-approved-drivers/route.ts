@@ -20,6 +20,7 @@ import {
 import { OPERATOR_CATEGORIES } from "@/lib/ehs-operator-categories";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import type { AuthFailure } from "@/lib/server-auth";
+import { syncFmAppQuizPassOntoOperator } from "@/lib/fm-app-quiz-store";
 
 function explainAuthFailure(reason: AuthFailure | undefined): string {
   switch (reason) {
@@ -250,6 +251,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   // Seed authorization rows for every known category so the matrix renders immediately.
   buildAuthorizationStubsIfMissing(db, id);
+  syncFmAppQuizPassOntoOperator(db, id, email);
   const row = db.prepare("SELECT * FROM ehs_approved_drivers WHERE id = ?").get(id) as Record<string, unknown>;
 
   recordMutation(db, {

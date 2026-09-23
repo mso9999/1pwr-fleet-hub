@@ -323,7 +323,11 @@ export const guideEn: GuideContent = {
           [
             "Logistics (step 2): pick the ",
             B("designated driver"),
-            " from the searchable EHS register for your organisation (country). The full register is listed (search by name, email, or HR id); only fully compliant on-road operators can be selected, and incomplete files stay visible with the reason they are blocked. The request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
+            " from the searchable EHS register for your organisation (country). The full register is listed (search by name, email, or HR id); only fully compliant on-road operators can be selected (licence + assessments + EHS attestation + ",
+            B("FM app quiz"),
+            " pass), and incomplete files stay visible with the reason they are blocked. Take the quiz at ",
+            L("/fm-quiz", "FM app quiz"),
+            ". The request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
           ],
           [
             "When you choose a ",
@@ -675,7 +679,7 @@ export const guideEn: GuideContent = {
         title: "What the register controls",
         bullets: [
           "Vehicle check form → Driver field: only fully-compliant drivers for this organisation appear in the dropdown. Typed write-ins are accepted but flagged amber.",
-          "Vehicle requests → step 2 lists the full EHS register for the organisation (country). Incomplete files appear as Not ready with the blocking reason; only a Ready on-road operator can be submitted. The register row is stored on the request. Managers with prerequisite override may bypass with a logged reason (8+ characters). Superadmin may test without the full gate.",
+          "Vehicle requests → step 2 lists the full EHS register for the organisation (country). Incomplete files appear as Not ready with the blocking reason (including FM app quiz not passed); only a Ready on-road operator can be submitted. Drivers take the quiz once at /fm-quiz. The register row is stored on the request. Managers with prerequisite override may bypass with a logged reason (8+ characters). Superadmin may test without the full gate.",
           "Admin → Vehicle-check approvers is a separate list (who may approve exception failures on a check). Being an approver does not by itself make someone an approved driver.",
         ],
       },
@@ -683,9 +687,9 @@ export const guideEn: GuideContent = {
         id: "troubleshooting",
         title: "Troubleshooting",
         bullets: [
-          "Driver does not appear in the check dropdown → open their card, switch the assessments to Pass, confirm the grant for the expected category (e.g. fleet vehicle on-road) is Approved or Trainer, and that the record is re-attested.",
+          "Driver does not appear in the check dropdown → open their card, switch the assessments to Pass, confirm the grant for the expected category (e.g. fleet vehicle on-road) is Approved or Trainer, that the record is re-attested, and that they have passed the FM app quiz.",
           "‘Not on the EHS approved list’ warning under the Driver field → EHS has not added or authorised this person for the specific vehicle class you selected (heavy vehicles need a separate authorisation row from standard on-road).",
-          "Ready badge missing on an authorisation → check the category’s own requirements (training record upload, written test for plant / machining).",
+          "Ready badge missing on an authorisation → check the category’s own requirements (training record upload, written test for plant / machining) and the FM app quiz badge on the card.",
           "HR list is empty → the loader is only visible to EHS, fleet management, and admins; click Load employees from HR (optionally with a country filter) if the buttons are available.",
           "Record shows Draft after an edit → this is by design; tick the attestation checkbox and hit Attest and save to bring it back to Ready.",
           "Can’t see the page at all → sign in to Fleet Hub; the register is visible to every signed-in user. Only the edit controls require EHS / admin rights.",

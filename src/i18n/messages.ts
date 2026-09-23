@@ -27,6 +27,7 @@ const en = {
     reportIssue: "Report Issue",
     admin: "Admin",
     ehsApprovedDrivers: "Approved drivers (EHS)",
+    fmAppQuiz: "FM app quiz",
   },
   header: {
     ehsApprovedDrivers: "Approved drivers (EHS)",
@@ -285,6 +286,7 @@ const fr: MessageTree = {
     reportIssue: "Signaler un problème",
     admin: "Administration",
     ehsApprovedDrivers: "Conducteurs agréés (EHS)",
+    fmAppQuiz: "Quiz appli FM",
   },
   header: {
     ehsApprovedDrivers: "Conducteurs agréés (EHS)",

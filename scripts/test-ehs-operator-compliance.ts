@@ -53,6 +53,9 @@ function baseOperator(): EhsDriverRow {
     attested_by_id: "admin",
     attested_by_name: "Admin",
     attested_at: FIXED_NOW.toISOString(),
+    fm_app_quiz_passed_at: FIXED_NOW.toISOString(),
+    fm_app_quiz_score: 1,
+    fm_app_quiz_version: "test",
   };
 }
 
@@ -204,6 +207,22 @@ function testStaleAttestationAfterEditBlocks(): void {
   assert.ok(result.reasons.some((r) => r.toLowerCase().includes("attested")));
 }
 
+function testMissingFmAppQuizBlocks(): void {
+  const row = baseOperator();
+  row.fm_app_quiz_passed_at = null;
+  row.fm_app_quiz_score = null;
+  row.fm_app_quiz_version = "";
+  const result = evaluateOperatorCompliance({
+    row,
+    authorizations: [auth("fleet_vehicle_onroad", "approved")],
+    licenceMediaCount: 1,
+    category: "fleet_vehicle_onroad",
+    referenceNow: FIXED_NOW,
+  });
+  assert.equal(result.ready, false);
+  assert.ok(result.reasons.some((r) => /app-use quiz/i.test(r)));
+}
+
 function testTrainerGrantReady(): void {
   const row = baseOperator();
   const result = evaluateOperatorCompliance({
@@ -228,6 +247,7 @@ const tests: Array<[string, () => void]> = [
   ["written test not required for on-road light", testWrittenNotRequiredForOnRoadLight],
   ["suspended status blocks", testSuspendedBlocks],
   ["stale attestation after edit blocks", testStaleAttestationAfterEditBlocks],
+  ["missing FM app quiz blocks readiness", testMissingFmAppQuizBlocks],
   ["trainer grant counts as ready", testTrainerGrantReady],
 ];
 

@@ -6,11 +6,12 @@ import {
   DEFAULT_OPERATOR_CATEGORY,
   isKnownOperatorCategory,
 } from "@/lib/ehs-operator-categories";
+import { getFmAppQuizPassByEmail } from "@/lib/fm-app-quiz-store";
 
 /**
  * GET /api/me/vehicle-request-eligibility?org=…&category=fleet_vehicle_onroad
- * Only fully compliant (D018) operators may POST vehicle requests for that category;
- * superadmin may bypass for testing.
+ * Only fully compliant (D018 + FM app quiz) operators may POST vehicle requests
+ * for that category; superadmin may bypass for testing.
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
@@ -23,6 +24,14 @@ export async function GET(request: Request): Promise<NextResponse> {
   const category = isKnownOperatorCategory(cat) ? cat : DEFAULT_OPERATOR_CATEGORY;
   const db = getDb();
   const isApprovedDriver = isApprovedDriverForCategory(db, org, user.email, category);
+  const fmQuizPass = getFmAppQuizPassByEmail(db, user.email || "");
   const canRequestVehicle = isApprovedDriver || user.role === "superadmin";
-  return NextResponse.json({ isApprovedDriver, canRequestVehicle, category });
+  return NextResponse.json({
+    isApprovedDriver,
+    canRequestVehicle,
+    category,
+    fmAppQuizPassed: !!fmQuizPass,
+    fmAppQuizPassedAt: fmQuizPass?.passed_at ?? null,
+    fmQuizPath: "/fm-quiz",
+  });
 }

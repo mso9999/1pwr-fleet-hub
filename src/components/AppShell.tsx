@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/fleet-reservations", labelKey: "nav.fleetReservations", icon: "calendar" },
   { href: "/vehicle-checks", labelKey: "nav.vehicleChecks", icon: "shield" },
   { href: "/ehs-approved-drivers", labelKey: "nav.ehsApprovedDrivers", icon: "idCard" },
+  { href: "/fm-quiz", labelKey: "nav.fmAppQuiz", icon: "clipboard" },
   { href: "/work-orders", labelKey: "nav.workOrders", icon: "wrench" },
   { href: "/maintenance", labelKey: "nav.maintenance", icon: "calendar" },
   { href: "/mechanics", labelKey: "nav.mechanics", icon: "users" },
