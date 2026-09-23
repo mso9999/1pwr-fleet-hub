@@ -17,6 +17,7 @@
     "test:transmission-scope": "tsx scripts/test-transmission-scope.ts",
     "test:wo-labor-gate": "tsx scripts/test-wo-labor-gate.ts",
     "test:fleet-performance": "tsx scripts/test-fleet-performance.ts",
+    "test:mission-next-owner": "tsx scripts/test-mission-next-owner.ts",
     "test:stale-approvals": "tsx scripts/test-stale-approvals.ts",
     "test:stale-wos": "tsx scripts/test-stale-wos.ts",
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",

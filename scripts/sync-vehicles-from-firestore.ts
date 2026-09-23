@@ -348,7 +348,7 @@ async function main(): Promise<void> {
     "surf 2": "S2",
     "offroad": "Offroad",
     "breakdown": "Breakdown",
-    "ty nissan": "KA24",
+    "ty nissan": "N3",
     "small compressor": "SmComp",
     "big compressor": "BigComp",
     "dolly trailer": "DollyTrailer",

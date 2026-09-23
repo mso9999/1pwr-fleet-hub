@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
  * requesters can see "where is this mission" without jumping between
  * /vehicle-requests, /trips, and /vehicle-checks.
  *
- * Steps: Draft → Submitted → Approved → Trip created → Vehicle allocated →
- *         Checklist complete → Departed → Checked in.
+ * Steps: Draft → Submitted → Approved → Trip created (requestor) →
+ *         Vehicle allocated (fleet lead) → Checklist → Departed → Checked in.
  */
 
 export interface MissionPipelineData {
@@ -68,19 +68,19 @@ const STEPS: StepDef[] = [
   },
   {
     key: "trip_created",
-    label: "Trip created",
-    reached: (m) => m.trip_checkout_at || null,
+    label: "Trip (requestor)",
+    reached: (m) => (m.trip_id ? m.trip_checkout_at || "" : null),
     href: (m) => (m.trip_id ? `/trips?trip=${encodeURIComponent(m.trip_id)}` : `/trips?mission=${encodeURIComponent(m.id)}`),
   },
   {
     key: "allocated",
-    label: "Vehicle allocated",
+    label: "Vehicle (fleet)",
     reached: (m) => m.assigned_at || null,
-    href: (m) => `/trips?mission=${encodeURIComponent(m.id)}`,
+    href: (m) => `/vehicle-requests`,
   },
   {
     key: "checklist",
-    label: "Checklist complete",
+    label: "Checklist",
     reached: (m) => m.trip_checklist_at || null,
     href: (m) => (m.trip_id ? `/trips?trip=${encodeURIComponent(m.trip_id)}` : undefined),
   },

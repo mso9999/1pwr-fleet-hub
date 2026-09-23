@@ -17,6 +17,7 @@ import {
 } from "firebase-admin/firestore";
 import { getDb } from "./db";
 import { getFleetAdminApp } from "./firebase-admin-init";
+import { isPrSpendStatus } from "./fleet-performance";
 
 let adminFirestore: Firestore | null = null;
 
@@ -246,98 +247,15 @@ export async function syncPrReferenceLists(
 }
 
 /**
- * READ-ONLY: Cache PR status and costs from Firestore purchaseRequests collection.
- * Queries by PR number strings linked via work_order_po_links.
- * Results cached into local `pr_cost_cache` table. Stale after 1 hour.
- *
- * Never writes to or modifies the purchaseRequests collection.
+ * READ-ONLY: Cache PR status/costs and vehicle-tagged PR spend from Firestore
+ * purchaseRequests into local `pr_cost_cache`. Never writes to Firestore.
  */
-export async function cachePRStatusForWorkOrder(
-  workOrderId: string
-): Promise<SyncResult> {
-  const firestore = getAdminFirestore();
-  if (!firestore)
-    return { success: false, upserted: 0, deactivated: 0, error: "Firestore not available" };
-
-  try {
-    const db = getDb();
-
-    const poLinks = db
-      .prepare(
-        "SELECT pr_number FROM work_order_po_links WHERE work_order_id = ? AND pr_number != ''"
-      )
-      .all(workOrderId) as Array<{ pr_number: string }>;
-
-    if (poLinks.length === 0) {
-      return { success: true, upserted: 0, deactivated: 0 };
-    }
-
-    let upserted = 0;
-    const prNumbers = poLinks.map((l) => l.pr_number);
-    const batches: string[][] = [];
-    for (let i = 0; i < prNumbers.length; i += 10) {
-      batches.push(prNumbers.slice(i, i + 10));
-    }
-
-    const txn = db.transaction(() => {
-      for (const batch of batches) {
-        for (const prNum of batch) {
-          void cacheSinglePR(firestore, db, prNum, workOrderId).then(
-            (cached) => {
-              if (cached) upserted++;
-            }
-          );
-        }
-      }
-    });
-
-    // Since Firestore reads are async, we need to gather results first
-    const results = await Promise.all(
-      prNumbers.map((prNum) =>
-        cacheSinglePR(firestore, db, prNum, workOrderId)
-      )
-    );
-
-    const txnWrite = db.transaction(() => {
-      for (const r of results) {
-        if (!r) continue;
-        db.prepare(
-          `INSERT INTO pr_cost_cache (id, work_order_id, vehicle_code, pr_number, pr_status, approved_amount, currency, description, last_synced_at, pr_created_at, status_changed_at)
-           VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
-           ON CONFLICT(pr_number) DO UPDATE SET
-             pr_status = excluded.pr_status,
-             approved_amount = excluded.approved_amount,
-             description = excluded.description,
-             pr_created_at = excluded.pr_created_at,
-             status_changed_at = excluded.status_changed_at,
-             last_synced_at = datetime('now')`
-        ).run(
-          r.workOrderId,
-          r.vehicleCode,
-          r.prNumber,
-          r.prStatus,
-          r.approvedAmount,
-          r.currency,
-          r.description,
-          r.prCreatedAt,
-          r.statusChangedAt
-        );
-        upserted++;
-      }
-    });
-
-    txnWrite();
-    return { success: true, upserted, deactivated: 0 };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[firestore-sync] cachePRStatusForWorkOrder failed:", msg);
-    return { success: false, upserted: 0, deactivated: 0, error: msg };
-  }
-}
 
 interface CachedPR {
-  workOrderId: string;
+  workOrderId: string | null;
+  vehicleId: string | null;
   vehicleCode: string;
+  expenseType: string;
   prNumber: string;
   prStatus: string;
   approvedAmount: number;
@@ -346,6 +264,8 @@ interface CachedPR {
   prCreatedAt: string;
   statusChangedAt: string;
 }
+
+type SqliteDb = ReturnType<typeof getDb>;
 
 function firestoreTimeToIso(value: unknown): string {
   if (!value) return "";
@@ -373,9 +293,175 @@ function statusChangedAtFromHistory(data: Record<string, unknown>, status: strin
   return firestoreTimeToIso(data.updatedAt) || firestoreTimeToIso(data.createdAt);
 }
 
+function prAmountFromData(data: Record<string, unknown>): number {
+  const candidates = [
+    data.finalPrice,
+    data.totalAmount,
+    data.approvedAmount,
+    data.estimatedAmount,
+  ];
+  for (const raw of candidates) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function vehicleRefFromData(data: Record<string, unknown>): string {
+  const vehicle = data.vehicle;
+  if (typeof vehicle === "string") return vehicle.trim();
+  if (vehicle && typeof vehicle === "object") {
+    const obj = vehicle as { id?: string; fmVehicleId?: string; code?: string };
+    return String(obj.fmVehicleId || obj.id || obj.code || "").trim();
+  }
+  return String(data.vehicleCode || data.fmVehicleId || "").trim();
+}
+
+type VehicleLookup = {
+  byId: Map<string, { id: string; code: string }>;
+  byCode: Map<string, { id: string; code: string }>;
+  byPrFirestoreId: Map<string, { id: string; code: string }>;
+};
+
+function loadVehicleLookup(db: SqliteDb): VehicleLookup {
+  const rows = db
+    .prepare(
+      `SELECT id, code, COALESCE(pr_firestore_id, '') as pr_firestore_id
+       FROM vehicles WHERE COALESCE(is_synthetic, 0) = 0`
+    )
+    .all() as Array<{ id: string; code: string; pr_firestore_id: string }>;
+  const byId = new Map<string, { id: string; code: string }>();
+  const byCode = new Map<string, { id: string; code: string }>();
+  const byPrFirestoreId = new Map<string, { id: string; code: string }>();
+  for (const row of rows) {
+    const v = { id: row.id, code: row.code };
+    byId.set(row.id, v);
+    byCode.set(row.code.trim().toLowerCase(), v);
+    if (row.pr_firestore_id) byPrFirestoreId.set(row.pr_firestore_id, v);
+  }
+  return { byId, byCode, byPrFirestoreId };
+}
+
+function resolveVehicle(
+  lookup: VehicleLookup,
+  db: SqliteDb,
+  data: Record<string, unknown>,
+  fallbackWorkOrderId: string | null
+): { vehicleId: string | null; vehicleCode: string; workOrderId: string | null } {
+  const fleetWo = String(data.fleetWorkOrderId || "").trim() || fallbackWorkOrderId;
+  let workOrderId: string | null = null;
+  let woVehicleId: string | null = null;
+  if (fleetWo) {
+    const wo = db
+      .prepare("SELECT id, vehicle_id FROM work_orders WHERE id = ?")
+      .get(fleetWo) as { id: string; vehicle_id: string } | undefined;
+    if (wo) {
+      workOrderId = wo.id;
+      woVehicleId = wo.vehicle_id || null;
+    }
+  }
+
+  const ref = vehicleRefFromData(data);
+  let resolved =
+    (ref && lookup.byId.get(ref)) ||
+    (ref && lookup.byCode.get(ref.toLowerCase())) ||
+    (ref && lookup.byPrFirestoreId.get(ref)) ||
+    (woVehicleId ? lookup.byId.get(woVehicleId) : undefined);
+
+  if (!resolved && woVehicleId) {
+    resolved = lookup.byId.get(woVehicleId);
+  }
+
+  const vehicleCode =
+    resolved?.code ||
+    String((data.vehicle as { code?: string } | undefined)?.code || data.vehicleCode || "") ||
+    "";
+
+  return {
+    vehicleId: resolved?.id || null,
+    vehicleCode,
+    workOrderId,
+  };
+}
+
+function cachedPrFromDoc(
+  data: Record<string, unknown>,
+  lookup: VehicleLookup,
+  db: SqliteDb,
+  fallbackWorkOrderId: string | null = null
+): CachedPR | null {
+  const prNumber = String(data.prNumber || "").trim();
+  if (!prNumber) return null;
+  const prStatus = String(data.status || "");
+  const resolved = resolveVehicle(lookup, db, data, fallbackWorkOrderId);
+  return {
+    workOrderId: resolved.workOrderId || fallbackWorkOrderId,
+    vehicleId: resolved.vehicleId,
+    vehicleCode: resolved.vehicleCode,
+    expenseType: String(data.expenseType || "").trim(),
+    prNumber,
+    prStatus,
+    approvedAmount: prAmountFromData(data),
+    currency: String(data.currency || "LSL"),
+    description: String(data.description || data.title || ""),
+    prCreatedAt: firestoreTimeToIso(data.createdAt),
+    statusChangedAt: statusChangedAtFromHistory(data, prStatus),
+  };
+}
+
+function upsertPrCostCache(db: SqliteDb, rows: CachedPR[]): number {
+  if (rows.length === 0) return 0;
+  const stmt = db.prepare(
+    `INSERT INTO pr_cost_cache (
+       id, work_order_id, vehicle_id, vehicle_code, expense_type, pr_number, pr_status,
+       approved_amount, currency, description, last_synced_at, pr_created_at, status_changed_at
+     ) VALUES (
+       lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?
+     )
+     ON CONFLICT(pr_number) DO UPDATE SET
+       work_order_id = COALESCE(excluded.work_order_id, pr_cost_cache.work_order_id),
+       vehicle_id = COALESCE(excluded.vehicle_id, pr_cost_cache.vehicle_id),
+       vehicle_code = CASE
+         WHEN excluded.vehicle_code != '' THEN excluded.vehicle_code
+         ELSE pr_cost_cache.vehicle_code END,
+       expense_type = CASE
+         WHEN excluded.expense_type != '' THEN excluded.expense_type
+         ELSE pr_cost_cache.expense_type END,
+       pr_status = excluded.pr_status,
+       approved_amount = excluded.approved_amount,
+       currency = excluded.currency,
+       description = excluded.description,
+       pr_created_at = excluded.pr_created_at,
+       status_changed_at = excluded.status_changed_at,
+       last_synced_at = datetime('now')`
+  );
+  const txn = db.transaction((batch: CachedPR[]) => {
+    let n = 0;
+    for (const r of batch) {
+      stmt.run(
+        r.workOrderId,
+        r.vehicleId,
+        r.vehicleCode,
+        r.expenseType,
+        r.prNumber,
+        r.prStatus,
+        r.approvedAmount,
+        r.currency,
+        r.description,
+        r.prCreatedAt,
+        r.statusChangedAt
+      );
+      n++;
+    }
+    return n;
+  });
+  return txn(rows);
+}
+
 async function cacheSinglePR(
   firestore: Firestore,
-  _db: ReturnType<typeof getDb>,
+  db: SqliteDb,
+  lookup: VehicleLookup,
   prNumber: string,
   workOrderId: string
 ): Promise<CachedPR | null> {
@@ -387,24 +473,138 @@ async function cacheSinglePR(
       .get();
 
     if (snapshot.empty) return null;
-
-    const doc = snapshot.docs[0];
-    const data = doc.data() as Record<string, unknown>;
-    const prStatus = String(data.status || "");
-
-    return {
-      workOrderId,
-      vehicleCode: String((data.vehicle as { code?: string } | undefined)?.code || data.vehicleCode || ""),
-      prNumber,
-      prStatus,
-      approvedAmount: Number(data.totalAmount || data.approvedAmount || 0) || 0,
-      currency: String(data.currency || "LSL"),
-      description: String(data.description || data.title || ""),
-      prCreatedAt: firestoreTimeToIso(data.createdAt),
-      statusChangedAt: statusChangedAtFromHistory(data, prStatus),
-    };
+    return cachedPrFromDoc(snapshot.docs[0].data() as Record<string, unknown>, lookup, db, workOrderId);
   } catch {
     return null;
+  }
+}
+
+/**
+ * READ-ONLY: Cache PR status and costs from Firestore purchaseRequests collection.
+ * Queries by PR number strings linked via work_order_po_links.
+ * Results cached into local `pr_cost_cache` table. Stale after 1 hour.
+ *
+ * Never writes to or modifies the purchaseRequests collection.
+ */
+export async function cachePRStatusForWorkOrder(
+  workOrderId: string
+): Promise<SyncResult> {
+  const firestore = getAdminFirestore();
+  if (!firestore)
+    return { success: false, upserted: 0, deactivated: 0, error: "Firestore not available" };
+
+  try {
+    const db = getDb();
+    const poLinks = db
+      .prepare(
+        "SELECT pr_number FROM work_order_po_links WHERE work_order_id = ? AND pr_number != ''"
+      )
+      .all(workOrderId) as Array<{ pr_number: string }>;
+
+    if (poLinks.length === 0) {
+      return { success: true, upserted: 0, deactivated: 0 };
+    }
+
+    const lookup = loadVehicleLookup(db);
+    const results = await Promise.all(
+      poLinks.map((l) => cacheSinglePR(firestore, db, lookup, l.pr_number, workOrderId))
+    );
+    const upserted = upsertPrCostCache(
+      db,
+      results.filter((r): r is CachedPR => r != null)
+    );
+    return { success: true, upserted, deactivated: 0 };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[firestore-sync] cachePRStatusForWorkOrder failed:", msg);
+    return { success: false, upserted: 0, deactivated: 0, error: msg };
+  }
+}
+
+export interface VehiclePrSpendSyncResult extends SyncResult {
+  vehiclesScanned: number;
+  spendRows: number;
+}
+
+/**
+ * READ-ONLY: Pull every purchaseRequest that names an FM vehicle (or a linked WO)
+ * into `pr_cost_cache`, including PRs with no work-order link.
+ * Used so fleet analytics can show live PR spend per vehicle.
+ */
+export async function syncVehiclePrSpendFromFirestore(
+  organizationId: string = "1pwr_lesotho"
+): Promise<VehiclePrSpendSyncResult> {
+  const firestore = getAdminFirestore();
+  if (!firestore) {
+    return {
+      success: false,
+      upserted: 0,
+      deactivated: 0,
+      vehiclesScanned: 0,
+      spendRows: 0,
+      error: "Firestore not available",
+    };
+  }
+
+  try {
+    const db = getDb();
+    const lookup = loadVehicleLookup(db);
+    const vehicles = db
+      .prepare(
+        `SELECT id, code FROM vehicles
+         WHERE organization_id = ? AND COALESCE(is_synthetic, 0) = 0`
+      )
+      .all(organizationId) as Array<{ id: string; code: string }>;
+
+    const cached: CachedPR[] = [];
+    const seenPr = new Set<string>();
+
+    const ingestSnapshot = async (
+      field: string,
+      value: string
+    ): Promise<void> => {
+      const snapshot = await firestore
+        .collection("purchaseRequests")
+        .where(field, "==", value)
+        .limit(500)
+        .get();
+      for (const doc of snapshot.docs) {
+        const row = cachedPrFromDoc(doc.data() as Record<string, unknown>, lookup, db, null);
+        if (!row || seenPr.has(row.prNumber)) continue;
+        seenPr.add(row.prNumber);
+        cached.push(row);
+      }
+    };
+
+    // Query by FM UUID and by fleet code (legacy PR.vehicle values).
+    for (const v of vehicles) {
+      await ingestSnapshot("vehicle", v.id);
+      if (v.code) await ingestSnapshot("vehicle", v.code);
+    }
+
+    const upserted = upsertPrCostCache(db, cached);
+    const spendRows = cached.filter(
+      (r) => r.vehicleId && r.approvedAmount > 0 && isPrSpendStatus(r.prStatus)
+    ).length;
+
+    return {
+      success: true,
+      upserted,
+      deactivated: 0,
+      vehiclesScanned: vehicles.length,
+      spendRows,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[firestore-sync] syncVehiclePrSpendFromFirestore failed:", msg);
+    return {
+      success: false,
+      upserted: 0,
+      deactivated: 0,
+      vehiclesScanned: 0,
+      spendRows: 0,
+      error: msg,
+    };
   }
 }
 

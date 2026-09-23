@@ -30,6 +30,8 @@ Trips in FM can be associated with **packing lists / load-out manifests** mainta
 
 Fleet Hub stores PR/PO links on work orders (`work_order_po_links`) and can read PR status from the shared Firestore `purchaseRequests` collection into local `pr_cost_cache` (read-only from Firestore — see `src/lib/firestore-sync.ts`).
 
+**Vehicle spend (analytics):** `POST /api/sync/pr-spend` pulls every `purchaseRequests` doc whose `vehicle` field matches an FM vehicle (UUID or legacy fleet code) into `pr_cost_cache.vehicle_id`, including PRs with no work order. Fleet performance charts count those approved/ordered/completed amounts even when unlinked; PRs already attached to a WO are not double-counted. Hourly GitHub Actions cron keeps the cache near-live. Going forward, parts/service PRs should still create WOs; this path covers fuel, fluids, and historical gaps.
+
 ### Environment
 
 | Variable | Purpose |
@@ -42,6 +44,7 @@ Fleet Hub stores PR/PO links on work orders (`work_order_po_links`) and can read
 |--------|------|-------------|
 | `GET` | `/api/integrations/v1/work-orders/{id}` | Validate that a WO exists; returns `organizationId`, `vehicleId`, `vehicleCode`, `title`, `status`, dates. |
 | `POST` | `/api/integrations/v1/work-orders/{id}/pr-links` | Register a PR against the WO (same JSON body as fleet `po-links`: `prNumber`, `poNumber`, `vendor`, `description`, `amount`, `currency`, `status`, `prSystemUrl`). If the WO is in **`needs-parts`**, it is advanced to **`pr-submitted`** and a row is written to `work_order_status_history`. Then PR status is refreshed into `pr_cost_cache` when Firestore admin is configured. |
+| `POST` | `/api/sync/pr-spend` | Admin or cron (`X-API-Key: DRAFT_CLEANUP_SECRET`). READ-ONLY pull of vehicle-tagged `purchaseRequests` into `pr_cost_cache` (hourly workflow `pr-spend-sync.yml`). |
 
 Fleet users with a Fleet-team department (or superadmin) can also call **`POST /api/work-orders/{id}/po-links`** with a normal session cookie / bearer token — same behaviour, including optional auto-advance from `needs-parts` → `pr-submitted`.
 

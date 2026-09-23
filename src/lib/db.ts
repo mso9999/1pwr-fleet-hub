@@ -2077,7 +2077,9 @@ function createPhase1Tables(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS pr_cost_cache (
       id TEXT PRIMARY KEY,
       work_order_id TEXT DEFAULT NULL,
+      vehicle_id TEXT DEFAULT NULL,
       vehicle_code TEXT NOT NULL DEFAULT '',
+      expense_type TEXT NOT NULL DEFAULT '',
       pr_number TEXT NOT NULL DEFAULT '',
       pr_status TEXT NOT NULL DEFAULT '',
       approved_amount REAL DEFAULT 0,
@@ -2138,7 +2140,9 @@ function migratePrCostCacheSchema(db: Database.Database): void {
 
   const additions: Array<[string, string]> = [
     ["work_order_id", "TEXT DEFAULT NULL"],
+    ["vehicle_id", "TEXT DEFAULT NULL"],
     ["vehicle_code", "TEXT NOT NULL DEFAULT ''"],
+    ["expense_type", "TEXT NOT NULL DEFAULT ''"],
     ["pr_status", "TEXT NOT NULL DEFAULT ''"],
     ["approved_amount", "REAL DEFAULT 0"],
     ["currency", "TEXT DEFAULT 'LSL'"],
@@ -2150,13 +2154,17 @@ function migratePrCostCacheSchema(db: Database.Database): void {
   for (const [col, def] of additions) {
     if (!has(col)) {
       db.exec(`ALTER TABLE pr_cost_cache ADD COLUMN ${col} ${def}`);
+      colNames.add(col);
     }
   }
 
-  if (has("vehicle_code") || additions.some(([c]) => c === "vehicle_code")) {
+  if (colNames.has("vehicle_code")) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_prc_vehicle ON pr_cost_cache(vehicle_code)");
   }
-  if (has("work_order_id") || additions.some(([c]) => c === "work_order_id")) {
+  if (colNames.has("vehicle_id")) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_prc_vehicle_id ON pr_cost_cache(vehicle_id)");
+  }
+  if (colNames.has("work_order_id")) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_prc_wo ON pr_cost_cache(work_order_id)");
   }
 }

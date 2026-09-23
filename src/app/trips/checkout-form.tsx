@@ -542,11 +542,12 @@ export function TripCheckoutForm({
       <CardHeader>
         <CardTitle>Create planned trip from approved mission</CardTitle>
         <p className="text-sm text-zinc-500 font-normal">
-          Select an approved mission and create its trip record. Fleet allocates the vehicle afterward on{" "}
+          <strong>Requestor / designated driver:</strong> create the trip shell after the mission is approved.
+          <strong> Fleet lead</strong> allocates a pool vehicle afterward on{" "}
           <Link href="/vehicle-requests" className="text-blue-600 underline font-medium">
             Missions
           </Link>
-          . The driver checklist is completed against the allocated trip before departure.
+          . Driver checklist runs against the allocated trip before departure.
         </p>
       </CardHeader>
       <CardContent>

@@ -22,7 +22,7 @@ const isDryRun = process.argv.includes("--dry-run");
 // Known vehicle codes from fleet
 const VEHICLE_CODES = new Set([
   "P1", "R1", "R2", "R3", "S1", "S2", "V6", "X0", "X1", "X2", "X3",
-  "J1", "J3", "JMC", "KA24", "ZD30", "M1", "36",
+  "J1", "J3", "JMC", "N3", "ZD30", "M1", "36",
   "5L", "N1", "T1", "Raider", "TH", "ATV",
 ]);
 

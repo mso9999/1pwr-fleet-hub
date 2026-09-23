@@ -101,7 +101,8 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
           {perf.excludedNonMonotonic > 0
             ? ` (${perf.excludedNonMonotonic} non-monotonic left out, ${perf.readingsKept} kept)`
             : ""}.
-          Repair spend is the larger of work-order totals, parts/labour lines, and linked PR/PO amounts.
+          Repair spend uses work-order costs (max of WO / lines / linked PR-PO) plus approved
+          PR spend tagged to this vehicle even when no work order is linked. PR cache refreshes hourly from the PR system.
           {purchaseMissing
             ? " Purchase price is missing — TCO is repairs only until it is filled in."
             : ""}
@@ -114,8 +115,8 @@ export function VehiclePerformancePanel({ vehicleId, vehicleCode }: Props): Reac
       {woMissing > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Cost coverage: <strong>{woCosted}</strong> of <strong>{woTotal}</strong> work orders have a recorded
-          amount{woMissing > 0 ? ` — ${woMissing} jobs (e.g. overhauls, gearboxes) still have no cost entered` : ""}.
-          Charts only reflect what is in Fleet Hub, so repair totals can look low until those WOs are costed or linked to PRs.
+          amount{woMissing > 0 ? ` — ${woMissing} jobs still have no WO cost` : ""}.
+          Unlinked PR spend still counts when the PR names this vehicle.
         </div>
       )}
 

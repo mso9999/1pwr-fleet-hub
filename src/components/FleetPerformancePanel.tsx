@@ -102,7 +102,8 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
       <p className="text-sm text-zinc-600 max-w-3xl">
         Compare vehicles side by side. Odometer readings that would make a series fall are left out until the photo review is loaded
         {perf.excludedNonMonotonic > 0 ? ` (${perf.excludedNonMonotonic} left out, ${perf.readingsKept} kept)` : ""}.
-        Repair spend uses the larger of work-order totals, parts/labour line items, and linked PR/PO amounts.
+        Repair spend uses WO costs (max of WO / lines / linked PR-PO) plus approved PR spend tagged to a vehicle even without a WO.
+        PR cache refreshes hourly from the PR system.
         {missingPurchase > 0
           ? ` ${missingPurchase} vehicle${missingPurchase === 1 ? "" : "s"} in this filter still have no purchase price — their TCO is repairs only.`
           : " Purchase price is included from the vehicle record."}
@@ -111,7 +112,7 @@ export function FleetPerformancePanel({ organizationId }: { organizationId: stri
       {woMissing > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Cost coverage in this filter: <strong>{woCosted}</strong> of <strong>{woTotal}</strong> work orders have a recorded
-          amount ({woMissing} still blank). Totals understate real spend until those jobs are costed or linked to PRs.
+          amount ({woMissing} still blank). Unlinked PR spend still counts when the PR names the vehicle.
         </div>
       )}
 

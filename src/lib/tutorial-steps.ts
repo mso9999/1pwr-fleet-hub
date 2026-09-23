@@ -418,8 +418,8 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Fleet manager / lead",
     title: "4. Reserve a vehicle on the mission",
     body:
-      "Fleet picks a concrete pool vehicle for each approved mission. The system blocks overlapping active reservations on the same unit, and blocks holding a vehicle past its registration disc expiry through the mission’s last day unless an authorised user enters the override reason (same field as overlap; 8+ characters, audit-logged). If the reserved vehicle is not operational at checkout, fleet can reassign, place a checkout hold (alerts management), or defer.",
-    suggestion: "This section is visible when your role can allocate vehicles and there are approved missions to reserve.",
+      "Fleet lead allocates a concrete pool vehicle only after the requestor has created the planned trip. Missions shows an amber card until the trip exists, then a green allocate card for Fleet. Overlapping reservations and registration-disc windows still require an authorised override reason (8+ characters).",
+    suggestion: "Allocate appears when your role is fleet lead and a trip already exists for the mission.",
   },
   {
     id: "fd-calendar",
@@ -437,7 +437,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Departing driver",
     title: "6. Departing driver checklist (field)",
     body:
-      "For Field deployment missions, complete today’s driver vehicle check for the reserved unit before checkout. Local / HQ-vicinity missions skip this gate in trip readiness. Submit the check, then return to Trips to create the trip.",
+      "After Fleet allocates the vehicle, complete today’s departing driver vehicle check for that unit before departure. Local / HQ-vicinity missions may skip this gate in trip readiness.",
     suggestion: "Open Vehicle checks from the sidebar if needed.",
   },
   {
@@ -456,7 +456,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Driver / dispatcher",
     title: "8. Open Create trip",
     body:
-      "Trips are always created from an approved mission that already has a reserved vehicle. Tap + Create Trip to open mission checkout — you cannot pick a random pool vehicle here.",
+      "After the mission is approved, the requestor creates the planned trip here (vehicle still unallocated). Fleet lead assigns a pool vehicle on Missions afterward. Tap + Create Trip to open mission checkout.",
     suggestion: "The tutorial opens this panel automatically on the next steps.",
   },
   {
@@ -466,7 +466,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Driver / dispatcher",
     title: "9. Mission checkout form",
     body:
-      "Select the mission, confirm the reserved vehicle, enter driver name and odometer, route, and load. If fleet or management edits mission parameters materially, the mission may return to pending approval before the trip can be created.",
+      "Select the approved mission and create the trip shell. Fleet allocates the vehicle next on Missions. If fleet or management edits mission parameters materially, the mission may return to pending approval.",
   },
   {
     id: "fd-readiness",
@@ -475,8 +475,8 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Driver / dispatcher",
     title: "10. Trip readiness & create",
     body:
-      "Readiness shows driver checklist (field), vehicle operational state, registration disc versus mission dates, and other gates. Fix blockers or use a logged override when policy allows (mission approvers: same cohort as overlap). Then submit to start the trip — your deployment is live until check-in.",
-    suggestion: "Gates appear after a mission with a reserved vehicle is selected.",
+      "Readiness shows driver checklist (field), vehicle operational state (after allocation), registration disc versus mission dates, and other gates. Fix blockers or use a logged override when policy allows. Submit to create the planned trip — Fleet allocates before departure.",
+    suggestion: "Gates appear after an approved mission is selected.",
   },
   {
     id: "fd-loadout",

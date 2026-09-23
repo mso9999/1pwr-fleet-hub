@@ -7,11 +7,12 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 | Capability | Who |
 |------------|-----|
 | Create a **mission** (trip plan) | Any signed-in user (`POST /api/missions`) — includes `missionProfile`, `requiredVehicleClass`, `rrStatus` |
-| Approve / reject a **mission** | PR-credentialed approvers: fleet lead, manager, admin, superadmin, **or** email on `vehicle_check_override_approvers` (HR / country-filtered list in Admin) |
+| Approve / reject a **mission** | PR-credentialed mission approvers (manager / admin / superadmin / named HR list). **Fleet lead is excluded** from mission approval — allocates vehicles only after the trip exists. |
 | Edit mission fields / reopen approval on material change | Creator while pending, or fleet management; material edits on an approved mission set `approval_status` back to `pending` (`PATCH /api/missions/[id]`) |
 | Submit a **vehicle request** (logistics row) | Users on the **EHS approved drivers** register for the org (`ehs_approved_drivers`, matched by email). Superadmin may bypass for testing. Vehicle class may come from the linked **mission** when set. |
 | Approve / reject a **vehicle request** (line item in FM) | Same PR-credentialed set as mission approval (`canApproveMissionRequests`) |
-| **Reserve** a vehicle on a mission | **Fleet team lead** (`fleet_lead`) or **superadmin** — `POST /api/missions/[id]/reserve-vehicle` (transaction, overlap rules, today vs future vehicle status rules; manager+ `overrideReason` for overlaps) |
+| **Reserve** a vehicle on a mission | **Fleet team lead** (`fleet_lead`) or **superadmin** — only after a planned trip exists (`POST /api/missions/[id]/reserve-vehicle`) |
+| **Create planned trip** | **Requestor / designated driver** (any authenticated user) after mission approval — `/trips` from approved mission; fleet allocates afterward |
 | Legacy assign via vehicle request | `POST /api/vehicle-requests/[id]/assign` — when `mission_id` is set, mirrors mission reservation rules |
 | **Arbitrate** capacity (defer / cancel / reactivate lifecycle) | **Management** cohort with `canArbitrateMissionCapacity` — explicitly **not** fleet lead acting alone |
 | Create an operational **trip** (checkout) | Authenticated user (`POST /api/trips`); optional `missionId` with readiness gates when mission-linked |
@@ -20,10 +21,13 @@ Concise business rules implemented in Fleet Hub for planning missions, optional 
 
 ## Lifecycle
 
-1. **Mission** — Created with `approval_status = pending`, `mission_profile`, `required_vehicle_class`, optional `rr_status`. PR approvers approve or reject via `PATCH /api/missions/[id]` (`action: approve | reject`). Until approved, it cannot be used for a new vehicle request (except documented override path).
-2. **Vehicle request** (optional queue row) — After the mission is **approved**, an **approved driver** may submit a request linked with `missionId` (purpose, priority, etc.). Required class can be inherited from the mission.
-3. **Vehicle reservation** — Fleet team lead reserves on the mission (`vehicle_reservations` + `missions.assigned_vehicle_id`). Date overlap is blocked unless a manager provides `overrideReason` (logged).
-4. **Trip** — Operational checkout on `/trips` (concrete vehicle, odometer, readiness). May reference `missionId`; mission-linked readiness is enforced when applicable.
+1. **Mission** — Created with `approval_status = pending`. **Mission approver (PM)** approves or rejects — not the fleet lead.
+2. **Trip (requestor / designated driver)** — After approval, create the planned trip on `/trips` (shell uses synthetic `UNALLOCATED` until Fleet binds a vehicle). This step is named and required before allocation.
+3. **Vehicle allocation (fleet lead)** — `POST /api/missions/[id]/reserve-vehicle` only after `trip_id` exists. Syncs the real vehicle onto the open trip.
+4. **Vehicle request** (optional queue row) — Logistics line; its `status` is separate from mission approval. Approving the request line is not the same as allocating a vehicle.
+5. **Checklist / depart / check-in** — Driver on the allocated trip.
+
+**Do not** auto-create trips on approval. **Do not** allocate before the trip exists.
 
 ## IS&T support boundary
 

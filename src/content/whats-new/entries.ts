@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-next-owner-trip-then-allocate",
+    title: "Who acts next on a mission is now named",
+    summary:
+      "After approval, the requestor creates the trip; then the fleet lead allocates. Request details no longer looks like the allocate step.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-09-23",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "Clear ownership",
+        bodyMd:
+          "Missions follow a fixed order with a **named next owner** on Missions and Request details:\n\n1. **Mission approver (PM)** — approve the trip plan (not the fleet lead).\n2. **Requestor / designated driver** — create the planned trip on **Trips**.\n3. **Fleet lead** — allocate a pool vehicle (only after the trip exists).\n4. **Driver** — checklist and depart.\n\nThe orange **Approve** on Request details is for the logistics request line — it does **not** assign a vehicle.",
+      },
+      {
+        title: "What you will see",
+        bodyMd:
+          "- Amber card **Next: requestor creates the trip** for approved missions with no trip yet.\n- Green card **Fleet lead: allocate vehicles** only when a trip already exists.\n- A **Next owner** banner on Request details and mission cards with a deep link to the right action.",
+      },
+    ],
+  },
+  {
     slug: "stale-work-order-nudges",
     title: "Stalled work orders now nudge the fleet team",
     summary:

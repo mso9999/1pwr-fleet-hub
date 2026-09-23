@@ -30,7 +30,7 @@ const SHEET_TO_CODE: Record<string, string> = {
   "TH": "TH", "36": "36", "R1": "R1", "R2": "R2", "J1": "J1", "J2": "J2",
   "J3": "J3", "M1": "M1", "N1": "N1", "DRig": "DRig", "Comp": "SMCOMP",
   "ATV": "ATV", "R3": "R3", "ST": "ST", "FClub": "X0", "X2": "X2", "JMC": "JMC",
-  "X3": "X3", "KA24": "KA24", "ZD30": "ZD30", "X0": "X0",
+  "X3": "X3", "KA24": "N3", "ZD30": "ZD30", "X0": "X0",
 };
 
 // Cost tracker sheet name → fleet code
@@ -342,7 +342,7 @@ function parseWhatsAppUpdates(): MaintenanceEntry[] {
 
 function processUpdateBlock(date: string, lines: string[], entries: MaintenanceEntry[]): void {
   // Vehicle code patterns in update lines
-  const vehiclePattern = /\b(36|R1|R2|R3|S1|S2|V6|X0|X1|X2|X3|J1|J2|J3|JMC|KA24|ZD30|TH|P1|M1|N1)\b/i;
+  const vehiclePattern = /\b(36|R1|R2|R3|S1|S2|V6|X0|X1|X2|X3|J1|J2|J3|JMC|KA24|N3|ZD30|TH|P1|M1|N1)\b/i;
 
   for (const line of lines) {
     // Lines typically start with number: "1. 36, radiator collected..."
@@ -391,7 +391,7 @@ function parseTriageAnalysis(): MaintenanceEntry[] {
     { vehicleCode: "X3", date: "2026-02-06", description: "Clutch kit replacement + gear issues + electrical (brake lights stay on)", type: "corrective", priority: "high", performedBy: "Kola", validatedBy: "", remarks: "HQ priority — clutch plate in progress", status: "in-progress", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-15", downtimeEnd: "" },
     { vehicleCode: "X2", date: "2026-02-06", description: "ECU failure — no engine management, sent to Germiston ECU Express", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Recommend 3rd party auto electrician / ECU specialist", status: "awaiting-parts", source: "triage-analysis", costLSL: 0, downtimeStart: "2025-11-07", downtimeEnd: "" },
     { vehicleCode: "J3", date: "2026-02-06", description: "Throttle sensor failure — waiting for part from overseas", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Recommend 3rd party auto electrician", status: "awaiting-parts", source: "triage-analysis", costLSL: 0, downtimeStart: "2025-01-01", downtimeEnd: "" },
-    { vehicleCode: "KA24", date: "2026-02-06", description: "Service done, center bearing + universal joints remaining", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Parts bought. Recommend 3rd party driveline shop", status: "in-progress", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-01", downtimeEnd: "" },
+    { vehicleCode: "N3", date: "2026-02-06", description: "Service done, center bearing + universal joints remaining", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Parts bought. Recommend 3rd party driveline shop", status: "in-progress", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-01", downtimeEnd: "" },
     { vehicleCode: "ZD30", date: "2026-02-06", description: "Brake pads done, center bearing + universal joints remaining", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Parts bought. Recommend 3rd party driveline shop", status: "in-progress", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-01", downtimeEnd: "" },
     { vehicleCode: "JMC", date: "2026-02-06", description: "Front left CV joint (4x4), disc condition, CV joint bush cut", type: "corrective", priority: "medium", performedBy: "", validatedBy: "", remarks: "Being used for errands despite issues. Recommend 3rd party", status: "diagnosed", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-01", downtimeEnd: "" },
     { vehicleCode: "V6", date: "2026-02-19", description: "Fuel pump failure — stuck in field at LEB + suspension issues", type: "corrective", priority: "high", performedBy: "", validatedBy: "", remarks: "Needs recovery from LEB first. Recommend fuel injection specialist", status: "reported", source: "triage-analysis", costLSL: 0, downtimeStart: "2026-02-19", downtimeEnd: "" },

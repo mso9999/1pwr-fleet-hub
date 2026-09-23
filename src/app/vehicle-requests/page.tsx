@@ -24,6 +24,7 @@ import {
   MissionPipelineStepper,
   MissionLifecycleTimeline,
 } from "@/components/MissionPipeline";
+import { MissionNextOwnerBanner } from "@/components/MissionNextOwnerBanner";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -226,6 +227,7 @@ interface PlannedMissionRow {
   assets_being_moved?: number | null;
   linked_manifest_ids?: string | null;
   created_by_id?: string;
+  transport_mode?: string | null;
 }
 
 interface RouteStopInput {
@@ -584,25 +586,18 @@ function FleetMissionReserveRow({
 
   if (!m.trip_id) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2 text-xs">
-        <span className="text-amber-800">
-          Trip creation is the next step; Fleet allocation unlocks afterward.
-        </span>
-        <Link
-          href={`/trips?mission=${encodeURIComponent(m.id)}`}
-          className="font-medium text-blue-700 underline"
-        >
-          Create trip
-        </Link>
+      <div className="space-y-2 border-t border-zinc-100 pt-2">
+        <MissionNextOwnerBanner mission={m} />
       </div>
     );
   }
 
   return (
     <div className="space-y-2 pt-1 border-t border-zinc-100">
+      <MissionNextOwnerBanner mission={m} />
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[200px] flex-1">
-          <label className="text-xs font-medium text-zinc-600 block mb-1">Allocate vehicle</label>
+          <label className="text-xs font-medium text-zinc-600 block mb-1">Allocate vehicle (Fleet lead)</label>
           <select
             value={vehicleId}
             onChange={(e) => setVehicleId(e.target.value)}
@@ -700,10 +695,6 @@ export default function VehicleRequestsPage() {
   const canAllocateVehicle = missionPerms?.canAllocateVehicle ?? (user?.role === "fleet_lead" || user?.role === "superadmin");
 
   const refetchApprovedMissionsFleet = useCallback(async () => {
-    if (!canAllocateVehicle) {
-      setApprovedMissionsFleet([]);
-      return;
-    }
     const headers = await jsonHeadersWithBearer();
     const res = await fetch(
       `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`,
@@ -712,7 +703,7 @@ export default function VehicleRequestsPage() {
     if (!res.ok) return;
     const j = (await res.json()) as PlannedMissionRow[];
     setApprovedMissionsFleet(Array.isArray(j) ? j : []);
-  }, [organizationId, canAllocateVehicle]);
+  }, [organizationId]);
 
   const loadData = useCallback(() => {
     setIsLoading(true);
@@ -1028,56 +1019,113 @@ export default function VehicleRequestsPage() {
         />
       )}
 
-      {canAllocateVehicle && approvedMissionsFleet.filter((m) => !m.lifecycle_status || m.lifecycle_status === "active").length > 0 && (
-        <Card className="border-emerald-100 bg-emerald-50/20" data-tutorial="tutorial-vr-fleet-reserve">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Fleet: allocate vehicles after trip creation</CardTitle>
-            <p className="text-sm text-zinc-600 font-normal">
-              Approved missions appear here immediately. Create the trip first, then Fleet picks a vehicle matching the dates and required class.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {approvedMissionsFleet
-              .filter((m) => !m.lifecycle_status || m.lifecycle_status === "active")
-              .map((m) => (
-                <div
-                  key={m.id}
-                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1"
-                >
-                  <div className="flex flex-wrap justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 80)}</span>
-                      <span className="text-zinc-500 ml-2 block sm:inline">
-                        {m.destination} · {m.departure_date}
-                        {m.return_date ? ` → ${m.return_date}` : ""}
-                      </span>
-                      <div className="text-xs text-zinc-600 mt-1">
-                        <span className="font-medium">Route:</span> {missionRouteSummary(m)}
+      {(() => {
+        const activeApproved = approvedMissionsFleet.filter(
+          (m) => !m.lifecycle_status || m.lifecycle_status === "active"
+        );
+        const waitingTrip = activeApproved.filter((m) => !String(m.trip_id || "").trim());
+        const readyToAllocate = activeApproved.filter((m) => {
+          const trip = String(m.trip_id || "").trim();
+          if (!trip) return false;
+          const vid = String(m.assigned_vehicle_id || "").trim();
+          if (!vid || vid.startsWith("unallocated_")) return true;
+          if (String(m.assigned_vehicle_code || "").toUpperCase() === "UNALLOCATED") return true;
+          return false;
+        });
+        return (
+          <>
+            {waitingTrip.length > 0 && (
+              <Card className="border-amber-200 bg-amber-50/30" data-tutorial="tutorial-vr-create-trip">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Next: requestor creates the trip</CardTitle>
+                  <p className="text-sm text-zinc-600 font-normal">
+                    Mission is approved. The <strong>requestor or designated driver</strong> creates the planned trip on Trips.
+                    Fleet lead allocates a vehicle only after that trip exists — not from Approve on Request details.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {waitingTrip.map((m) => (
+                    <div
+                      key={m.id}
+                      className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm space-y-2"
+                    >
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-medium text-zinc-900">
+                            {(m.title || m.destination).slice(0, 80)}
+                          </span>
+                          <span className="text-zinc-500 ml-2 block sm:inline">
+                            {m.destination} · {m.departure_date}
+                            {m.return_date ? ` → ${m.return_date}` : ""}
+                            {m.created_by_name ? ` · by ${m.created_by_name}` : ""}
+                          </span>
+                        </div>
+                        {m.required_vehicle_class && (
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            Class: {m.required_vehicle_class}
+                          </Badge>
+                        )}
                       </div>
+                      <MissionNextOwnerBanner mission={m} />
                     </div>
-                    <div className="flex flex-wrap gap-1 shrink-0">
-                      <Badge variant="secondary" className="text-[10px] shrink-0">
-                        {tripShapeLabel(m.trip_shape)}
-                      </Badge>
-                      {m.required_vehicle_class && (
-                        <Badge variant="secondary" className="text-[10px] shrink-0">
-                          Class: {m.required_vehicle_class}
-                        </Badge>
-                      )}
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {canAllocateVehicle && readyToAllocate.length > 0 && (
+              <Card className="border-emerald-100 bg-emerald-50/20" data-tutorial="tutorial-vr-fleet-reserve">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Fleet lead: allocate vehicles</CardTitle>
+                  <p className="text-sm text-zinc-600 font-normal">
+                    These missions already have a planned trip. Pick a pool vehicle matching the dates and required class.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {readyToAllocate.map((m) => (
+                    <div
+                      key={m.id}
+                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1"
+                    >
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-medium text-zinc-900">
+                            {(m.title || m.destination).slice(0, 80)}
+                          </span>
+                          <span className="text-zinc-500 ml-2 block sm:inline">
+                            {m.destination} · {m.departure_date}
+                            {m.return_date ? ` → ${m.return_date}` : ""}
+                          </span>
+                          <div className="text-xs text-zinc-600 mt-1">
+                            <span className="font-medium">Route:</span> {missionRouteSummary(m)}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 shrink-0">
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            {tripShapeLabel(m.trip_shape)}
+                          </Badge>
+                          {m.required_vehicle_class && (
+                            <Badge variant="secondary" className="text-[10px] shrink-0">
+                              Class: {m.required_vehicle_class}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <FleetMissionReserveRow
+                        mission={m}
+                        onReserved={() => {
+                          void loadData();
+                          void refetchApprovedMissionsFleet();
+                        }}
+                      />
                     </div>
-                  </div>
-                  <FleetMissionReserveRow
-                    mission={m}
-                    onReserved={() => {
-                      void loadData();
-                      void refetchApprovedMissionsFleet();
-                    }}
-                  />
-                </div>
-              ))}
-          </CardContent>
-        </Card>
-      )}
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </>
+        );
+      })()}
 
       {missionPerms?.canArbitrateCapacity && (
         <Card className="border-violet-200 bg-violet-50/30" data-tutorial="tutorial-vr-arbitration">
@@ -1639,7 +1687,7 @@ function RequestDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [r.mission_id, canAllocateVehicle]);
+  }, [r.mission_id, r.mission_trip_id, canAllocateVehicle]);
 
   async function updateStatus(status: string, extra?: Record<string, string>): Promise<void> {
     setIsActing(true);
@@ -1787,7 +1835,7 @@ function RequestDetailModal({
               <div className="text-zinc-700 text-xs">
                 {r.mission_departure_date || "—"}
                 {r.mission_return_date ? ` → ${r.mission_return_date}` : ""}
-                {r.mission_status ? ` · ${r.mission_status}` : ""}
+                {r.mission_status ? ` · plan ${r.mission_status}` : ""}
               </div>
               {r.mission_trip_shape && (
                 <div className="text-zinc-700 text-xs">
@@ -1797,9 +1845,26 @@ function RequestDetailModal({
               )}
               {r.mission_approval_status && (
                 <div className="text-zinc-700 text-xs">
-                  <span className="text-zinc-500">PR mission approval: </span>
-                  {r.mission_approval_status}
+                  <span className="text-zinc-500">Mission approval: </span>
+                  <strong>{r.mission_approval_status}</strong>
+                  <span className="text-zinc-500">
+                    {" "}
+                    (this is separate from the logistics request status badge above)
+                  </span>
                 </div>
+              )}
+              {r.mission_id && (
+                <MissionNextOwnerBanner
+                  className="mt-2"
+                  mission={{
+                    id: r.mission_id,
+                    approval_status: r.mission_approval_status,
+                    trip_id: r.mission_trip_id,
+                    assigned_vehicle_id: r.display_assigned_vehicle_id || r.assigned_vehicle_id,
+                    assigned_vehicle_code: r.assigned_vehicle_code,
+                    created_by_name: r.requested_by_name,
+                  }}
+                />
               )}
               {r.mission_trip_id && (
                 <Link
@@ -1961,58 +2026,72 @@ function RequestDetailModal({
           )}
 
           {canAllocateVehicle && (r.status === "approved" || r.status === "requested") && !hasVehicleAssigned && (
-            <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="flex-1 min-w-[200px] space-y-2">
-                <EntityPickerField
-                  label={r.mission_id ? "Reserve vehicle (mission)" : "Assign vehicle"}
-                  value={assignVehicleId}
-                  onChange={setAssignVehicleId}
-                  modalTitle={r.mission_id ? "Pick a reservable vehicle" : "Pick an available vehicle"}
-                  modalDescription={
-                    r.mission_id
-                      ? "Candidates match the mission departure date rules and required asset class."
-                      : "Operational vehicles in the pool, grouped by make + model."
-                  }
-                  searchPlaceholder="Search by code, make, model, pool…"
-                  placeholder={
-                    r.mission_id && reserveLoading ? "Loading candidates…" : "Select vehicle…"
-                  }
-                  loading={!!r.mission_id && reserveLoading}
-                  showCount
-                  options={reservePickerOptions}
-                  emptyState={
-                    <span>
-                      {r.mission_id
-                        ? "No vehicles match this mission’s dates, status rules, and required class. Adjust the mission or vehicle record, or use a manager overlap override if appropriate."
-                        : "No operational vehicles available right now. Check the pool for deployed or maintenance status."}
-                    </span>
-                  }
+            <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3">
+              {r.mission_id && !r.mission_trip_id ? (
+                <MissionNextOwnerBanner
+                  mission={{
+                    id: r.mission_id,
+                    approval_status: r.mission_approval_status || "approved",
+                    trip_id: null,
+                    assigned_vehicle_id: null,
+                    created_by_name: r.requested_by_name,
+                  }}
                 />
-                {r.mission_id && (
-                  <p className="text-[11px] text-zinc-500">
-                    Candidates respect mission dates, status rules, and required class. Use the override box below if the vehicle has an overlapping reservation or its registration disc expires before the mission end date.
-                  </p>
-                )}
-                <div>
-                  <label className="text-xs font-medium text-zinc-600">
-                    Override reason (managers / PR approvers, 8+ characters)
-                  </label>
-                  <textarea
-                    value={assignOverlapReason}
-                    onChange={(e) => setAssignOverlapReason(e.target.value)}
-                    rows={2}
-                    placeholder={
-                      r.mission_id
-                        ? "Overlapping reservation, or mission runs past registration disc expiry on the chosen vehicle"
-                        : "Only if the request window extends past the vehicle’s registration disc expiry"
-                    }
-                    className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                  />
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div className="flex-1 min-w-[200px] space-y-2">
+                    <EntityPickerField
+                      label={r.mission_id ? "Reserve vehicle (mission)" : "Assign vehicle"}
+                      value={assignVehicleId}
+                      onChange={setAssignVehicleId}
+                      modalTitle={r.mission_id ? "Pick a reservable vehicle" : "Pick an available vehicle"}
+                      modalDescription={
+                        r.mission_id
+                          ? "Candidates match the mission departure date rules and required asset class."
+                          : "Operational vehicles in the pool, grouped by make + model."
+                      }
+                      searchPlaceholder="Search by code, make, model, pool…"
+                      placeholder={
+                        r.mission_id && reserveLoading ? "Loading candidates…" : "Select vehicle…"
+                      }
+                      loading={!!r.mission_id && reserveLoading}
+                      showCount
+                      options={reservePickerOptions}
+                      emptyState={
+                        <span>
+                          {r.mission_id
+                            ? "No vehicles match this mission’s dates, status rules, and required class. Adjust the mission or vehicle record, or use a manager overlap override if appropriate."
+                            : "No operational vehicles available right now. Check the pool for deployed or maintenance status."}
+                        </span>
+                      }
+                    />
+                    {r.mission_id && (
+                      <p className="text-[11px] text-zinc-500">
+                        Candidates respect mission dates, status rules, and required class. Use the override box below if the vehicle has an overlapping reservation or its registration disc expires before the mission end date.
+                      </p>
+                    )}
+                    <div>
+                      <label className="text-xs font-medium text-zinc-600">
+                        Override reason (managers / PR approvers, 8+ characters)
+                      </label>
+                      <textarea
+                        value={assignOverlapReason}
+                        onChange={(e) => setAssignOverlapReason(e.target.value)}
+                        rows={2}
+                        placeholder={
+                          r.mission_id
+                            ? "Overlapping reservation, or mission runs past registration disc expiry on the chosen vehicle"
+                            : "Only if the request window extends past the vehicle’s registration disc expiry"
+                        }
+                        className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
+                    {r.mission_id ? "Reserve" : "Assign"}
+                  </Button>
                 </div>
-              </div>
-              <Button type="button" size="sm" disabled={!assignVehicleId || isActing} onClick={() => void assignVehicle()} className="touch-manipulation">
-                {r.mission_id ? "Reserve" : "Assign"}
-              </Button>
+              )}
             </div>
           )}
         </CardContent>

@@ -1,8 +1,9 @@
 /**
  * Fleet performance maths. Odometer points that break a rising series are
  * dropped until the dashboard-photo review is loaded (EXCLUDE_NON_MONOTONIC).
- * Spend is purchase price plus repairs. A linked purchase-request amount is
- * used only when the work order itself has no cost, so the two are not added.
+ * Spend is purchase price plus repairs. Per repair event, chooseRepairAmount
+ * takes the larger of WO totals / line items vs linked PR/PO (never sum both).
+ * Vehicle-tagged PRs without a WO are added separately by the analytics route.
  */
 
 export const EXCLUDE_NON_MONOTONIC = true;
@@ -127,6 +128,17 @@ export function chooseRepairAmount(
   if (best <= 0) return null;
   if (wo >= pr && wo >= po) return { amount: wo, source: "work-order" };
   return { amount: best, source: "pr" };
+}
+
+/** PR statuses that count as committed vehicle spend in FM analytics. */
+export const PR_SPEND_STATUSES = new Set([
+  "APPROVED",
+  "ORDERED",
+  "COMPLETED",
+]);
+
+export function isPrSpendStatus(status: string | null | undefined): boolean {
+  return PR_SPEND_STATUSES.has(String(status || "").trim().toUpperCase());
 }
 
 export function mileageFromInspectionItems(itemsJson: string): number | null {

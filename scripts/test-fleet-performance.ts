@@ -7,6 +7,7 @@ import {
   ageBracketLabel,
   buildFleetPerformance,
   chooseRepairAmount,
+  isPrSpendStatus,
   keepMonotonic,
   mileageFromInspectionItems,
   odoBracketLabel,
@@ -44,6 +45,11 @@ assert.equal(prBeatsThinWo?.source, "pr");
 const linesBeatHeader = chooseRepairAmount(0, 0, 100, 2_500);
 assert.equal(linesBeatHeader?.amount, 2_500);
 assert.equal(linesBeatHeader?.source, "work-order");
+
+assert.equal(isPrSpendStatus("APPROVED"), true);
+assert.equal(isPrSpendStatus("ordered"), true);
+assert.equal(isPrSpendStatus("PENDING_APPROVAL"), false);
+assert.equal(isPrSpendStatus("REJECTED"), false);
 
 const vehicle = (id: string, year: number, price = 0): VehicleRow => ({
   id,

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   asDay,
   chooseRepairAmount,
+  isPrSpendStatus,
   mileageFromInspectionItems,
   type FleetSourceData,
   type OdoPoint,
@@ -13,6 +14,11 @@ import {
  * GET /api/analytics/fleet-performance
  * Raw readings and repair spend for the performance charts. Monotonic filtering
  * happens in buildFleetPerformance so a date range can be applied in the browser.
+ *
+ * Spend sources per vehicle:
+ * 1. Work orders — max(WO total, parts/labour lines, linked PR cache, PO links)
+ * 2. Vehicle-tagged PRs in pr_cost_cache that are not already counted via a WO
+ *    (covers historical / fuel / unlinked spend still associated to the vehicle)
  */
 export function GET(): NextResponse {
   const db = getDb();
@@ -101,7 +107,7 @@ export function GET(): NextResponse {
 
   const orders = db
     .prepare(
-      `SELECT wo.vehicle_id, wo.created_at, wo.downtime_start, wo.downtime_end, wo.odo_at_report,
+      `SELECT wo.id as work_order_id, wo.vehicle_id, wo.created_at, wo.downtime_start, wo.downtime_end, wo.odo_at_report,
               COALESCE(wo.parts_cost, 0) + COALESCE(wo.labour_cost, 0) + COALESCE(wo.third_party_cost, 0) as summed,
               COALESCE(wo.total_cost, 0) as total_cost,
               COALESCE((SELECT SUM(approved_amount) FROM pr_cost_cache p WHERE p.work_order_id = wo.id), 0) as pr_amt,
@@ -111,6 +117,7 @@ export function GET(): NextResponse {
        FROM work_orders wo`
     )
     .all() as Array<{
+      work_order_id: string;
       vehicle_id: string;
       created_at: string;
       downtime_start: string | null;
@@ -126,6 +133,21 @@ export function GET(): NextResponse {
 
   const repairs: SpendEvent[] = [];
   const downtime: FleetSourceData["downtime"] = [];
+  const prNumbersCountedViaWo = new Set<string>();
+
+  const linkedPrNumbers = db
+    .prepare(
+      `SELECT pr_number FROM pr_cost_cache
+       WHERE work_order_id IS NOT NULL AND work_order_id != '' AND pr_number != ''
+       UNION
+       SELECT pr_number FROM work_order_po_links
+       WHERE pr_number IS NOT NULL AND pr_number != ''`
+    )
+    .all() as Array<{ pr_number: string }>;
+  for (const row of linkedPrNumbers) {
+    prNumbersCountedViaWo.add(row.pr_number);
+  }
+
   for (const row of orders) {
     if (!vehicleIds.has(row.vehicle_id)) continue;
     const date = asDay(row.created_at);
@@ -141,6 +163,37 @@ export function GET(): NextResponse {
     }
     const start = asDay(row.downtime_start);
     if (start) downtime.push({ vehicleId: row.vehicle_id, start, end: asDay(row.downtime_end) });
+  }
+
+  // Vehicle-tagged PRs not already rolled into a work order (unlinked / fuel / legacy).
+  const orphanPrs = db
+    .prepare(
+      `SELECT vehicle_id, pr_number, pr_status, approved_amount,
+              COALESCE(NULLIF(status_changed_at, ''), NULLIF(pr_created_at, ''), last_synced_at) as event_at
+       FROM pr_cost_cache
+       WHERE vehicle_id IS NOT NULL AND vehicle_id != ''
+         AND COALESCE(approved_amount, 0) > 0`
+    )
+    .all() as Array<{
+      vehicle_id: string;
+      pr_number: string;
+      pr_status: string;
+      approved_amount: number;
+      event_at: string;
+    }>;
+
+  for (const row of orphanPrs) {
+    if (!vehicleIds.has(row.vehicle_id)) continue;
+    if (prNumbersCountedViaWo.has(row.pr_number)) continue;
+    if (!isPrSpendStatus(row.pr_status)) continue;
+    const date = asDay(row.event_at);
+    if (!date) continue;
+    repairs.push({
+      vehicleId: row.vehicle_id,
+      date,
+      amount: row.approved_amount,
+      source: "pr",
+    });
   }
 
   const body: FleetSourceData = {
