@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { drivingDistanceKm, type LatLng } from "@/lib/routing-osrm";
+import { type LatLng } from "@/lib/routing-osrm";
+import { multiLegDrivingDistance } from "@/lib/route-distance";
 import { litersForDistanceKm, suggestFuelLPer100km } from "@/lib/vehicle-fuel-lookup";
 
 /**
@@ -108,6 +109,7 @@ export function getSiteCoordsByCode(
 /**
  * Computes distance + optional fuel for a vehicle request. Updates row.
  * Destination must match a site code with meta lat/lng, or free-text (no distance).
+ * Uses shared multi-leg helper so OSRM failure still yields estimated km (× 1.4).
  */
 export async function recalculateVehicleRequestFuel(
   db: Database.Database,
@@ -138,14 +140,8 @@ export async function recalculateVehicleRequestFuel(
     return;
   }
 
-  const distanceKm = await drivingDistanceKm(origin, dest);
-  if (distanceKm === null) {
-    db.prepare(
-      `UPDATE vehicle_requests SET estimated_route_km = NULL, estimated_fuel_liters = NULL,
-       updated_at = datetime('now') WHERE id = ?`
-    ).run(requestId);
-    return;
-  }
+  const route = await multiLegDrivingDistance([origin, dest]);
+  const distanceKm = route.totalKm;
 
   const vid = vr.assigned_vehicle_id as string | null;
   let lPer100: number | null = null;

@@ -5,7 +5,7 @@ export function GET(): NextResponse {
   const db = getDb();
   const rows = db
     .prepare(
-      "SELECT id, name, code, country, currency, route_origin_lat, route_origin_lng FROM organizations WHERE active = 1 ORDER BY name"
+      "SELECT id, name, code, country, currency, route_origin_lat, route_origin_lng, fuel_safety_factor, fuel_default_pump_price FROM organizations WHERE active = 1 ORDER BY name"
     )
     .all() as Array<{
       id: string;
@@ -15,6 +15,8 @@ export function GET(): NextResponse {
       currency: string;
       route_origin_lat: number | null;
       route_origin_lng: number | null;
+      fuel_safety_factor: number | null;
+      fuel_default_pump_price: number | null;
     }>;
   return NextResponse.json(rows);
 }

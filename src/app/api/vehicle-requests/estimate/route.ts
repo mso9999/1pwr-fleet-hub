@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getRouteOrigin, getSiteCoordsByCode } from "@/lib/vehicle-request-fuel";
-import { drivingDistanceKm } from "@/lib/routing-osrm";
+import { multiLegDrivingDistance } from "@/lib/route-distance";
 import { litersForDistanceKm, suggestFuelLPer100km } from "@/lib/vehicle-fuel-lookup";
 
 /**
  * POST /api/vehicle-requests/estimate
  * Body: { organizationId, destinationSiteCode?, vehicleId? }
- * Preview distance (OSRM) and optional fuel when vehicle known.
+ * One HQ→site hop via shared multi-leg helper (OSRM, else haversine × 1.4).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.json();
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       distanceKm: null,
       fuelLiters: null,
       lPer100km: null,
+      source: null,
     });
   }
   if (!dest) {
@@ -40,22 +41,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       distanceKm: null,
       fuelLiters: null,
       lPer100km: null,
+      source: null,
     });
   }
 
-  // HQ → HQ (or any zero-length route) should resolve locally; skip the OSRM hop.
-  const sameOriginAsDest =
-    Math.abs(origin.lat - dest.lat) < 1e-6 && Math.abs(origin.lng - dest.lng) < 1e-6;
-  const distanceKm = sameOriginAsDest ? 0 : await drivingDistanceKm(origin, dest);
-  if (distanceKm === null) {
-    return NextResponse.json({
-      ok: false,
-      message: "Routing service unavailable. Try again later.",
-      distanceKm: null,
-      fuelLiters: null,
-      lPer100km: null,
-    });
-  }
+  const route = await multiLegDrivingDistance([origin, dest]);
+  const distanceKm = route.totalKm;
+  const source = route.legs[0]?.source ?? "road";
 
   let lPer100: number | null = null;
   if (vehicleId) {
@@ -82,9 +74,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     distanceKm,
     fuelLiters,
     lPer100km: lPer100,
+    source,
+    roadKm: route.roadKm,
+    estimatedKm: route.estimatedKm,
     message:
       vehicleId && fuelLiters !== null
-        ? null
+        ? source === "estimated"
+          ? "Distance estimated (straight-line × 1.4); road router had no route."
+          : null
         : "Fuel estimate applies after a vehicle is assigned (uses its make/model or manual L/100 km).",
   });
 }

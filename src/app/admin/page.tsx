@@ -29,8 +29,11 @@ interface OrgRow {
   name: string;
   code: string;
   country: string;
+  currency?: string;
   route_origin_lat: number | null;
   route_origin_lng: number | null;
+  fuel_safety_factor?: number | null;
+  fuel_default_pump_price?: number | null;
 }
 
 function parseSiteMeta(meta: string | null | undefined): { lat: number; lng: number } | null {
@@ -101,6 +104,10 @@ export default function AdminPage() {
   const [routeOriginLat, setRouteOriginLat] = useState("");
   const [routeOriginLng, setRouteOriginLng] = useState("");
   const [routeOriginSaving, setRouteOriginSaving] = useState(false);
+  const [fuelCurrency, setFuelCurrency] = useState("LSL");
+  const [fuelSafetyFactor, setFuelSafetyFactor] = useState("2");
+  const [fuelPumpPrice, setFuelPumpPrice] = useState("");
+  const [fuelDefaultsSaving, setFuelDefaultsSaving] = useState(false);
 
   useEffect(() => {
     fetch("/api/organizations").then((r) => r.json()).then(setOrgs).catch(() => {});
@@ -239,7 +246,49 @@ export default function AdminPage() {
     setRouteOriginLng(
       typeof lng === "number" && Number.isFinite(lng) ? String(lng) : String(def.center[1])
     );
+    setFuelCurrency(currentOrg.currency || (organizationId === "1pwr_benin" ? "XOF" : "LSL"));
+    setFuelSafetyFactor(
+      currentOrg.fuel_safety_factor != null && currentOrg.fuel_safety_factor > 0
+        ? String(currentOrg.fuel_safety_factor)
+        : "2"
+    );
+    setFuelPumpPrice(
+      currentOrg.fuel_default_pump_price != null && currentOrg.fuel_default_pump_price > 0
+        ? String(currentOrg.fuel_default_pump_price)
+        : ""
+    );
   }, [currentOrg, organizationId]);
+
+  async function handleSaveFuelDefaults(): Promise<void> {
+    if (!currentOrg || !canEditRouteOrigin) return;
+    const factor = parseFloat(fuelSafetyFactor);
+    if (!Number.isFinite(factor) || factor <= 0) return;
+    setFuelDefaultsSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        currency: fuelCurrency.trim().toUpperCase(),
+        fuelSafetyFactor: factor,
+      };
+      if (fuelPumpPrice.trim() === "") {
+        body.fuelDefaultPumpPrice = null;
+      } else {
+        const p = parseFloat(fuelPumpPrice);
+        if (!Number.isFinite(p) || p < 0) return;
+        body.fuelDefaultPumpPrice = p;
+      }
+      const res = await fetch(`/api/organizations/${currentOrg.id}`, {
+        method: "PATCH",
+        headers: await jsonHeadersWithBearer(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const refreshed = await fetch("/api/organizations").then((r) => r.json());
+        setOrgs(refreshed);
+      }
+    } finally {
+      setFuelDefaultsSaving(false);
+    }
+  }
 
   function openSiteGps(item: RefItem): void {
     const parsed = parseSiteMeta(item.meta);
@@ -388,6 +437,44 @@ export default function AdminPage() {
                 }}
               />
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canEditRouteOrigin && currentOrg && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Fuel budget defaults</CardTitle>
+            <p className="text-sm text-slate-500 font-normal mt-1">
+              Used by the fuel calculator and mission fuel budget. Lesotho and Benin default to safety factor{" "}
+              <strong>2</strong> (Excel). Pump price is optional — users can override per trip.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-3 items-end">
+              <Input
+                label="Currency"
+                value={fuelCurrency}
+                onChange={(e) => setFuelCurrency(e.target.value)}
+                className="w-28"
+              />
+              <Input
+                label="Safety factor"
+                value={fuelSafetyFactor}
+                onChange={(e) => setFuelSafetyFactor(e.target.value)}
+                className="w-28"
+              />
+              <Input
+                label="Default pump price / L"
+                value={fuelPumpPrice}
+                onChange={(e) => setFuelPumpPrice(e.target.value)}
+                placeholder="optional"
+                className="w-40"
+              />
+              <Button type="button" onClick={() => void handleSaveFuelDefaults()} disabled={fuelDefaultsSaving}>
+                {fuelDefaultsSaving ? "Saving…" : "Save fuel defaults"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

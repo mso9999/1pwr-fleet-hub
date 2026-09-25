@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/mechanics", labelKey: "nav.mechanics", icon: "users" },
   { href: "/triage", labelKey: "nav.triage", icon: "scale" },
   { href: "/vehicle-requests", labelKey: "nav.requests", icon: "inbox" },
+  { href: "/fuel-calculator", labelKey: "nav.fuelCalculator", icon: "wallet" },
   { href: "/vehicle-country-changes", labelKey: "nav.countryTransfers", icon: "globe" },
   {
     href: "/personal-vehicle-reimbursement",

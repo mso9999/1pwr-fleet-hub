@@ -5,6 +5,9 @@ import {
   normalizeTripShape,
   type RouteStopNormalized,
 } from "@/lib/trip-route";
+import type { MissionFuelSnapshot } from "@/lib/fuel-estimate";
+import { emptyMissionFuelSnapshot } from "@/lib/fuel-estimate";
+import { defaultFuelCurrencyForOrg } from "@/lib/fuel-calculator";
 
 export function insertPlannedMission(
   db: Database,
@@ -32,7 +35,14 @@ export function insertPlannedMission(
     createdByName: string;
     missionProfile?: string;
     tripShape?: string;
-    stops?: Array<{ location: string; loadOut?: string; loadIn?: string; notes?: string }>;
+    stops?: Array<{
+      location: string;
+      loadOut?: string;
+      loadIn?: string;
+      notes?: string;
+      lat?: number | null;
+      lng?: number | null;
+    }>;
     requiredVehicleClass?: string;
     rrStatus?: string;
     hrRequestId?: string;
@@ -50,6 +60,8 @@ export function insertPlannedMission(
     initialApprovalStatus?: "draft" | "pending";
     assetsBeingMoved?: boolean;
     linkedManifestIds?: string[];
+    /** Excel fuel budget snapshot; omitted / empty for public_transport. */
+    fuel?: MissionFuelSnapshot | null;
   }
 ): string {
   const id = uuidv4();
@@ -109,7 +121,12 @@ export function insertPlannedMission(
     }
   })();
 
-  const tx = db.transaction((routeStops: RouteStopNormalized[]) => {
+  const tx = db.transaction((routeStops: Array<RouteStopNormalized & { lat?: number | null; lng?: number | null }>) => {
+    const fuel =
+      transportMode !== "company_vehicle"
+        ? emptyMissionFuelSnapshot(defaultFuelCurrencyForOrg(input.organizationId))
+        : input.fuel || emptyMissionFuelSnapshot(defaultFuelCurrencyForOrg(input.organizationId));
+
     db.prepare(`
       INSERT INTO missions (
         id, organization_id, title, destination, departure_location, departure_date, return_date,
@@ -118,8 +135,12 @@ export function insertPlannedMission(
         hr_request_id, hr_request_status, hr_sync_source, hr_source_updated_at,
         transport_mode, public_transport_justification,
         assets_being_moved, linked_manifest_ids,
+        fuel_road_km, fuel_estimated_km, fuel_total_km,
+        fuel_economy_km_per_l, fuel_economy_l_per_100km,
+        fuel_pump_price, fuel_currency, fuel_safety_factor,
+        fuel_liters, fuel_cost, fuel_budget, fuel_legs_json, fuel_disposition,
         created_by_id, created_by_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.organizationId,
@@ -147,6 +168,19 @@ export function insertPlannedMission(
       publicTransportJustification,
       input.assetsBeingMoved ? 1 : 0,
       JSON.stringify(Array.isArray(input.linkedManifestIds) ? input.linkedManifestIds : []),
+      fuel.fuel_road_km,
+      fuel.fuel_estimated_km,
+      fuel.fuel_total_km,
+      fuel.fuel_economy_km_per_l,
+      fuel.fuel_economy_l_per_100km,
+      fuel.fuel_pump_price,
+      fuel.fuel_currency,
+      fuel.fuel_safety_factor,
+      fuel.fuel_liters,
+      fuel.fuel_cost,
+      fuel.fuel_budget,
+      fuel.fuel_legs_json,
+      fuel.fuel_disposition,
       input.createdById,
       input.createdByName,
       now,
@@ -156,11 +190,15 @@ export function insertPlannedMission(
     if (routeStops.length > 0) {
       const insStop = db.prepare(`
         INSERT INTO mission_stops (
-          id, mission_id, stop_order, location, load_out, load_in, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, mission_id, stop_order, location, load_out, load_in, notes, lat, lng, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (let i = 0; i < routeStops.length; i += 1) {
         const s = routeStops[i];
+        const lat =
+          typeof s.lat === "number" && Number.isFinite(s.lat) ? s.lat : null;
+        const lng =
+          typeof s.lng === "number" && Number.isFinite(s.lng) ? s.lng : null;
         insStop.run(
           uuidv4(),
           id,
@@ -169,12 +207,20 @@ export function insertPlannedMission(
           s.loadOut,
           s.loadIn,
           s.notes,
+          lat,
+          lng,
           now,
           now
         );
       }
     }
   });
-  tx(stops);
+  // Preserve optional lat/lng on stops beyond RouteStopNormalized.
+  const stopsWithCoords = (input.stops || []).map((s, i) => ({
+    ...(stops[i] || normalizeRouteStops([s])[0]),
+    lat: s.lat ?? null,
+    lng: s.lng ?? null,
+  }));
+  tx(stopsWithCoords.length > 0 ? stopsWithCoords : stops.map((s) => ({ ...s, lat: null, lng: null })));
   return id;
 }

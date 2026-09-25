@@ -51,6 +51,33 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "fuel-calculator-excel-budget",
+    title: "Fuel calculator (Excel budget) on missions",
+    summary:
+      "Price a trip with the same formula as the Travel Fuel Budget spreadsheet — litres, cost, and budget = cost × safety factor (LS default 2).",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-09-25",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "Where to find it",
+        bodyMd:
+          "- Sidebar → **Fuel calculator** for a standalone estimate.\n- **Missions** → create mission → **Fuel budget** panel (saved on the mission).\n- Admin → **Fuel budget defaults** (currency, safety factor, optional default pump price).",
+      },
+      {
+        title: "How distance works",
+        bodyMd:
+          "Road distance uses OSRM when available. If a leg has no route, we use straight-line × **1.4** and label it **estimated**. That 1.4 is not the money safety factor.",
+      },
+      {
+        title: "Fuel PR vs deployment budget",
+        bodyMd:
+          "Choose **Request a fuel PR** or **Included in a deployment budget** on the mission. We store the choice; creating the PR / opening the deployment-budget wizard is a later step.",
+      },
+    ],
+  },
+  {
     slug: "fm-app-quiz-driver-gate",
     title: "FM app quiz required for approved drivers",
     summary:

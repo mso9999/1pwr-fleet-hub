@@ -13,6 +13,7 @@
     "backfill:vehicle-status": "tsx scripts/backfill-vehicle-status-vs-wo.ts",
     "test:ehs-compliance": "tsx scripts/test-ehs-operator-compliance.ts",
     "test:fm-app-quiz": "tsx scripts/test-fm-app-quiz.ts",
+    "test:fuel-calculator": "tsx scripts/test-fuel-calculator.ts",
     "test:ehs-written-offroad": "tsx scripts/test-ehs-written-offroad-sync.ts",
     "test:registration-disc": "tsx scripts/test-registration-disc.ts",
     "test:transmission-scope": "tsx scripts/test-transmission-scope.ts",

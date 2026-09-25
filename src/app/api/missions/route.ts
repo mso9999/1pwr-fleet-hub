@@ -16,12 +16,96 @@ import {
   normalizeTripShape,
   validateRoutePlan,
 } from "@/lib/trip-route";
+import {
+  emptyMissionFuelSnapshot,
+  estimateFuelBudget,
+  snapshotFromEstimate,
+  type FuelWaypointInput,
+  type MissionFuelSnapshot,
+} from "@/lib/fuel-estimate";
+import { defaultFuelCurrencyForOrg, normalizeFuelDisposition } from "@/lib/fuel-calculator";
 
 export const runtime = "nodejs";
 
 type MissionListRow = Record<string, unknown> & {
   id: string;
 };
+
+async function buildMissionFuelSnapshot(
+  db: ReturnType<typeof getDb>,
+  input: {
+    organizationId: string;
+    transportMode: string;
+    tripShape: string;
+    departureLocation: string;
+    destination: string;
+    stops: Array<{ location: string; lat?: number | null; lng?: number | null }>;
+    body: Record<string, unknown>;
+  }
+): Promise<MissionFuelSnapshot> {
+  const currency = defaultFuelCurrencyForOrg(input.organizationId);
+  if (input.transportMode !== "company_vehicle") {
+    return emptyMissionFuelSnapshot(currency);
+  }
+
+  const disposition = normalizeFuelDisposition(
+    input.body.fuelDisposition ?? input.body.fuel_disposition
+  );
+  const waypoints: FuelWaypointInput[] = [
+    {
+      label: input.departureLocation || "HQ",
+      siteCode: input.departureLocation || "HQ",
+    },
+    ...input.stops.map((s) => ({
+      label: s.location,
+      siteCode: s.location,
+      lat: s.lat ?? null,
+      lng: s.lng ?? null,
+    })),
+  ];
+  const dest = input.destination.trim();
+  if (dest) {
+    const last = waypoints[waypoints.length - 1];
+    if (!last || String(last.label || "").toLowerCase() !== dest.toLowerCase()) {
+      waypoints.push({ label: dest, siteCode: dest });
+    }
+  }
+
+  const estimate = await estimateFuelBudget(db, {
+    organizationId: input.organizationId,
+    tripShape:
+      input.tripShape === "round_trip" || input.tripShape === "multi_stop"
+        ? input.tripShape
+        : "one_way",
+    waypoints,
+    vehicleId: input.body.fuelVehicleId ? String(input.body.fuelVehicleId) : null,
+    kmPerLitre:
+      input.body.fuelKmPerLitre != null ? Number(input.body.fuelKmPerLitre) : null,
+    lPer100km:
+      input.body.fuelLPer100km != null ? Number(input.body.fuelLPer100km) : null,
+    pumpPricePerLitre:
+      input.body.fuelPumpPrice != null ? Number(input.body.fuelPumpPrice) : null,
+    safetyFactor:
+      input.body.fuelSafetyFactor != null ? Number(input.body.fuelSafetyFactor) : null,
+    currency: input.body.fuelCurrency != null ? String(input.body.fuelCurrency) : null,
+  });
+
+  if (!estimate.ok || !estimate.route) {
+    const client = input.body.fuel as Partial<MissionFuelSnapshot> | undefined;
+    if (client && typeof client === "object" && client.fuel_total_km != null) {
+      return {
+        ...emptyMissionFuelSnapshot(currency),
+        ...client,
+        fuel_disposition: disposition,
+        fuel_legs_json:
+          typeof client.fuel_legs_json === "string" ? client.fuel_legs_json : "[]",
+      };
+    }
+    return { ...emptyMissionFuelSnapshot(currency), fuel_disposition: disposition };
+  }
+
+  return snapshotFromEstimate(estimate, disposition);
+}
 
 function withMissionStops(
   db: ReturnType<typeof getDb>,
@@ -32,7 +116,7 @@ function withMissionStops(
   const placeholders = ids.map(() => "?").join(", ");
   const stopRows = db
     .prepare(
-      `SELECT mission_id, stop_order, location, load_out, load_in, notes
+      `SELECT mission_id, stop_order, location, load_out, load_in, notes, lat, lng
        FROM mission_stops
        WHERE mission_id IN (${placeholders})
        ORDER BY mission_id, stop_order`
@@ -258,11 +342,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  const departureLocation = String(body.departureLocation || body.departure_location || "HQ");
+  const stopsWithCoords = (Array.isArray(body.stops) ? body.stops : []).map(
+    (s: { location?: string; loadOut?: string; loadIn?: string; notes?: string; lat?: number; lng?: number }, i: number) => ({
+      ...(stops[i] || { location: String(s.location || ""), loadOut: "", loadIn: "", notes: "" }),
+      lat: typeof s.lat === "number" ? s.lat : null,
+      lng: typeof s.lng === "number" ? s.lng : null,
+    })
+  );
+
+  const fuel = await buildMissionFuelSnapshot(db, {
+    organizationId,
+    transportMode,
+    tripShape,
+    departureLocation,
+    destination,
+    stops: stopsWithCoords,
+    body,
+  });
+
   const id = insertPlannedMission(db, {
     organizationId,
     title: String(body.title || ""),
     destination,
-    departureLocation: String(body.departureLocation || body.departure_location || "HQ"),
+    departureLocation,
     departureDate: String(body.departureDate || ""),
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "other"),
@@ -275,7 +378,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     createdByName: user.name || user.email,
     missionProfile: String(body.missionProfile || "local"),
     tripShape,
-    stops,
+    stops: stopsWithCoords,
     requiredVehicleClass: String(body.requiredVehicleClass || ""),
     rrStatus: String(body.rrStatus || "na"),
     transportMode,
@@ -285,6 +388,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? (body.linkedManifestIds as unknown[]).filter((s): s is string => typeof s === "string")
       : [],
     initialApprovalStatus,
+    fuel,
   });
 
   const row = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;

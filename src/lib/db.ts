@@ -433,6 +433,7 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
     }
   });
   safeMigrate(db, "migratePublicTransportSentinelVehicles", migratePublicTransportSentinelVehicles);
+  safeMigrate(db, "migrateMissionFuelBudget", migrateMissionFuelBudget);
 }
 
 /**
@@ -785,6 +786,8 @@ function ensurePhase1Schema(db: Database.Database): void {
   safeMigrate(db, "migrateFleetMechanics", migrateFleetMechanics);
   safeMigrate(db, "migrateRecordMutationLog", migrateRecordMutationLog);
   safeMigrate(db, "migrateOrganizationsRouteOrigin", migrateOrganizationsRouteOrigin);
+  safeMigrate(db, "migrateOrganizationsFuelDefaults", migrateOrganizationsFuelDefaults);
+  safeMigrate(db, "migrateMissionFuelBudget", migrateMissionFuelBudget);
   safeMigrate(db, "migrateVehicleStatusEnforcement", migrateVehicleStatusEnforcement);
 
   // Table-existence check is a read, not a migration — keep it direct so a
@@ -1166,6 +1169,9 @@ function initializeSchema(db: Database.Database): void {
     ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
     ["migrateVehicleCountryChangeWorkflow", () => migrateVehicleCountryChangeWorkflow(db)],
     ["createPhase1Tables", () => createPhase1Tables(db)],
+    ["migrateOrganizationsRouteOrigin", () => migrateOrganizationsRouteOrigin(db)],
+    ["migrateOrganizationsFuelDefaults", () => migrateOrganizationsFuelDefaults(db)],
+    ["migrateMissionFuelBudget", () => migrateMissionFuelBudget(db)],
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
     ["migrateWorkOrderLaborPhase3", () => migrateWorkOrderLaborPhase3(db)],
     ["seedDefaultData", () => seedDefaultData(db)],
@@ -1630,6 +1636,74 @@ function migrateOrganizationsRouteOrigin(db: Database.Database): void {
     `UPDATE organizations SET route_origin_lat = -29.315, route_origin_lng = 27.487
      WHERE route_origin_lat IS NULL AND id = '1pwr_lesotho'`
   ).run();
+}
+
+/** Org fuel budget defaults (Excel safety factor + optional default pump price). */
+function migrateOrganizationsFuelDefaults(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(organizations)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+  if (!has("fuel_safety_factor")) {
+    db.exec("ALTER TABLE organizations ADD COLUMN fuel_safety_factor REAL NOT NULL DEFAULT 2");
+  }
+  if (!has("fuel_default_pump_price")) {
+    db.exec("ALTER TABLE organizations ADD COLUMN fuel_default_pump_price REAL");
+  }
+  // Lesotho / Benin: factor 2; currency already on the org row (LSL / XOF).
+  db.prepare(
+    `UPDATE organizations SET fuel_safety_factor = 2
+     WHERE id IN ('1pwr_lesotho', '1pwr_benin') AND (fuel_safety_factor IS NULL OR fuel_safety_factor <= 0)`
+  ).run();
+  db.prepare(
+    `UPDATE organizations SET currency = 'XOF' WHERE id = '1pwr_benin' AND trim(COALESCE(currency,'')) = ''`
+  ).run();
+  db.prepare(
+    `UPDATE organizations SET currency = 'LSL' WHERE id = '1pwr_lesotho' AND trim(COALESCE(currency,'')) = ''`
+  ).run();
+}
+
+/** Mission fuel budget snapshot + optional stop coordinates for map pins. */
+function migrateMissionFuelBudget(db: Database.Database): void {
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='missions' LIMIT 1")
+    .get();
+  if (!exists) return;
+
+  const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+  const additions: Array<[string, string]> = [
+    ["fuel_road_km", "REAL"],
+    ["fuel_estimated_km", "REAL"],
+    ["fuel_total_km", "REAL"],
+    ["fuel_economy_km_per_l", "REAL"],
+    ["fuel_economy_l_per_100km", "REAL"],
+    ["fuel_pump_price", "REAL"],
+    ["fuel_currency", "TEXT NOT NULL DEFAULT ''"],
+    ["fuel_safety_factor", "REAL"],
+    ["fuel_liters", "REAL"],
+    ["fuel_cost", "REAL"],
+    ["fuel_budget", "REAL"],
+    ["fuel_legs_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["fuel_disposition", "TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [col, def] of additions) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE missions ADD COLUMN ${col} ${def}`);
+    }
+  }
+
+  const stopExists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='mission_stops' LIMIT 1")
+    .get();
+  if (stopExists) {
+    const stopCols = db.prepare("PRAGMA table_info(mission_stops)").all() as Array<{ name: string }>;
+    const stopHas = (col: string) => stopCols.some((c) => c.name === col);
+    if (!stopHas("lat")) {
+      db.exec("ALTER TABLE mission_stops ADD COLUMN lat REAL");
+    }
+    if (!stopHas("lng")) {
+      db.exec("ALTER TABLE mission_stops ADD COLUMN lng REAL");
+    }
+  }
 }
 
 function migrateVehicleGpsSnapshots(db: Database.Database): void {

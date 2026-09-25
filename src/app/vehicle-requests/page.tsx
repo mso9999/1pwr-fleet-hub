@@ -29,6 +29,8 @@ import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
 } from "@/components/EhsCompliantDriverPickerField";
+import { FuelBudgetPanel, type FuelStopDraft } from "@/components/FuelBudgetPanel";
+import type { FuelDisposition } from "@/lib/fuel-calculator";
 
 interface RequestRow {
   id: string;
@@ -2207,6 +2209,8 @@ function RequestForm({
   const publicTransport = transportMode !== "company_vehicle";
   const [publicTransportJustification, setPublicTransportJustification] = useState("");
   const [assetsBeingMoved, setAssetsBeingMoved] = useState(false);
+  const [fuelDisposition, setFuelDisposition] = useState<FuelDisposition>("");
+  const [fuelSubmitFields, setFuelSubmitFields] = useState<Record<string, unknown>>({});
   const { canOverride } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
@@ -2568,6 +2572,7 @@ function RequestForm({
           ? publicTransportJustification.trim()
           : "",
         assetsBeingMoved,
+        ...(!publicTransport ? fuelSubmitFields : {}),
       };
       const headers = await jsonHeadersWithBearer();
       let res: Response;
@@ -3056,6 +3061,42 @@ function RequestForm({
                   ))}
                 </div>
               </div>
+            )}
+            {!publicTransport && (
+              <FuelBudgetPanel
+                organizationId={organizationId}
+                tripShape={multiStopEnabled ? tripShape : "one_way"}
+                routeLocked
+                stops={(() => {
+                  const destLabel =
+                    destinationChoice === "__write__"
+                      ? destinationOther.trim()
+                      : destinationChoice;
+                  const pts: FuelStopDraft[] = [
+                    { label: routeOrigin.trim() || "HQ", siteCode: routeOrigin.trim() || "HQ", lat: null, lng: null },
+                  ];
+                  for (const s of routeStops) {
+                    if (s.location.trim()) {
+                      pts.push({
+                        label: s.location.trim(),
+                        siteCode: s.location.trim(),
+                        lat: null,
+                        lng: null,
+                      });
+                    }
+                  }
+                  if (destLabel) {
+                    const last = pts[pts.length - 1];
+                    if (!last || last.label.toLowerCase() !== destLabel.toLowerCase()) {
+                      pts.push({ label: destLabel, siteCode: destLabel, lat: null, lng: null });
+                    }
+                  }
+                  return pts.length >= 2 ? pts : [...pts, { label: "", siteCode: "", lat: null, lng: null }];
+                })()}
+                disposition={fuelDisposition}
+                onDispositionChange={setFuelDisposition}
+                onSnapshotChange={(_snap, fields) => setFuelSubmitFields(fields)}
+              />
             )}
             {missionFormError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{missionFormError}</div>
