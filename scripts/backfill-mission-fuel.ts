@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Recompute the stored fuel budget on active company-vehicle missions that have not
- * yet departed (draft / pending / approved, departure today or later).
+ * yet returned (draft / pending / approved, return date today or later).
  *
  * Default is dry-run: prints old vs new km / litres / budget per mission.
  *
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
                AND lower(COALESCE(approval_status, '')) IN ('draft', 'pending', 'approved', 'revision_requested')
                AND lower(COALESCE(lifecycle_status, 'active')) = 'active'
                AND lower(COALESCE(transport_mode, 'company_vehicle')) = 'company_vehicle'
-               AND date(departure_date) >= date('now')
+               AND date(COALESCE(NULLIF(return_date, ''), departure_date)) >= date('now')
              ORDER BY departure_date`
           )
           .all()

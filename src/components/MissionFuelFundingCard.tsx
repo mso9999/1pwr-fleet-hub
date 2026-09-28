@@ -81,6 +81,7 @@ export function MissionFuelFundingCard({
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
   const visible = missions.filter((m) => {
@@ -88,7 +89,7 @@ export function MissionFuelFundingCard({
     if (m.lifecycle_status && m.lifecycle_status !== "active") return false;
     if ((m.transport_mode || "company_vehicle") !== "company_vehicle") return false;
     const lastDay = String(m.return_date || m.departure_date || "").slice(0, 10);
-    if (lastDay && lastDay < today && (m.pr_links?.length ?? 0) === 0) return false;
+    if (lastDay && lastDay < today) return false;
     return canActOnMissionFuel({
       role: user.role || "",
       isCreator: String(m.created_by_id || "") === user.id,
@@ -138,12 +139,24 @@ export function MissionFuelFundingCard({
   return (
     <Card className="border-sky-200 bg-sky-50/30">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Fuel funding for approved missions</CardTitle>
-        <p className="text-sm text-zinc-600 font-normal">
-          Raise a fuel PR in the PR system, or put fuel in the deployment budget. Both open pre-filled from the
-          mission. Linked PRs show here once they are filed. Status is checked hourly, or press Check PR status.
-        </p>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <CardTitle className="text-base">Fuel funding for approved missions ({visible.length})</CardTitle>
+          <span className="text-xs text-zinc-500 shrink-0">{open ? "Hide ▲" : "Show ▼"}</span>
+        </button>
+        {open && (
+          <p className="text-sm text-zinc-600 font-normal">
+            Raise a fuel PR in the PR system, or put fuel in the deployment budget. Both open pre-filled from the
+            mission. Linked PRs show here once they are filed. Status is checked hourly, or press Check PR status.
+            Missions that have already returned are not listed.
+          </p>
+        )}
       </CardHeader>
+      {open && (
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-red-700">{error}</p>}
         {visible.map((m) => {
@@ -249,6 +262,7 @@ export function MissionFuelFundingCard({
           );
         })}
       </CardContent>
+      )}
     </Card>
   );
 }
