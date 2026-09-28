@@ -111,13 +111,25 @@ export function resolveVehicleEconomyKmPerL(
       String(veh.model ?? ""),
       typeof veh.year === "number" ? veh.year : null
     );
-    if (sug) {
+    const cls = String(veh.asset_class ?? "").trim().toLowerCase();
+    if (sug && cls && cls !== "4wd" && isGenericLookup(sug.note)) {
+      const classFigure = CLASS_FALLBACK_L_PER_100[cls];
+      if (classFigure) {
+        lPer100 = classFigure;
+        source = "class_average";
+      }
+    } else if (sug) {
       lPer100 = sug.lPer100km;
       source = "lookup";
     }
   }
   if (lPer100 == null || !(lPer100 > 0)) return null;
   return { kmPerLitre: lPer100ToKmPerL(lPer100), lPer100km: lPer100, source };
+}
+
+/** The lookup's unmatched-make/model row is a light-4WD figure — wrong for trucks/tractors. */
+function isGenericLookup(note: string | undefined): boolean {
+  return /^fallback when make\/model not matched/i.test(String(note || ""));
 }
 
 /** Used only when no org vehicle of the class yields an economy figure. */
@@ -160,7 +172,9 @@ export function resolveClassEconomyKmPerL(
     }
     if (!String(r.make || "").trim()) continue;
     const sug = suggestFuelLPer100km(String(r.make), String(r.model || ""), r.year);
-    if (sug && sug.lPer100km > 0) figures.push(sug.lPer100km);
+    if (!sug || !(sug.lPer100km > 0)) continue;
+    if (cls !== "4wd" && isGenericLookup(sug.note)) continue;
+    figures.push(sug.lPer100km);
   }
   let lPer100: number | null = null;
   if (figures.length > 0) {

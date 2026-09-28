@@ -31,6 +31,12 @@ function testClassEconomy(): void {
 
   const fallback = resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", "cargo-truck");
   assert.equal(fallback?.lPer100km, 30);
+  const truckUnmatched = resolveClassEconomyKmPerL(
+    stub([{ make: "Mercedes-Benz", model: "NG 2626 AK", year: 1988, fuel_consumption_l_per_100km: null }]),
+    "1pwr_lesotho",
+    "cargo-truck"
+  );
+  assert.equal(truckUnmatched?.lPer100km, 30, "generic light-4WD lookup must not price a truck");
   assert.equal(resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", "mobile-equipment"), null);
   assert.equal(resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", ""), null);
 }
