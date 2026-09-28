@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,9 +59,20 @@ type OrgDefaults = {
 
 type VehicleOpt = { id: string; code: string; make: string; model: string };
 
+const ECONOMY_SOURCE_LABELS: Record<string, string> = {
+  vehicle: "vehicle record",
+  lookup: "make/model reference",
+  class_average: "average for the required vehicle type",
+  override_km_per_l: "entered (km/L)",
+  override_l_per_100: "entered (L/100 km)",
+  manual: "not set",
+};
+
 interface FuelBudgetPanelProps {
   organizationId: string;
   tripShape: "one_way" | "round_trip" | "multi_stop";
+  /** Required vehicle class — economy fallback until a vehicle is chosen. */
+  vehicleClass?: string;
   /** Ordered waypoints (start first). */
   stops: FuelStopDraft[];
   onStopsChange?: (stops: FuelStopDraft[]) => void;
@@ -76,6 +87,7 @@ interface FuelBudgetPanelProps {
 export function FuelBudgetPanel({
   organizationId,
   tripShape,
+  vehicleClass,
   stops,
   onStopsChange,
   routeLocked,
@@ -141,6 +153,7 @@ export function FuelBudgetPanel({
           lng: s.lng,
         })),
         vehicleId: vehicleId || null,
+        vehicleClass: vehicleClass || null,
         pumpPricePerLitre: parseFloat(pumpPrice) || null,
         safetyFactor: parseFloat(safetyFactor) || DEFAULT_FUEL_SAFETY_FACTOR,
         currency,
@@ -209,6 +222,7 @@ export function FuelBudgetPanel({
   }, [
     organizationId,
     tripShape,
+    vehicleClass,
     stops,
     vehicleId,
     kmPerLitre,
@@ -219,6 +233,18 @@ export function FuelBudgetPanel({
     disposition,
     onSnapshotChange,
   ]);
+
+  const runEstimateRef = useRef(runEstimate);
+  runEstimateRef.current = runEstimate;
+  const autoKey =
+    routeLocked && stops.length >= 2 && stops.every((s) => s.label.trim())
+      ? JSON.stringify([tripShape, vehicleClass || "", stops.map((s) => s.label.trim().toLowerCase())])
+      : "";
+  useEffect(() => {
+    if (!autoKey) return;
+    const t = setTimeout(() => void runEstimateRef.current(), 600);
+    return () => clearTimeout(t);
+  }, [autoKey]);
 
   // Local worked-example preview when user types without waiting for OSRM
   const localPreview =
@@ -372,7 +398,9 @@ export function FuelBudgetPanel({
             {loading ? "Calculating…" : "Calculate fuel budget"}
           </Button>
           {estimate?.economySource ? (
-            <span className="text-xs text-zinc-500">Economy source: {estimate.economySource}</span>
+            <span className="text-xs text-zinc-500">
+              Economy source: {ECONOMY_SOURCE_LABELS[estimate.economySource] ?? estimate.economySource}
+            </span>
           ) : null}
         </div>
 

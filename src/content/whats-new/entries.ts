@@ -51,6 +51,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-fuel-budget-automatic",
+    title: "Mission fuel budgets now fill in automatically",
+    summary:
+      "Every company-vehicle mission gets km, litres and a money budget without extra typing. Approvers see it on the mission card.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-09-28",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- The **Fuel budget** panel on the mission form calculates as soon as the route and vehicle type are filled in.\n- Before a vehicle is reserved, economy is the **average for the required vehicle type**. When fleet reserves a vehicle, the budget is **recalculated for that vehicle**.\n- Pump price defaults per country: **Lesotho 24 LSL/L**, **Zambia K26.86/L** (ERB diesel, Sept 2026), **Benin 750 F CFA/L** (gasoil). Admins can change them in Admin → Fuel budget defaults.\n- Approvers see **Fuel budget** on the pending mission card.",
+      },
+      {
+        title: "Fixed",
+        bodyMd:
+          "Sites with blank GPS in the PR reference list were read as 0,0, so some routes came out as 0 km. They now fall back to the known site location.",
+      },
+    ],
+  },
+  {
     slug: "fuel-calculator-excel-budget",
     title: "Fuel calculator (Excel budget) on missions",
     summary:

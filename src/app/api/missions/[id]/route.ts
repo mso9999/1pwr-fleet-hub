@@ -15,6 +15,7 @@ import {
   routeStopsEqual,
   validateRoutePlan,
 } from "@/lib/trip-route";
+import { recomputeMissionFuel } from "@/lib/fuel-estimate";
 
 const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string]> = [
   ["departure_date", "departureDate"],
@@ -579,6 +580,19 @@ export async function PATCH(
       actor: actorFrom(user),
       after: { materialFields: true, stopPlanChanged },
     });
+  }
+
+  const routeOrClassChanged =
+    stopPlanChanged ||
+    ["destination", "departureLocation", "tripShape", "requiredVehicleClass", "transportMode"].some(
+      (k) => body[k] !== undefined
+    );
+  if (routeOrClassChanged) {
+    try {
+      await recomputeMissionFuel(db, id);
+    } catch (e) {
+      console.error("[missions PATCH] fuel recompute", e);
+    }
   }
 
   const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;

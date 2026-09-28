@@ -8,6 +8,7 @@ import {
   DEFAULT_FUEL_SAFETY_FACTOR,
   defaultFuelCurrencyForOrg,
   lPer100ToKmPerL,
+  normalizeFuelDisposition,
   type FuelBudgetResult,
   type FuelDisposition,
 } from "@/lib/fuel-calculator";
@@ -119,8 +120,62 @@ export function resolveVehicleEconomyKmPerL(
   return { kmPerLitre: lPer100ToKmPerL(lPer100), lPer100km: lPer100, source };
 }
 
+/** Used only when no org vehicle of the class yields an economy figure. */
+const CLASS_FALLBACK_L_PER_100: Record<string, number> = {
+  "4wd": 12,
+  "cargo-truck": 30,
+  tractor: 20,
+};
+
+/**
+ * Typical economy for a required vehicle class, before a specific vehicle is reserved:
+ * mean of per-vehicle economy (manual figure or make/model lookup) across the org's
+ * real vehicles of that class, else a static class figure.
+ */
+export function resolveClassEconomyKmPerL(
+  db: Database.Database,
+  organizationId: string,
+  vehicleClass: string | null | undefined
+): { kmPerLitre: number; lPer100km: number; source: string } | null {
+  const cls = String(vehicleClass || "").trim().toLowerCase();
+  if (!cls) return null;
+  const rows = db
+    .prepare(
+      `SELECT make, model, year, fuel_consumption_l_per_100km
+       FROM vehicles
+       WHERE organization_id = ? AND lower(asset_class) = ? AND COALESCE(is_synthetic, 0) = 0`
+    )
+    .all(organizationId, cls) as Array<{
+    make: string | null;
+    model: string | null;
+    year: number | null;
+    fuel_consumption_l_per_100km: number | null;
+  }>;
+  const figures: number[] = [];
+  for (const r of rows) {
+    const manual = r.fuel_consumption_l_per_100km;
+    if (typeof manual === "number" && Number.isFinite(manual) && manual > 0) {
+      figures.push(manual);
+      continue;
+    }
+    if (!String(r.make || "").trim()) continue;
+    const sug = suggestFuelLPer100km(String(r.make), String(r.model || ""), r.year);
+    if (sug && sug.lPer100km > 0) figures.push(sug.lPer100km);
+  }
+  let lPer100: number | null = null;
+  if (figures.length > 0) {
+    lPer100 = Math.round((figures.reduce((s, n) => s + n, 0) / figures.length) * 10) / 10;
+  } else if (CLASS_FALLBACK_L_PER_100[cls]) {
+    lPer100 = CLASS_FALLBACK_L_PER_100[cls];
+  }
+  if (lPer100 == null || !(lPer100 > 0)) return null;
+  return { kmPerLitre: lPer100ToKmPerL(lPer100), lPer100km: lPer100, source: "class_average" };
+}
+
 export type FuelEstimateRequest = {
   organizationId: string;
+  /** Required vehicle class — economy fallback before a vehicle is chosen. */
+  vehicleClass?: string | null;
   tripShape?: "one_way" | "round_trip" | "multi_stop";
   /** Ordered stops including start; if empty, origin + destination used. */
   waypoints?: FuelWaypointInput[];
@@ -224,7 +279,9 @@ export async function estimateFuelBudget(
     kmPerLitre = lPer100ToKmPerL(input.lPer100km);
     economySource = "override_l_per_100";
   } else {
-    const fromVeh = resolveVehicleEconomyKmPerL(db, input.vehicleId);
+    const fromVeh =
+      resolveVehicleEconomyKmPerL(db, input.vehicleId) ??
+      resolveClassEconomyKmPerL(db, orgId, input.vehicleClass);
     if (fromVeh) {
       kmPerLitre = fromVeh.kmPerLitre;
       economySource = fromVeh.source;
@@ -320,6 +377,162 @@ export function emptyMissionFuelSnapshot(currency: string): MissionFuelSnapshot 
     fuel_legs_json: "[]",
     fuel_disposition: "",
   };
+}
+
+export type MissionFuelInput = {
+  organizationId: string;
+  transportMode: string;
+  tripShape: string;
+  departureLocation: string;
+  destination: string;
+  stops: Array<{ location: string; lat?: number | null; lng?: number | null }>;
+  vehicleClass?: string | null;
+  vehicleId?: string | null;
+  kmPerLitre?: number | null;
+  lPer100km?: number | null;
+  pumpPricePerLitre?: number | null;
+  safetyFactor?: number | null;
+  currency?: string | null;
+  disposition: FuelDisposition;
+  /** Client-side snapshot used only if the server cannot resolve the route. */
+  clientSnapshot?: Partial<MissionFuelSnapshot> | null;
+};
+
+function positiveOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export async function buildMissionFuelSnapshot(
+  db: Database.Database,
+  input: MissionFuelInput
+): Promise<MissionFuelSnapshot> {
+  const currency = defaultFuelCurrencyForOrg(input.organizationId);
+  if (input.transportMode !== "company_vehicle") {
+    return emptyMissionFuelSnapshot(currency);
+  }
+
+  const waypoints: FuelWaypointInput[] = [
+    {
+      label: input.departureLocation || "HQ",
+      siteCode: input.departureLocation || "HQ",
+    },
+    ...input.stops.map((s) => ({
+      label: s.location,
+      siteCode: s.location,
+      lat: s.lat ?? null,
+      lng: s.lng ?? null,
+    })),
+  ];
+  const dest = input.destination.trim();
+  if (dest) {
+    const hasDest = waypoints
+      .slice(1)
+      .some((w) => String(w.label || "").toLowerCase() === dest.toLowerCase());
+    if (!hasDest) {
+      waypoints.push({ label: dest, siteCode: dest });
+    }
+  }
+
+  const estimate = await estimateFuelBudget(db, {
+    organizationId: input.organizationId,
+    tripShape:
+      input.tripShape === "round_trip" || input.tripShape === "multi_stop"
+        ? input.tripShape
+        : "one_way",
+    waypoints,
+    vehicleId: input.vehicleId || null,
+    vehicleClass: input.vehicleClass || null,
+    kmPerLitre: positiveOrNull(input.kmPerLitre),
+    lPer100km: positiveOrNull(input.lPer100km),
+    pumpPricePerLitre: positiveOrNull(input.pumpPricePerLitre),
+    safetyFactor: positiveOrNull(input.safetyFactor),
+    currency: input.currency ? String(input.currency) : null,
+  });
+
+  if (!estimate.ok || !estimate.route) {
+    const client = input.clientSnapshot;
+    if (client && typeof client === "object" && client.fuel_total_km != null) {
+      return {
+        ...emptyMissionFuelSnapshot(currency),
+        ...client,
+        fuel_disposition: input.disposition,
+        fuel_legs_json:
+          typeof client.fuel_legs_json === "string" ? client.fuel_legs_json : "[]",
+      };
+    }
+    return { ...emptyMissionFuelSnapshot(currency), fuel_disposition: input.disposition };
+  }
+
+  return snapshotFromEstimate(estimate, input.disposition);
+}
+
+const MISSION_FUEL_COLUMNS: Array<keyof MissionFuelSnapshot> = [
+  "fuel_road_km",
+  "fuel_estimated_km",
+  "fuel_total_km",
+  "fuel_economy_km_per_l",
+  "fuel_economy_l_per_100km",
+  "fuel_pump_price",
+  "fuel_currency",
+  "fuel_safety_factor",
+  "fuel_liters",
+  "fuel_cost",
+  "fuel_budget",
+  "fuel_legs_json",
+  "fuel_disposition",
+];
+
+export function writeMissionFuelSnapshot(
+  db: Database.Database,
+  missionId: string,
+  snap: MissionFuelSnapshot
+): void {
+  const sets = MISSION_FUEL_COLUMNS.map((c) => `${c} = ?`).join(", ");
+  db.prepare(`UPDATE missions SET ${sets} WHERE id = ?`).run(
+    ...MISSION_FUEL_COLUMNS.map((c) => snap[c]),
+    missionId
+  );
+}
+
+/**
+ * Re-run the mission's fuel budget from its stored route. Economy comes from the
+ * assigned vehicle when there is one, else the required-class average; a pump price
+ * or safety factor already stored on the mission is kept.
+ */
+export async function recomputeMissionFuel(
+  db: Database.Database,
+  missionId: string,
+  opts: { write?: boolean } = {}
+): Promise<MissionFuelSnapshot | null> {
+  const m = db.prepare("SELECT * FROM missions WHERE id = ?").get(missionId) as
+    | Record<string, unknown>
+    | undefined;
+  if (!m) return null;
+  const stops = db
+    .prepare(
+      "SELECT location, lat, lng FROM mission_stops WHERE mission_id = ? ORDER BY stop_order"
+    )
+    .all(missionId) as Array<{ location: string; lat: number | null; lng: number | null }>;
+  const vehicleId = String(m.assigned_vehicle_id || "").trim() || null;
+  const snap = await buildMissionFuelSnapshot(db, {
+    organizationId: String(m.organization_id || "1pwr_lesotho"),
+    transportMode: String(m.transport_mode || "company_vehicle"),
+    tripShape: String(m.trip_shape || "one_way"),
+    departureLocation: String(m.departure_location || "HQ"),
+    destination: String(m.destination || ""),
+    stops,
+    vehicleClass: String(m.required_vehicle_class || "") || null,
+    vehicleId,
+    kmPerLitre: vehicleId ? null : positiveOrNull(m.fuel_economy_km_per_l),
+    pumpPricePerLitre: positiveOrNull(m.fuel_pump_price),
+    safetyFactor: positiveOrNull(m.fuel_safety_factor),
+    currency: String(m.fuel_currency || "") || null,
+    disposition: normalizeFuelDisposition(m.fuel_disposition),
+  });
+  if (opts.write !== false) writeMissionFuelSnapshot(db, missionId, snap);
+  return snap;
 }
 
 export function snapshotFromEstimate(

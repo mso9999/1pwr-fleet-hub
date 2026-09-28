@@ -12,6 +12,28 @@ import {
 import { estimatedRoadKm, haversineKm, buildTripWaypoints } from "../src/lib/route-distance";
 import type Database from "better-sqlite3";
 import { getSiteCoordsByCode } from "../src/lib/vehicle-request-fuel";
+import { resolveClassEconomyKmPerL } from "../src/lib/fuel-estimate";
+
+function testClassEconomy(): void {
+  const stub = (rows: unknown[]) =>
+    ({ prepare: () => ({ all: () => rows }) }) as unknown as Database.Database;
+  const avg = resolveClassEconomyKmPerL(
+    stub([
+      { make: "Ford", model: "Ranger", year: 2008, fuel_consumption_l_per_100km: 10 },
+      { make: "Nissan", model: "Hardbody", year: 2005, fuel_consumption_l_per_100km: 14 },
+      { make: "", model: "", year: null, fuel_consumption_l_per_100km: null },
+    ]),
+    "1pwr_lesotho",
+    "4wd"
+  );
+  assert.equal(avg?.lPer100km, 12);
+  assert.equal(avg?.source, "class_average");
+
+  const fallback = resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", "cargo-truck");
+  assert.equal(fallback?.lPer100km, 30);
+  assert.equal(resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", "mobile-equipment"), null);
+  assert.equal(resolveClassEconomyKmPerL(stub([]), "1pwr_lesotho", ""), null);
+}
 
 function testNullSiteGpsFallsBack(): void {
   const nullMeta = JSON.stringify({ latitude: null, longitude: null, source: "pr_firestore" });
@@ -103,6 +125,7 @@ const tests: Array<[string, () => void]> = [
   ["1.4 road fallback ≠ money safety factor", testRoadFallbackSeparateFromSafety],
   ["round trip appends return leg", testRoundTripAppendsReturn],
   ["null site GPS falls back instead of (0, 0)", testNullSiteGpsFallsBack],
+  ["class economy: vehicle average, then static fallback", testClassEconomy],
 ];
 
 let failures = 0;

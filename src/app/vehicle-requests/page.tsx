@@ -153,6 +153,34 @@ function missionOriginLabel(m: PlannedMissionRow): string {
   return origin || "HQ";
 }
 
+const FUEL_DISPOSITION_LABELS: Record<string, string> = {
+  pr_requested: "fuel PR requested",
+  in_deployment_budget: "in deployment budget",
+};
+
+function missionFuelSummary(m: PlannedMissionRow): string {
+  if ((m.transport_mode || "company_vehicle") !== "company_vehicle") return "No company vehicle";
+  const km = m.fuel_total_km;
+  if (km == null || !(km > 0)) return "Not calculated";
+  const cur = m.fuel_currency || "";
+  const parts = [`${km} km${m.fuel_estimated_km && m.fuel_estimated_km > 0 ? " (partly estimated)" : ""}`];
+  if (m.fuel_liters != null && m.fuel_liters > 0) {
+    parts.push(
+      `${m.fuel_liters} L${m.fuel_economy_l_per_100km ? ` at ${m.fuel_economy_l_per_100km} L/100 km` : ""}`
+    );
+  }
+  if (m.fuel_budget != null && m.fuel_budget > 0) {
+    parts.push(
+      `budget ${m.fuel_budget.toLocaleString()} ${cur} (cost ${m.fuel_cost?.toLocaleString() ?? "—"} × ${m.fuel_safety_factor ?? "—"} at ${m.fuel_pump_price ?? "—"} ${cur}/L)`
+    );
+  } else if (m.fuel_liters != null && m.fuel_liters > 0) {
+    parts.push("no pump price set");
+  }
+  const disp = FUEL_DISPOSITION_LABELS[String(m.fuel_disposition || "")];
+  if (disp) parts.push(disp);
+  return parts.join(" · ");
+}
+
 function missionRouteSummary(m: PlannedMissionRow): string {
   const stops = Array.isArray(m.stops) ? m.stops : [];
   const ordered = [...stops].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
@@ -194,6 +222,16 @@ interface PlannedMissionRow {
   assigned_by_name?: string | null;
   lifecycle_status?: string;
   rr_status?: string;
+  fuel_total_km?: number | null;
+  fuel_estimated_km?: number | null;
+  fuel_liters?: number | null;
+  fuel_cost?: number | null;
+  fuel_budget?: number | null;
+  fuel_currency?: string | null;
+  fuel_economy_l_per_100km?: number | null;
+  fuel_pump_price?: number | null;
+  fuel_safety_factor?: number | null;
+  fuel_disposition?: string | null;
   notes?: string;
   mission_type?: string;
   created_by_name?: string;
@@ -1097,6 +1135,10 @@ export default function VehicleRequestsPage() {
                           <div className="text-xs text-zinc-600 mt-1">
                             <span className="font-medium">Route:</span> {missionRouteSummary(m)}
                           </div>
+                          <div className="text-xs text-zinc-600">
+                            <span className="font-medium">Fuel:</span> {missionFuelSummary(m)}
+                            <span className="text-zinc-400"> (recalculated for the reserved vehicle)</span>
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-1 shrink-0">
                           <Badge variant="secondary" className="text-[10px] shrink-0">
@@ -1359,6 +1401,10 @@ export default function VehicleRequestsPage() {
                       <div className="sm:col-span-2">
                         <dt className="text-zinc-500 uppercase tracking-wide">Planned route</dt>
                         <dd className="text-zinc-900 mt-0.5">{missionRouteSummary(m)}</dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500 uppercase tracking-wide">Fuel budget</dt>
+                        <dd className="text-zinc-900 mt-0.5">{missionFuelSummary(m)}</dd>
                       </div>
                       <div className="sm:col-span-2">
                         <dt className="text-zinc-500 uppercase tracking-wide">Loadout / equipment</dt>
@@ -2131,6 +2177,7 @@ function RequestForm({
   const [assetsBeingMoved, setAssetsBeingMoved] = useState(false);
   const [fuelDisposition, setFuelDisposition] = useState<FuelDisposition>("");
   const [fuelSubmitFields, setFuelSubmitFields] = useState<Record<string, unknown>>({});
+  const [missionVehicleClass, setMissionVehicleClass] = useState("");
   const { canOverride } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
@@ -2346,6 +2393,7 @@ function RequestForm({
     setValue("cmNotes", String(m.notes || ""));
     setValue("cmMissionProfile", String(m.mission_profile || "local"));
     setValue("cmRequiredVehicleClass", String(m.required_vehicle_class || ""));
+    setMissionVehicleClass(String(m.required_vehicle_class || ""));
   }
 
   function addRouteStop(): void {
@@ -2524,6 +2572,8 @@ function RequestForm({
             : "Mission submitted for management approval (profile and vehicle class are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
         );
         form.reset();
+        setMissionVehicleClass("");
+        setFuelSubmitFields({});
         setDestinationChoice("");
         setDestinationOther("");
         setTripShape("one_way");
@@ -2864,6 +2914,7 @@ function RequestForm({
                 </label>
                 <select
                   name="cmRequiredVehicleClass"
+                  onChange={(e) => setMissionVehicleClass(e.target.value)}
                   disabled={publicTransport}
                   required={!publicTransport}
                   className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-100"
@@ -2972,6 +3023,7 @@ function RequestForm({
               <FuelBudgetPanel
                 organizationId={organizationId}
                 tripShape={multiStopEnabled ? tripShape : "one_way"}
+                vehicleClass={missionVehicleClass}
                 routeLocked
                 stops={(() => {
                   const destLabel =
@@ -2991,11 +3043,11 @@ function RequestForm({
                       });
                     }
                   }
-                  if (destLabel) {
-                    const last = pts[pts.length - 1];
-                    if (!last || last.label.toLowerCase() !== destLabel.toLowerCase()) {
-                      pts.push({ label: destLabel, siteCode: destLabel, lat: null, lng: null });
-                    }
+                  if (
+                    destLabel &&
+                    !pts.slice(1).some((p) => p.label.toLowerCase() === destLabel.toLowerCase())
+                  ) {
+                    pts.push({ label: destLabel, siteCode: destLabel, lat: null, lng: null });
                   }
                   return pts.length >= 2 ? pts : [...pts, { label: "", siteCode: "", lat: null, lng: null }];
                 })()}

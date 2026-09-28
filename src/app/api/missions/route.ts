@@ -16,98 +16,14 @@ import {
   normalizeTripShape,
   validateRoutePlan,
 } from "@/lib/trip-route";
-import {
-  emptyMissionFuelSnapshot,
-  estimateFuelBudget,
-  snapshotFromEstimate,
-  type FuelWaypointInput,
-  type MissionFuelSnapshot,
-} from "@/lib/fuel-estimate";
-import { defaultFuelCurrencyForOrg, normalizeFuelDisposition } from "@/lib/fuel-calculator";
+import { buildMissionFuelSnapshot, type MissionFuelSnapshot } from "@/lib/fuel-estimate";
+import { normalizeFuelDisposition } from "@/lib/fuel-calculator";
 
 export const runtime = "nodejs";
 
 type MissionListRow = Record<string, unknown> & {
   id: string;
 };
-
-async function buildMissionFuelSnapshot(
-  db: ReturnType<typeof getDb>,
-  input: {
-    organizationId: string;
-    transportMode: string;
-    tripShape: string;
-    departureLocation: string;
-    destination: string;
-    stops: Array<{ location: string; lat?: number | null; lng?: number | null }>;
-    body: Record<string, unknown>;
-  }
-): Promise<MissionFuelSnapshot> {
-  const currency = defaultFuelCurrencyForOrg(input.organizationId);
-  if (input.transportMode !== "company_vehicle") {
-    return emptyMissionFuelSnapshot(currency);
-  }
-
-  const disposition = normalizeFuelDisposition(
-    input.body.fuelDisposition ?? input.body.fuel_disposition
-  );
-  const waypoints: FuelWaypointInput[] = [
-    {
-      label: input.departureLocation || "HQ",
-      siteCode: input.departureLocation || "HQ",
-    },
-    ...input.stops.map((s) => ({
-      label: s.location,
-      siteCode: s.location,
-      lat: s.lat ?? null,
-      lng: s.lng ?? null,
-    })),
-  ];
-  const dest = input.destination.trim();
-  if (dest) {
-    const hasDest = waypoints
-      .slice(1)
-      .some((w) => String(w.label || "").toLowerCase() === dest.toLowerCase());
-    if (!hasDest) {
-      waypoints.push({ label: dest, siteCode: dest });
-    }
-  }
-
-  const estimate = await estimateFuelBudget(db, {
-    organizationId: input.organizationId,
-    tripShape:
-      input.tripShape === "round_trip" || input.tripShape === "multi_stop"
-        ? input.tripShape
-        : "one_way",
-    waypoints,
-    vehicleId: input.body.fuelVehicleId ? String(input.body.fuelVehicleId) : null,
-    kmPerLitre:
-      input.body.fuelKmPerLitre != null ? Number(input.body.fuelKmPerLitre) : null,
-    lPer100km:
-      input.body.fuelLPer100km != null ? Number(input.body.fuelLPer100km) : null,
-    pumpPricePerLitre:
-      input.body.fuelPumpPrice != null ? Number(input.body.fuelPumpPrice) : null,
-    safetyFactor:
-      input.body.fuelSafetyFactor != null ? Number(input.body.fuelSafetyFactor) : null,
-    currency: input.body.fuelCurrency != null ? String(input.body.fuelCurrency) : null,
-  });
-
-  if (!estimate.ok || !estimate.route) {
-    const client = input.body.fuel as Partial<MissionFuelSnapshot> | undefined;
-    if (client && typeof client === "object" && client.fuel_total_km != null) {
-      return {
-        ...emptyMissionFuelSnapshot(currency),
-        ...client,
-        fuel_disposition: disposition,
-        fuel_legs_json:
-          typeof client.fuel_legs_json === "string" ? client.fuel_legs_json : "[]",
-      };
-    }
-    return { ...emptyMissionFuelSnapshot(currency), fuel_disposition: disposition };
-  }
-
-  return snapshotFromEstimate(estimate, disposition);
-}
 
 function withMissionStops(
   db: ReturnType<typeof getDb>,
@@ -174,6 +90,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
            m.mission_profile, m.trip_shape, m.required_vehicle_class, m.assigned_vehicle_id, m.transport_mode, m.rr_status,
            m.assigned_at, m.assigned_by_name, m.lifecycle_status,
            m.assets_being_moved, m.linked_manifest_ids,
+           m.fuel_total_km, m.fuel_estimated_km, m.fuel_liters, m.fuel_cost, m.fuel_budget,
+           m.fuel_currency, m.fuel_economy_l_per_100km, m.fuel_pump_price, m.fuel_safety_factor,
+           m.fuel_disposition,
            m.created_by_id, m.created_by_name, m.created_at, m.updated_at,
            v.code AS assigned_vehicle_code,
            t.checkout_at AS trip_checkout_at,
@@ -360,7 +279,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     departureLocation,
     destination,
     stops: stopsWithCoords,
-    body,
+    vehicleClass: String(body.requiredVehicleClass || body.required_vehicle_class || "") || null,
+    vehicleId: body.fuelVehicleId ? String(body.fuelVehicleId) : null,
+    kmPerLitre: body.fuelKmPerLitre as number | null | undefined,
+    lPer100km: body.fuelLPer100km as number | null | undefined,
+    pumpPricePerLitre: body.fuelPumpPrice as number | null | undefined,
+    safetyFactor: body.fuelSafetyFactor as number | null | undefined,
+    currency: body.fuelCurrency != null ? String(body.fuelCurrency) : null,
+    disposition: normalizeFuelDisposition(body.fuelDisposition ?? body.fuel_disposition),
+    clientSnapshot: (body.fuel as Partial<MissionFuelSnapshot> | undefined) ?? null,
   });
 
   const id = insertPlannedMission(db, {

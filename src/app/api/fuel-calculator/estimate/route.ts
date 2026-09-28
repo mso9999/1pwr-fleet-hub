@@ -70,6 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
       : undefined,
     vehicleId: body.vehicleId ? String(body.vehicleId) : null,
+    vehicleClass: body.vehicleClass ? String(body.vehicleClass) : null,
     kmPerLitre,
     lPer100km: lPer100,
     pumpPricePerLitre:

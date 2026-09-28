@@ -19,6 +19,7 @@ import {
   assertMissionHasPlannedTripForVehicleAllocation,
   syncAllocatedVehicleToPlannedTrip,
 } from "@/lib/mission-checkout";
+import { recomputeMissionFuel } from "@/lib/fuel-estimate";
 
 /**
  * POST /api/missions/[id]/reserve-vehicle
@@ -251,6 +252,12 @@ export async function POST(
   } catch (e) {
     console.error("[reserve-vehicle]", e);
     return NextResponse.json({ error: "Reservation failed." }, { status: 500 });
+  }
+
+  try {
+    await recomputeMissionFuel(db, missionId);
+  } catch (e) {
+    console.error("[reserve-vehicle] fuel recompute", e);
   }
 
   recordMutation(db, {
