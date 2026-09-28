@@ -451,7 +451,7 @@ export function FuelBudgetPanel({
               checked={disposition === "pr_requested"}
               onChange={() => onDispositionChange("pr_requested")}
             />
-            <span>Request a fuel PR (stored on the mission; PR creation is a later step)</span>
+            <span>Own fuel PR. Once the mission is approved, use Raise fuel PR on Vehicle requests. It opens the PR system pre-filled.</span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -460,7 +460,7 @@ export function FuelBudgetPanel({
               checked={disposition === "in_deployment_budget"}
               onChange={() => onDispositionChange("in_deployment_budget")}
             />
-            <span>Included in a deployment budget (stored; wizard is a later step)</span>
+            <span>Part of the deployment budget. Once approved, Open deployment budget pre-fills the PR-system wizard with this fuel.</span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -469,7 +469,7 @@ export function FuelBudgetPanel({
               checked={disposition === ""}
               onChange={() => onDispositionChange("")}
             />
-            <span>Decide later</span>
+            <span>Decide later (you can change this after approval)</span>
           </label>
         </div>
       </CardContent>

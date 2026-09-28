@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { isFleetManagementRole } from "@/lib/fleet-roles";
-import { syncVehiclePrSpendFromFirestore } from "@/lib/firestore-sync";
+import { syncMissionPrLinksFromFirestore, syncVehiclePrSpendFromFirestore } from "@/lib/firestore-sync";
 
 /**
  * POST /api/sync/pr-spend?org=1pwr_lesotho
@@ -28,8 +28,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const org = req.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const result = await syncVehiclePrSpendFromFirestore(org);
+  const missionPrLinks = await syncMissionPrLinksFromFirestore();
   return NextResponse.json(
-    { ...result, ranAt: new Date().toISOString() },
+    { ...result, missionPrLinks, ranAt: new Date().toISOString() },
     { status: result.success ? 200 : 502 }
   );
 }

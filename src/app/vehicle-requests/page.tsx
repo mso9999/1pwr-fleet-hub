@@ -25,6 +25,7 @@ import {
   MissionLifecycleTimeline,
 } from "@/components/MissionPipeline";
 import { MissionNextOwnerBanner } from "@/components/MissionNextOwnerBanner";
+import { MissionFuelFundingCard, type MissionPrLink } from "@/components/MissionFuelFundingCard";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -250,6 +251,8 @@ interface PlannedMissionRow {
   linked_manifest_ids?: string | null;
   created_by_id?: string;
   transport_mode?: string | null;
+  organization_id?: string;
+  pr_links?: MissionPrLink[];
 }
 
 interface RouteStopInput {
@@ -1163,6 +1166,13 @@ export default function VehicleRequestsPage() {
                 </CardContent>
               </Card>
             )}
+
+            <MissionFuelFundingCard
+              missions={activeApproved}
+              organizationId={organizationId}
+              user={user ? { id: user.id, role: user.role } : null}
+              onChanged={() => void refetchApprovedMissionsFleet()}
+            />
           </>
         );
       })()}

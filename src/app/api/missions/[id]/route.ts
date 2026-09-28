@@ -8,7 +8,7 @@ import {
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
 import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
-import { canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
+import { canActOnMissionFuel, canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
   normalizeTripShape,
@@ -16,6 +16,7 @@ import {
   validateRoutePlan,
 } from "@/lib/trip-route";
 import { recomputeMissionFuel } from "@/lib/fuel-estimate";
+import { normalizeFuelDisposition } from "@/lib/fuel-calculator";
 
 const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string]> = [
   ["departure_date", "departureDate"],
@@ -361,6 +362,29 @@ export async function PATCH(
       action: "mission_lifecycle",
       actor: actorFrom(user),
       after: { subAction: action, reason },
+    });
+    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
+    return NextResponse.json(updated);
+  }
+
+  if (action === "set_fuel_disposition") {
+    if (!canActOnMissionFuel({ role: user.role, isCreator: String(row.created_by_id || "") === user.id })) {
+      return NextResponse.json(
+        { error: "Only the mission creator or fleet management can change how fuel is funded." },
+        { status: 403 }
+      );
+    }
+    const disposition = normalizeFuelDisposition(body.fuelDisposition);
+    db.prepare("UPDATE missions SET fuel_disposition = ?, updated_at = ? WHERE id = ?").run(disposition, now, id);
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: id,
+      organizationId: orgId,
+      action: "update",
+      actor: actorFrom(user),
+      before: { fuel_disposition: row.fuel_disposition ?? "" },
+      after: { fuel_disposition: disposition },
+      reason: "fuel_disposition",
     });
     const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id);
     return NextResponse.json(updated);

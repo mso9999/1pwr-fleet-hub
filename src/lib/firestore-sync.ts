@@ -608,6 +608,93 @@ export async function syncVehiclePrSpendFromFirestore(
   }
 }
 
+export interface MissionPrLinkSyncResult extends SyncResult {
+  scanned: number;
+}
+
+/**
+ * READ-ONLY: Pull purchaseRequests stamped with `fleetMissionId` (PR-app fuel PR
+ * page / deployment-budget wizard) into local `mission_pr_links`. Pass a mission id
+ * to refresh one mission; omit it to refresh every linked PR.
+ */
+export async function syncMissionPrLinksFromFirestore(
+  missionId?: string
+): Promise<MissionPrLinkSyncResult> {
+  const firestore = getAdminFirestore();
+  if (!firestore) {
+    return { success: false, upserted: 0, deactivated: 0, scanned: 0, error: "Firestore not available" };
+  }
+  try {
+    const base = firestore.collection("purchaseRequests");
+    const snapshot = missionId
+      ? await base.where("fleetMissionId", "==", missionId).limit(50).get()
+      : await base.where("fleetMissionId", ">", "").limit(2000).get();
+
+    const db = getDb();
+    const now = new Date().toISOString();
+    const upsert = db.prepare(
+      `INSERT INTO mission_pr_links
+         (pr_id, mission_id, organization_id, pr_number, pr_status, kind, amount, currency,
+          requestor_name, pr_created_at, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(pr_id) DO UPDATE SET
+         mission_id = excluded.mission_id,
+         organization_id = excluded.organization_id,
+         pr_number = excluded.pr_number,
+         pr_status = excluded.pr_status,
+         kind = excluded.kind,
+         amount = excluded.amount,
+         currency = excluded.currency,
+         requestor_name = excluded.requestor_name,
+         pr_created_at = excluded.pr_created_at,
+         synced_at = excluded.synced_at`
+    );
+    const seen: string[] = [];
+    const tx = db.transaction(() => {
+      for (const doc of snapshot.docs) {
+        const d = doc.data() as Record<string, unknown>;
+        const mid = String(d.fleetMissionId || "").trim();
+        if (!mid) continue;
+        seen.push(doc.id);
+        const requestor = (d.requestor || {}) as Record<string, unknown>;
+        const amountRaw = d.finalPrice ?? d.estimatedAmount;
+        const amount = amountRaw == null || amountRaw === "" ? null : Number(amountRaw);
+        upsert.run(
+          doc.id,
+          mid,
+          String(d.organizationId || d.organization || ""),
+          String(d.prNumber || ""),
+          String(d.status || ""),
+          String(d.expenseType || "") === "deployment" ? "deployment" : "fuel",
+          amount != null && Number.isFinite(amount) ? amount : null,
+          String(d.finalPriceCurrency || d.currency || ""),
+          String(requestor.name || d.requestorEmail || ""),
+          firestoreTimeToIso(d.createdAt),
+          now
+        );
+      }
+      // PRs deleted in the PR app (or unlinked) drop out of the cache.
+      if (missionId) {
+        const placeholders = seen.map(() => "?").join(",");
+        db.prepare(
+          `DELETE FROM mission_pr_links WHERE mission_id = ?${seen.length ? ` AND pr_id NOT IN (${placeholders})` : ""}`
+        ).run(missionId, ...seen);
+      } else if (snapshot.size < 2000) {
+        const placeholders = seen.map(() => "?").join(",");
+        db.prepare(
+          `DELETE FROM mission_pr_links${seen.length ? ` WHERE pr_id NOT IN (${placeholders})` : ""}`
+        ).run(...seen);
+      }
+    });
+    tx();
+    return { success: true, upserted: seen.length, deactivated: 0, scanned: snapshot.size };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[firestore-sync] syncMissionPrLinksFromFirestore failed:", msg);
+    return { success: false, upserted: 0, deactivated: 0, scanned: 0, error: msg };
+  }
+}
+
 /**
  * READ-ONLY: Fetch AM asset allocations for a given set of allocation IDs.
  * Returns allocation data for display only — never modifies AM collections.

@@ -1704,6 +1704,24 @@ function migrateMissionFuelBudget(db: Database.Database): void {
       db.exec("ALTER TABLE mission_stops ADD COLUMN lng REAL");
     }
   }
+
+  // Read-only cache of PR-app purchaseRequests stamped with fleetMissionId.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mission_pr_links (
+      pr_id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL DEFAULT '',
+      pr_number TEXT NOT NULL DEFAULT '',
+      pr_status TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'fuel',
+      amount REAL,
+      currency TEXT NOT NULL DEFAULT '',
+      requestor_name TEXT NOT NULL DEFAULT '',
+      pr_created_at TEXT NOT NULL DEFAULT '',
+      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mission_pr_links_mission ON mission_pr_links(mission_id);
+  `);
 }
 
 function migrateVehicleGpsSnapshots(db: Database.Database): void {

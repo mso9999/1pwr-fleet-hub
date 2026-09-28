@@ -53,9 +53,28 @@ function withMissionStops(
     arr.push(s);
     byMission.set(s.mission_id, arr);
   }
+  const prByMission = new Map<string, Record<string, unknown>[]>();
+  try {
+    const prRows = db
+      .prepare(
+        `SELECT mission_id, pr_id, pr_number, pr_status, kind, amount, currency, requestor_name, pr_created_at, synced_at
+         FROM mission_pr_links
+         WHERE mission_id IN (${placeholders})
+         ORDER BY pr_created_at`
+      )
+      .all(...ids) as Array<Record<string, unknown> & { mission_id: string }>;
+    for (const p of prRows) {
+      const arr = prByMission.get(p.mission_id) ?? [];
+      arr.push(p);
+      prByMission.set(p.mission_id, arr);
+    }
+  } catch (err) {
+    console.error("[api/missions GET] mission_pr_links", err);
+  }
   return rows.map((r) => {
     const stops = byMission.get(String(r.id || "")) ?? [];
-    return { ...r, stops, stop_count: stops.length };
+    const prLinks = prByMission.get(String(r.id || "")) ?? [];
+    return { ...r, stops, stop_count: stops.length, pr_links: prLinks };
   });
 }
 

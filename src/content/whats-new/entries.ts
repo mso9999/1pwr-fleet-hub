@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-fuel-pr-deployment-budget",
+    title: "Raise a fuel PR straight from an approved mission",
+    summary:
+      "Approved missions get Raise fuel PR and Open deployment budget buttons. Both open the PR system pre-filled, and the PR shows back on the mission.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-09-28",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "How it works",
+        bodyMd:
+          "- On **Vehicle requests**, the new **Fuel funding for approved missions** card lists approved missions. The mission creator sees their own. Fleet lead, managers and admins see all.\n- **Raise fuel PR** opens the PR system with expense type Fuel, the Fleet Hub budget, currency, site and required date filled in. You pick the department and project category, then submit.\n- **Open deployment budget** opens the PR-system deployment budget wizard with the mission's dates, party and fuel filled in.\n- **Funded by** switches between an own fuel PR and the deployment budget.\n- Linked PRs appear on the card with their number and status. Status refreshes hourly, or press **Check PR status**.",
+      },
+    ],
+  },
+  {
     slug: "mission-fuel-budget-automatic",
     title: "Mission fuel budgets now fill in automatically",
     summary:

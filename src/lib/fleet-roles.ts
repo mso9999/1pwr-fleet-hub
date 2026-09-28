@@ -156,6 +156,16 @@ export function canViewPrivateDraft(args: {
   return isItDepartment(args.department);
 }
 
+/**
+ * Fuel PR / deployment-budget actions on an approved mission: the mission creator,
+ * fleet management (fleet_lead, manager, admin), or superadmin.
+ */
+export function canActOnMissionFuel(args: { role: string; isCreator: boolean }): boolean {
+  if (args.isCreator) return true;
+  const role = (args.role || "").toLowerCase();
+  return isFleetManagementRole(role) || role === "superadmin";
+}
+
 export function canEditPrivateDraft(args: {
   role: string;
   department?: string | null;
