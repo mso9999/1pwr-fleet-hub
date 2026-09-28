@@ -26,6 +26,7 @@ import {
 } from "@/components/MissionPipeline";
 import { MissionNextOwnerBanner } from "@/components/MissionNextOwnerBanner";
 import { MissionFuelFundingCard, type MissionPrLink } from "@/components/MissionFuelFundingCard";
+import { NO_TRIP_EXPIRE_AFTER_DAYS } from "@/lib/stale-no-trip";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -180,6 +181,13 @@ function missionFuelSummary(m: PlannedMissionRow): string {
   const disp = FUEL_DISPOSITION_LABELS[String(m.fuel_disposition || "")];
   if (disp) parts.push(disp);
   return parts.join(" · ");
+}
+
+/** Date (YYYY-MM-DD) an approved mission with no trip is cleared by the daily job. */
+function noTripClearDate(m: PlannedMissionRow): string | null {
+  const t = m.approved_at ? Date.parse(m.approved_at) : NaN;
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + NO_TRIP_EXPIRE_AFTER_DAYS * 86_400_000).toISOString().slice(0, 10);
 }
 
 function missionRouteSummary(m: PlannedMissionRow): string {
@@ -708,6 +716,7 @@ export default function VehicleRequestsPage() {
   const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
   const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
+  const [waitingTripOpen, setWaitingTripOpen] = useState(false);
 
   const roleLooksFleet =
     !!user &&
@@ -1076,12 +1085,27 @@ export default function VehicleRequestsPage() {
             {waitingTrip.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/30" data-tutorial="tutorial-vr-create-trip">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Next: requestor creates the trip</CardTitle>
-                  <p className="text-sm text-zinc-600 font-normal">
-                    Mission is approved. The <strong>requestor or designated driver</strong> creates the planned trip on Trips.
-                    Fleet lead allocates a vehicle only after that trip exists — not from Approve on Request details.
-                  </p>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                    aria-expanded={waitingTripOpen}
+                    onClick={() => setWaitingTripOpen((v) => !v)}
+                  >
+                    <CardTitle className="text-base">
+                      Next: requestor creates the trip ({waitingTrip.length})
+                    </CardTitle>
+                    <span className="text-xs text-zinc-500 shrink-0">{waitingTripOpen ? "Hide ▲" : "Show ▼"}</span>
+                  </button>
+                  {waitingTripOpen && (
+                    <p className="text-sm text-zinc-600 font-normal">
+                      Mission is approved. The <strong>requestor or designated driver</strong> creates the planned trip on Trips.
+                      Fleet lead allocates a vehicle only after that trip exists — not from Approve on Request details.
+                      Missions with no trip {NO_TRIP_EXPIRE_AFTER_DAYS} days after approval are cleared; the requestor is
+                      reminded 7, 3 and 1 day before.
+                    </p>
+                  )}
                 </CardHeader>
+                {waitingTripOpen && (
                 <CardContent className="space-y-3">
                   {waitingTrip.map((m) => (
                     <div
@@ -1105,10 +1129,18 @@ export default function VehicleRequestsPage() {
                           </Badge>
                         )}
                       </div>
+                      {noTripClearDate(m) && (
+                        <p className="text-xs text-amber-800">
+                          {String(noTripClearDate(m)) > new Date().toISOString().slice(0, 10)
+                            ? `Cleared on ${noTripClearDate(m)} if no trip is created by then.`
+                            : "Overdue: cleared by the daily check after a final notice to the requestor."}
+                        </p>
+                      )}
                       <MissionNextOwnerBanner mission={m} />
                     </div>
                   ))}
                 </CardContent>
+                )}
               </Card>
             )}
 

@@ -692,6 +692,11 @@ function migrateStaleApprovalColumns(db: Database.Database): void {
   };
   add("missions", "stale_approval_warned_at");
   add("vehicle_requests", "stale_approval_warned_at");
+  add("missions", "no_trip_warned_at");
+  const missionCols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+  if (missionCols.length > 0 && !missionCols.some((c) => c.name === "no_trip_warn_stage")) {
+    db.exec("ALTER TABLE missions ADD COLUMN no_trip_warn_stage INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 function ensureWhatsNewSeenTable(db: Database.Database): void {

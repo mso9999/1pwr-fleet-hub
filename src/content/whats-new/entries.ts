@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "approved-missions-no-trip-cleared",
+    title: "Approved missions with no trip are cleared after 14 days",
+    summary:
+      "Create the trip within 14 days of approval. Requestors get reminders at 7, 3 and 1 day left.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-09-28",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- After a mission is approved, the requestor or designated driver creates the planned trip on **Trips**.\n- If there is still no trip, the requestor gets email reminders with **7, 3 and 1 day left**. At **14 days after approval** the mission is cleared from the lists. Submit a new mission if the trip is still needed.\n- Missions already past 14 days get one final notice first and are cleared on the next daily check.\n- Missions not using a company vehicle are not affected.\n- The **Next: requestor creates the trip** card on Vehicle requests is now collapsed by default. Click it to see the missions and their clear-by dates.",
+      },
+    ],
+  },
+  {
     slug: "mission-fuel-pr-deployment-budget",
     title: "Raise a fuel PR straight from an approved mission",
     summary:
