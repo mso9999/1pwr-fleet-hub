@@ -65,8 +65,10 @@ async function buildMissionFuelSnapshot(
   ];
   const dest = input.destination.trim();
   if (dest) {
-    const last = waypoints[waypoints.length - 1];
-    if (!last || String(last.label || "").toLowerCase() !== dest.toLowerCase()) {
+    const hasDest = waypoints
+      .slice(1)
+      .some((w) => String(w.label || "").toLowerCase() === dest.toLowerCase());
+    if (!hasDest) {
       waypoints.push({ label: dest, siteCode: dest });
     }
   }

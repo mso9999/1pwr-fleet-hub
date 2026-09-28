@@ -389,7 +389,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Planner / requester",
     title: "1. Submit a new mission",
     body:
-      "Open + New mission and complete the form: choose Field deployment when the run needs a departing driver checklist and mission-linked trip gates. Include required vehicle class and R&R dates so management can approve the plan.",
+      "Open + New mission and complete the form: choose Field deployment when the run needs a departing driver checklist and mission-linked trip gates. Include required vehicle class so management can approve the plan.",
   },
   {
     id: "fd-mission-form",
@@ -532,7 +532,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-form",
     title: "2. Mission form + driver row",
     body:
-      "Step 1: submit a mission with profile, required vehicle class, and R&R for approval. Step 2 (drivers): link an approved mission, choose designated driver from the register search, purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval (override reason if overlap or registration disc blocks).",
+      "Step 1: submit a mission with profile and required vehicle class for approval. Step 2 (drivers): link an approved mission, choose designated driver from the register search, purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval (override reason if overlap or registration disc blocks).",
   },
   {
     id: "vr-route",

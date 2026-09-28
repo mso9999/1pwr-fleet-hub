@@ -82,6 +82,7 @@ function orgForCountry(countryCode: string): string | null {
 }
 
 function parseNumber(value: unknown): number | undefined {
+  if (value == null || (typeof value === "string" && !value.trim())) return undefined;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }

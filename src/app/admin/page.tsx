@@ -47,6 +47,7 @@ function parseSiteMeta(meta: string | null | undefined): { lat: number; lng: num
     };
     const latRaw = o.lat ?? o.latitude;
     const lngRaw = o.lng ?? o.longitude;
+    if (latRaw == null || lngRaw == null || latRaw === "" || lngRaw === "") return null;
     const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
     const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;

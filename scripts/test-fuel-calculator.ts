@@ -10,6 +10,39 @@ import {
   ROAD_FALLBACK_FACTOR,
 } from "../src/lib/fuel-calculator";
 import { estimatedRoadKm, haversineKm, buildTripWaypoints } from "../src/lib/route-distance";
+import type Database from "better-sqlite3";
+import { getSiteCoordsByCode } from "../src/lib/vehicle-request-fuel";
+
+function testNullSiteGpsFallsBack(): void {
+  const nullMeta = JSON.stringify({ latitude: null, longitude: null, source: "pr_firestore" });
+  const siteMeta: Record<string, string> = {
+    HQ: nullMeta,
+    MAK: nullMeta,
+    ZZZ: JSON.stringify({ latitude: "", longitude: "" }),
+    PIN: JSON.stringify({ lat: -29.5, lng: 27.9 }),
+  };
+  const db = {
+    prepare: (sql: string) => ({
+      get: (...args: unknown[]) => {
+        if (sql.includes("FROM organizations")) {
+          return { route_origin_lat: -29.315, route_origin_lng: 27.487 };
+        }
+        const code = String(args[1] ?? "");
+        const meta = siteMeta[code] ?? siteMeta[code.toUpperCase()];
+        return meta ? { meta } : undefined;
+      },
+    }),
+  } as unknown as Database.Database;
+
+  assert.deepEqual(getSiteCoordsByCode(db, "1pwr_lesotho", "HQ"), { lat: -29.315, lng: 27.487 });
+  assert.deepEqual(getSiteCoordsByCode(db, "1pwr_lesotho", "MAK"), { lat: -29.1929, lng: 27.5681 });
+  assert.equal(getSiteCoordsByCode(db, "1pwr_lesotho", "ZZZ"), null);
+  assert.deepEqual(getSiteCoordsByCode(db, "1pwr_lesotho", "PIN"), { lat: -29.5, lng: 27.9 });
+
+  const hq = getSiteCoordsByCode(db, "1pwr_lesotho", "HQ")!;
+  const mak = getSiteCoordsByCode(db, "1pwr_lesotho", "MAK")!;
+  assert.ok(haversineKm(hq, mak) > 10, "HQ→MAK must not collapse to 0 km");
+}
 
 function testExcelWorkedExample(): void {
   const r = calculateFuelBudget({
@@ -69,6 +102,7 @@ const tests: Array<[string, () => void]> = [
   ["L/100 km ↔ km/L conversion", testEconomyConversion],
   ["1.4 road fallback ≠ money safety factor", testRoadFallbackSeparateFromSafety],
   ["round trip appends return leg", testRoundTripAppendsReturn],
+  ["null site GPS falls back instead of (0, 0)", testNullSiteGpsFallsBack],
 ];
 
 let failures = 0;

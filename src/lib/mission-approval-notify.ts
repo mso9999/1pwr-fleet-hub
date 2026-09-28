@@ -167,7 +167,7 @@ export async function notifyMissionApproversOfSubmission(
   }
 
   const baseUrl = (process.env.FLEET_PUBLIC_BASE_URL || "https://fm.1pwrafrica.com").replace(/\/$/, "");
-  const reviewUrl = `${baseUrl}/vehicle-requests`;
+  const reviewUrl = `${baseUrl}/vehicle-requests?mission=${encodeURIComponent(missionId)}`;
   const stops = (
     db
       .prepare("SELECT location FROM mission_stops WHERE mission_id = ? ORDER BY stop_order")

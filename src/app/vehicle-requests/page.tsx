@@ -113,19 +113,6 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "secondary",
 };
 
-/** R&R = rest & recuperation / travel policy sign-off (matches PR-style travel fields). */
-const RR_LABELS: Record<string, string> = {
-  na: "N/A",
-  pending: "Pending",
-  approved: "Approved",
-};
-
-const RR_BADGE: Record<string, "secondary" | "warning" | "success"> = {
-  na: "secondary",
-  pending: "warning",
-  approved: "success",
-};
-
 const MISSION_PROFILE_OPTIONS: { value: string; label: string }[] = [
   { value: "local", label: "Local / HQ vicinity" },
   { value: "field", label: "Field deployment" },
@@ -145,11 +132,6 @@ const KNOWN_STATUS = new Set(STATUS_FILTERS.map((p) => p.status));
 
 function countByStatus(requests: RequestRow[], status: string): number {
   return requests.filter((r) => r.status === status).length;
-}
-
-function normalizeRr(s: string | undefined): string {
-  const t = (s || "na").toLowerCase();
-  return t === "pending" || t === "approved" ? t : "na";
 }
 
 function normalizeTripShape(s: string | undefined): "one_way" | "round_trip" | "multi_stop" {
@@ -886,6 +868,20 @@ export default function VehicleRequestsPage() {
     };
   }, [organizationId]);
 
+  const deepLinkMissionId = searchParams.get("mission");
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!deepLinkMissionId || deepLinkAppliedRef.current) return;
+    if (!pendingMissions.some((m) => m.id === deepLinkMissionId)) return;
+    deepLinkAppliedRef.current = true;
+    setExpandedPendingMissionId(deepLinkMissionId);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`pending-mission-${deepLinkMissionId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [deepLinkMissionId, pendingMissions]);
+
   useEffect(() => {
     if (!canApproveMission) {
       setPendingMissions([]);
@@ -1230,6 +1226,7 @@ export default function VehicleRequestsPage() {
             {pendingMissions.map((m) => (
               <div
                 key={m.id}
+                id={`pending-mission-${m.id}`}
                 className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
               >
                 <button
@@ -1362,12 +1359,6 @@ export default function VehicleRequestsPage() {
                       <div className="sm:col-span-2">
                         <dt className="text-zinc-500 uppercase tracking-wide">Planned route</dt>
                         <dd className="text-zinc-900 mt-0.5">{missionRouteSummary(m)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">R&amp;R</dt>
-                        <dd className="text-zinc-900 mt-0.5">
-                          {RR_LABELS[normalizeRr(m.rr_status)] ?? "N/A"}
-                        </dd>
                       </div>
                       <div className="sm:col-span-2">
                         <dt className="text-zinc-500 uppercase tracking-wide">Loadout / equipment</dt>
@@ -1510,7 +1501,6 @@ export default function VehicleRequestsPage() {
                       <th className="px-3 py-2.5 whitespace-nowrap">Depart</th>
                       <th className="px-3 py-2.5 max-w-[140px]">Mission</th>
                       <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">R&amp;R</th>
                       <th className="px-3 py-2.5 whitespace-nowrap">Vehicle</th>
                     </tr>
                   </thead>
@@ -1554,11 +1544,6 @@ export default function VehicleRequestsPage() {
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           <Badge variant={(STATUS_COLORS[req.status] || "secondary") as "warning" | "success" | "destructive" | "secondary"} className="text-[11px]">
                             {req.status}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <Badge variant={RR_BADGE[normalizeRr(req.rr_status)] ?? "secondary"} className="text-[11px]">
-                            {RR_LABELS[normalizeRr(req.rr_status)] ?? req.rr_status ?? "N/A"}
                           </Badge>
                         </td>
                         <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap max-w-[160px] truncate">
@@ -1633,12 +1618,6 @@ function RequestDetailModal({
   const [assignOverlapReason, setAssignOverlapReason] = useState("");
   const [reserveOptions, setReserveOptions] = useState<EntityPickerOption[]>([]);
   const [reserveLoading, setReserveLoading] = useState(false);
-  const [localRr, setLocalRr] = useState(normalizeRr(r.rr_status));
-
-  useEffect(() => {
-    setLocalRr(normalizeRr(r.rr_status));
-  }, [r.id, r.rr_status]);
-
   useEffect(() => {
     setAssignVehicleId("");
     setAssignOverlapReason("");
@@ -1749,21 +1728,6 @@ function RequestDetailModal({
     window.alert(j.error || "Could not assign or reserve vehicle.");
   }
 
-  async function saveRrStatus(): Promise<void> {
-    if (normalizeRr(r.rr_status) === localRr) return;
-    setIsActing(true);
-    const res = await fetch(`/api/vehicle-requests/${r.id}`, {
-      method: "PATCH",
-      headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ rrStatus: localRr }),
-    });
-    setIsActing(false);
-    if (res.ok) {
-      const row = (await res.json()) as RequestRow;
-      onPatchSaved(row);
-    }
-  }
-
   const availableVehicles = pool?.pools
     ? Object.values(pool.pools)
         .flat()
@@ -1781,14 +1745,6 @@ function RequestDetailModal({
   }));
   const reservePickerOptions = r.mission_id ? reserveOptions : poolVehiclePickerOptions;
 
-  const isRequestor =
-    !!currentUserEmail &&
-    !!r.requested_by_email &&
-    currentUserEmail.toLowerCase() === r.requested_by_email.trim().toLowerCase();
-  const canEditRr = canFullEdit || isRequestor;
-  /** Requestors cannot change R&R after fleet has marked Approved */
-  const requestorRrReadOnly =
-    isRequestor && !canFullEdit && normalizeRr(r.rr_status) === "approved";
 
   return (
     <div
@@ -1932,42 +1888,6 @@ function RequestDetailModal({
               <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{r.notes || "—"}</dd>
             </div>
           </dl>
-
-          <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-3 space-y-2">
-            <div className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">R&amp;R (rest &amp; recuperation)</div>
-            <p className="text-xs text-zinc-600">
-              Travel policy sign-off for rest &amp; recuperation, aligned with PR.{" "}
-              <strong>Requestors</strong> set N/A or Pending; <strong>fleet management</strong> may mark Approved when clearance is received.
-            </p>
-            {canEditRr && !requestorRrReadOnly ? (
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[200px]">
-                  <label className="text-xs font-medium text-zinc-600 block mb-1">R&amp;R status</label>
-                  <select
-                    value={localRr}
-                    onChange={(e) => setLocalRr(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white"
-                  >
-                    <option value="na">N/A</option>
-                    <option value="pending">Pending</option>
-                    {canFullEdit && <option value="approved">Approved</option>}
-                  </select>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={isActing || normalizeRr(r.rr_status) === localRr}
-                  onClick={() => void saveRrStatus()}
-                >
-                  Save R&amp;R
-                </Button>
-              </div>
-            ) : (
-              <Badge variant={RR_BADGE[normalizeRr(r.rr_status)] ?? "secondary"}>
-                {RR_LABELS[normalizeRr(r.rr_status)] ?? "N/A"}
-              </Badge>
-            )}
-          </div>
 
           {(r.estimated_route_km != null && r.estimated_route_km > 0) && (
             <div className="text-xs text-zinc-700 rounded-lg border border-zinc-100 bg-zinc-50/80 px-3 py-2 space-y-0.5">
@@ -2426,7 +2346,6 @@ function RequestForm({
     setValue("cmNotes", String(m.notes || ""));
     setValue("cmMissionProfile", String(m.mission_profile || "local"));
     setValue("cmRequiredVehicleClass", String(m.required_vehicle_class || ""));
-    setValue("cmRrStatus", normalizeRr(m.rr_status));
   }
 
   function addRouteStop(): void {
@@ -2566,7 +2485,6 @@ function RequestForm({
         tripShape: multiStopEnabled ? tripShape : "one_way",
         stops: multiStopEnabled ? finalStops : [],
         requiredVehicleClass: reqClass,
-        rrStatus: String(fd.get("cmRrStatus") || "na"),
         transportMode,
         publicTransportJustification: publicTransport
           ? publicTransportJustification.trim()
@@ -2603,7 +2521,7 @@ function RequestForm({
         setMissionMessage(
           saveAsDraft
             ? "Mission draft saved. Only you and admins can edit it until submission; IS&T may view it for diagnosis."
-            : "Mission submitted for management approval (profile, vehicle class, and R&R are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
+            : "Mission submitted for management approval (profile and vehicle class are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
         );
         form.reset();
         setDestinationChoice("");
@@ -2669,7 +2587,6 @@ function RequestForm({
       requiredVehicleClass: vehicleClass,
       loadoutDescription: fd.get("loadoutDescription") || "",
       priority: fd.get("priority") || "normal",
-      rrStatus: fd.get("rrStatus") || "na",
       notes: fd.get("notes") || "",
     };
     if (overrideReady) {
@@ -2707,7 +2624,7 @@ function RequestForm({
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            One form captures timeframe, route shape (one-way, round-trip, multi-stop), destination, mission profile, required vehicle class, loadout, and R&amp;R. Management approves the mission; fleet then reserves a pool vehicle on the mission.
+            One form captures timeframe, route shape (one-way, round-trip, multi-stop), destination, mission profile, required vehicle class, and loadout. Management approves the mission; fleet then reserves a pool vehicle on the mission.
           </p>
         </CardHeader>
         <CardContent>
@@ -2965,17 +2882,6 @@ function RequestForm({
                     Skipped — no company vehicle on this mission.
                   </p>
                 )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-zinc-700">R&amp;R status</label>
-                <select
-                  name="cmRrStatus"
-                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  defaultValue="na"
-                >
-                  <option value="na">N/A — not applicable</option>
-                  <option value="pending">Pending — clearance required</option>
-                </select>
               </div>
             </div>
             <Input name="cmNotes" label="Mission notes" placeholder="Optional" />
@@ -3280,12 +3186,6 @@ function RequestForm({
                   </div>
                 )}
                 <Input name="loadoutDescription" label="Loadout / equipment" placeholder="For this vehicle request" />
-              </div>
-              <div className="max-w-md">
-                <Select name="rrStatus" label="R&amp;R status (rest &amp; recuperation)">
-                  <option value="na">N/A — not applicable</option>
-                  <option value="pending">Pending — R&amp;R clearance required</option>
-                </Select>
               </div>
               <Input name="notes" label="Notes" placeholder="Additional information" />
               {canOverride && (

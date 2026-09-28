@@ -32,9 +32,12 @@ function parseMeta(meta: string | null | undefined): { lat?: number; lng?: numbe
     };
     const latRaw = o.lat ?? o.latitude;
     const lngRaw = o.lng ?? o.longitude;
-    const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
-    const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
+    const toNum = (v: unknown): number =>
+      typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+    const lat = toNum(latRaw);
+    const lng = toNum(lngRaw);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return {};
+    if (lat === 0 && lng === 0) return {};
     return { lat, lng };
   } catch {
     return {};
