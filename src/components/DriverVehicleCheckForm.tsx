@@ -721,6 +721,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
   const departingBlocked =
     direction === "departing" &&
+    !!selectedVehicleId &&
     !eligibleTripsLoading &&
     !eligibleTripsError &&
     eligibleTrips.length === 0;
