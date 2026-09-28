@@ -364,6 +364,13 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [remarks, setRemarks] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const submitAnchorRef = useRef<HTMLDivElement>(null);
+  function showFormError(message: string) {
+    setFormError(message);
+    requestAnimationFrame(() => {
+      submitAnchorRef.current?.scrollIntoView({ block: "nearest" });
+    });
+  }
   const [photoFiles, setPhotoFiles] = useState<Partial<Record<string, File>>>({});
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState<Record<string, string>>({});
   const [driverOptions, setDriverOptions] = useState<ApprovedDriverOption[]>([]);
@@ -587,20 +594,20 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     const fd = new FormData(e.currentTarget);
 
     if (!fd.get("vehicleId")) {
-      setFormError("Please select a vehicle.");
+      showFormError("Please select a vehicle.");
       return;
     }
 
     const mileageRaw = (fd.get("mileageKm") as string)?.trim() ?? "";
     const mileageKm = mileageRaw ? parseInt(mileageRaw, 10) : NaN;
     if (!Number.isFinite(mileageKm) || mileageKm < 0) {
-      setFormError("Enter a valid odometer reading (km).");
+      showFormError("Enter a valid odometer reading (km).");
       return;
     }
 
     for (const s of DVC_PHOTO_SLOTS) {
       if (!photoFiles[s.id]) {
-        setFormError(`Add a photo: ${s.label}.`);
+        showFormError(`Add a photo: ${s.label}.`);
         return;
       }
     }
@@ -610,7 +617,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     // here too so the driver gets a clear in-form message rather than a
     // 400 after the photo upload attempt.
     if (direction === "departing" && !selectedTripId) {
-      setFormError(
+      showFormError(
         eligibleTrips.length === 0
           ? eligibleEmptyHint ||
             "No approved mission for this vehicle today. Ask dispatch to log and approve a mission before departing."
@@ -671,7 +678,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
           if (raw) detail = `Failed to submit check (${res.status}): ${raw.slice(0, 280)}`;
           else detail = `Failed to submit check (HTTP ${res.status}).`;
         }
-        setFormError(detail);
+        showFormError(detail);
         setIsSubmitting(false);
         return;
       }
@@ -703,7 +710,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         }
       }
       const msg = err instanceof Error ? err.message : "Upload failed";
-      setFormError(
+      showFormError(
         createdId
           ? `Could not upload verification photos (${msg}). The draft check was discarded — try again.`
           : "Network error — please try again."
@@ -711,6 +718,16 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       setIsSubmitting(false);
     }
   }
+
+  const departingBlocked =
+    direction === "departing" &&
+    !eligibleTripsLoading &&
+    !eligibleTripsError &&
+    eligibleTrips.length === 0;
+  const departingBlockReason = departingBlocked
+    ? eligibleEmptyHint ||
+      "No approved mission is reserved for this vehicle, so this check can't be submitted yet."
+    : "";
 
   let lastCategory = "";
   let lastGroup = "";
@@ -724,7 +741,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         </p>
       </CardHeader>
       <CardContent>
-        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
+        <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
           {/* Direction toggle */}
           <div className="flex gap-2" data-tutorial="tutorial-dvc-direction">
             {(["departing", "returning"] as const).map((d) => (
@@ -918,12 +935,6 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
             </div>
           )}
 
-          {formError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
-              {formError}
-            </div>
-          )}
-
           {/* Status check items — Pass/Fail */}
           <div className="border rounded-lg overflow-hidden" data-tutorial="tutorial-dvc-status-grid">
             {STATUS_ITEMS.map((item) => {
@@ -1075,23 +1086,38 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
           {/* Submit */}
           <div
-            className="sticky bottom-0 z-10 flex flex-wrap gap-3 border-t border-zinc-200 bg-zinc-50/95 backdrop-blur py-4 -mx-4 px-4 md:static md:border-0 md:bg-transparent md:p-0"
+            ref={submitAnchorRef}
+            className="sticky bottom-0 z-10 space-y-2 border-t border-zinc-200 bg-zinc-50/95 backdrop-blur py-4 -mx-4 px-4 md:static md:border-0 md:bg-transparent md:p-0"
             data-tutorial="tutorial-dvc-submit"
           >
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              size="lg"
-              className="min-h-[48px] px-8 text-base touch-manipulation"
-            >
-              {isSubmitting ? "Submitting…" : "Submit vehicle check"}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
-              Cancel
-            </Button>
-            <span className="text-xs text-zinc-500 self-center">
-              {STATUS_ITEMS.length} check items · {EQUIP_ITEMS.length} equipment · 5 verification photos
-            </span>
+            {(formError || departingBlockReason) && (
+              <div
+                role="alert"
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  formError
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-amber-200 bg-amber-50 text-amber-900"
+                }`}
+              >
+                {formError || departingBlockReason}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="submit"
+                disabled={isSubmitting || departingBlocked}
+                size="lg"
+                className="min-h-[48px] px-8 text-base touch-manipulation"
+              >
+                {isSubmitting ? "Submitting…" : departingBlocked ? "Can't submit yet" : "Submit vehicle check"}
+              </Button>
+              <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
+                Cancel
+              </Button>
+              <span className="text-xs text-zinc-500 self-center">
+                {STATUS_ITEMS.length} check items · {EQUIP_ITEMS.length} equipment · 5 verification photos
+              </span>
+            </div>
           </div>
         </form>
       </CardContent>
