@@ -494,8 +494,8 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Management (capacity)",
     title: "12. If capacity conflicts (optional)",
     body:
-      "When not enough operational vehicles exist, management may defer or cancel missions or reassign capacity. Fleet cannot decide which approved mission loses a slot — that arbitration sits here for eligible roles.",
-    suggestion: "Visible only if your role has capacity arbitration permission.",
+      "This step appears only after fleet reports that no vehicle is left to allocate for a departure date. Management then defers or cancels the missions that cannot go. Fleet cannot decide which approved mission loses a slot.",
+    suggestion: "Hidden until fleet reports a vehicle shortage for a departure date.",
   },
   {
     id: "fd-dashboard-alerts",

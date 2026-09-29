@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { canArbitrateMissionCapacity } from "@/lib/vehicle-check-approvers";
+import { openShortfall } from "@/lib/capacity-shortfall";
 
 /**
  * GET /api/missions/arbitration-queue?org=&date=YYYY-MM-DD
@@ -21,6 +22,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       { error: "Only management (not fleet lead alone) may view the arbitration queue." },
       { status: 403 }
     );
+  }
+
+  const shortfall = openShortfall(db, org, date);
+  if (!shortfall) {
+    return NextResponse.json({ date, missions: [], shortfall: null });
   }
 
   const rows = db
@@ -46,5 +52,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     )
     .all(org, date) as Record<string, unknown>[];
 
-  return NextResponse.json({ date, missions: rows });
+  return NextResponse.json({ date, missions: rows, shortfall });
 }

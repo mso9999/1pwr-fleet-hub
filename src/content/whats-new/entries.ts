@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "capacity-arbitration-after-fleet-shortage",
+    title: "Management arbitrates a day only after fleet reports no vehicle left",
+    summary:
+      "Defer and Cancel stay hidden until the fleet lead reports a departure date with nothing left to allocate.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-09-29",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- On **Vehicle requests**, the **Fleet lead: allocate vehicles** card has **No vehicle left for this date** once a mission has a planned trip.\n- That report opens **Management: capacity arbitration** for that departure date. Management defers or cancels the missions that cannot go. Fleet lead cannot choose who loses the slot.\n- Until fleet reports a shortage, approved missions with no trip stay on **Next: requestor creates the trip**. Defer and Cancel are not offered there.\n- Fleet can **Withdraw report** when a vehicle can be allocated again.",
+      },
+    ],
+  },
+  {
     slug: "approved-missions-no-trip-cleared",
     title: "Approved missions with no trip are cleared after 14 days",
     summary:

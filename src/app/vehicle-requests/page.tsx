@@ -27,6 +27,7 @@ import {
 import { MissionNextOwnerBanner } from "@/components/MissionNextOwnerBanner";
 import { MissionFuelFundingCard, type MissionPrLink } from "@/components/MissionFuelFundingCard";
 import { NO_TRIP_EXPIRE_AFTER_DAYS } from "@/lib/stale-no-trip";
+import type { CapacityShortfall } from "@/lib/capacity-shortfall";
 import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
@@ -714,6 +715,7 @@ export default function VehicleRequestsPage() {
   const [approvedMissionsFleet, setApprovedMissionsFleet] = useState<PlannedMissionRow[]>([]);
   const [arbitrationDate, setArbitrationDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
+  const [shortfalls, setShortfalls] = useState<CapacityShortfall[]>([]);
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
   const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
   const [waitingTripOpen, setWaitingTripOpen] = useState(false);
@@ -785,6 +787,49 @@ export default function VehicleRequestsPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const reloadShortfalls = useCallback(async () => {
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(
+      `/api/missions/capacity-shortfall?org=${encodeURIComponent(organizationId)}`,
+      { headers }
+    );
+    if (!res.ok) {
+      setShortfalls([]);
+      return;
+    }
+    const j = (await res.json()) as { shortfalls?: CapacityShortfall[] };
+    setShortfalls(Array.isArray(j.shortfalls) ? j.shortfalls : []);
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!canAllocateVehicle && !missionPerms?.canArbitrateCapacity) return;
+    void reloadShortfalls();
+  }, [canAllocateVehicle, missionPerms?.canArbitrateCapacity, reloadShortfalls]);
+
+  const arbitrationDateActive = shortfalls.some((s) => s.departure_date === arbitrationDate)
+    ? arbitrationDate
+    : shortfalls[0]?.departure_date || arbitrationDate;
+
+  async function reportCapacityShortfall(date: string, action: "flag" | "clear"): Promise<void> {
+    const message =
+      action === "flag"
+        ? `Tell management there is no vehicle left to allocate on ${date}? They will choose which mission is deferred or cancelled.`
+        : `Withdraw the vehicle-shortage report for ${date}? Management will no longer see that day for arbitration.`;
+    if (!window.confirm(message)) return;
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch("/api/missions/capacity-shortfall", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ org: organizationId, departureDate: date, action }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(j.error || "Could not update the shortage report.");
+      return;
+    }
+    await reloadShortfalls();
+  }
 
   async function patchMissionArbitration(
     missionId: string,
@@ -973,7 +1018,7 @@ export default function VehicleRequestsPage() {
     void (async () => {
       const headers = await jsonHeadersWithBearer();
       const res = await fetch(
-        `/api/missions/arbitration-queue?org=${encodeURIComponent(organizationId)}&date=${encodeURIComponent(arbitrationDate)}`,
+        `/api/missions/arbitration-queue?org=${encodeURIComponent(organizationId)}&date=${encodeURIComponent(arbitrationDateActive)}`,
         { headers }
       );
       if (!res.ok) return;
@@ -983,7 +1028,7 @@ export default function VehicleRequestsPage() {
     return () => {
       cancelled = true;
     };
-  }, [organizationId, arbitrationDate, missionPerms?.canArbitrateCapacity]);
+  }, [organizationId, arbitrationDateActive, missionPerms?.canArbitrateCapacity]);
 
   useEffect(() => {
     if (!active || trackId !== "vehicleRequest") return;
@@ -1150,10 +1195,48 @@ export default function VehicleRequestsPage() {
                   <CardTitle className="text-base">Fleet lead: allocate vehicles</CardTitle>
                   <p className="text-sm text-zinc-600 font-normal">
                     These missions already have a planned trip. Pick a pool vehicle matching the dates and required class.
+                    If nothing is left for a departure date, report it. Management then chooses which mission defers or is cancelled.
                   </p>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {readyToAllocate.map((m) => (
+                <CardContent className="space-y-4">
+                  {[...new Set(readyToAllocate.map((m) => String(m.departure_date || "").slice(0, 10)))]
+                    .sort()
+                    .map((date) => {
+                      const flagged = shortfalls.find((s) => s.departure_date === date);
+                      const dayMissions = readyToAllocate.filter(
+                        (m) => String(m.departure_date || "").slice(0, 10) === date
+                      );
+                      return (
+                        <div key={date} className="space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-zinc-600">Departing {date}</p>
+                            {flagged ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-violet-800">
+                                  Shortage reported{flagged.flagged_by_name ? ` by ${flagged.flagged_by_name}` : ""}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void reportCapacityShortfall(date, "clear")}
+                                >
+                                  Withdraw report
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="text-violet-900 border-violet-200"
+                                onClick={() => void reportCapacityShortfall(date, "flag")}
+                              >
+                                No vehicle left for this date
+                              </Button>
+                            )}
+                          </div>
+                          {dayMissions.map((m) => (
                     <div
                       key={m.id}
                       className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1"
@@ -1194,7 +1277,10 @@ export default function VehicleRequestsPage() {
                         }}
                       />
                     </div>
-                  ))}
+                          ))}
+                        </div>
+                      );
+                    })}
                 </CardContent>
               </Card>
             )}
@@ -1209,27 +1295,36 @@ export default function VehicleRequestsPage() {
         );
       })()}
 
-      {missionPerms?.canArbitrateCapacity && (
+      {missionPerms?.canArbitrateCapacity && shortfalls.length > 0 && (
         <Card className="border-violet-200 bg-violet-50/30" data-tutorial="tutorial-vr-arbitration">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Management: capacity arbitration (departure day)</CardTitle>
             <p className="text-sm text-zinc-600 font-normal">
-              Approved missions departing on the selected date. Defer or cancel when operational capacity is insufficient. Fleet lead alone cannot arbitrate who loses a slot.
+              Fleet reported no vehicle left to allocate on {shortfalls.map((s) => s.departure_date).join(", ")}.
+              Defer or cancel the missions that cannot go. Fleet lead cannot choose who loses a slot.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end gap-2">
               <div>
-                <label className="text-xs font-medium text-zinc-600 block mb-1">Departure date</label>
-                <input
-                  type="date"
-                  value={arbitrationDate}
+                <label className="text-xs font-medium text-zinc-600 block mb-1">Departure date fleet reported</label>
+                <select
+                  value={arbitrationDateActive}
                   onChange={(e) => setArbitrationDate(e.target.value)}
                   className="h-10 rounded-lg border border-zinc-200 px-2 text-sm bg-white"
-                />
+                >
+                  {shortfalls.map((s) => (
+                    <option key={s.departure_date} value={s.departure_date}>
+                      {s.departure_date}
+                      {s.flagged_by_name ? ` — ${s.flagged_by_name}` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-            {arbitrationRows.length === 0 ? (
+            {!shortfalls.some((s) => s.departure_date === arbitrationDateActive) ? (
+              <p className="text-sm text-zinc-600">Fleet has not reported a vehicle shortage for this date.</p>
+            ) : arbitrationRows.length === 0 ? (
               <p className="text-sm text-zinc-600">No approved missions on this date.</p>
             ) : (
               <ul className="space-y-2">

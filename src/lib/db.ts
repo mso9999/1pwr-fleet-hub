@@ -434,6 +434,29 @@ export function ensureMissionsTableAndVehicleRequestMissionId(db: Database.Datab
   });
   safeMigrate(db, "migratePublicTransportSentinelVehicles", migratePublicTransportSentinelVehicles);
   safeMigrate(db, "migrateMissionFuelBudget", migrateMissionFuelBudget);
+  safeMigrate(db, "migrateDepartureCapacityShortfalls", migrateDepartureCapacityShortfalls);
+}
+
+/** One open "fleet cannot allocate" report per organization and departure day. */
+function migrateDepartureCapacityShortfalls(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS departure_capacity_shortfalls (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      departure_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      reason TEXT NOT NULL DEFAULT '',
+      flagged_by_id TEXT NOT NULL DEFAULT '',
+      flagged_by_name TEXT NOT NULL DEFAULT '',
+      flagged_at TEXT NOT NULL DEFAULT '',
+      cleared_by_id TEXT NOT NULL DEFAULT '',
+      cleared_by_name TEXT NOT NULL DEFAULT '',
+      cleared_at TEXT NOT NULL DEFAULT ''
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_capacity_shortfall_open
+      ON departure_capacity_shortfalls(organization_id, departure_date)
+      WHERE status = 'open';
+  `);
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   validateRoutePlan,
 } from "@/lib/trip-route";
 import { recomputeMissionFuel } from "@/lib/fuel-estimate";
+import { departureDateKey, openShortfall } from "@/lib/capacity-shortfall";
 import { normalizeFuelDisposition } from "@/lib/fuel-calculator";
 
 const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string]> = [
@@ -341,6 +342,15 @@ export async function PATCH(
     const reason = String(body.reason || "").trim();
     if (reason.length < 4) {
       return NextResponse.json({ error: "Provide a reason (at least 4 characters)." }, { status: 400 });
+    }
+    if (action === "defer" || action === "cancel_capacity") {
+      const departure = departureDateKey(row.departure_date);
+      if (!openShortfall(db, orgId, departure)) {
+        return NextResponse.json(
+          { error: "Fleet has not reported a vehicle shortage for this departure date." },
+          { status: 409 }
+        );
+      }
     }
     if (action === "defer") {
       db.prepare(
