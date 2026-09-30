@@ -13,18 +13,18 @@ jobs:
     steps:
       - name: Call cleanup endpoint
         env:
-          HOST: ${{ secrets.EC2_HOST }}
           CLEANUP_KEY: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+          FM_BASE: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${HOST:-}" ]; then
-            echo "::error::EC2_HOST secret is required"
-            exit 1
-          fi
           if [ -z "${CLEANUP_KEY:-}" ]; then
             echo "::error::DRAFT_CLEANUP_SECRET secret is required"
             exit 1
           fi
+          # Name-based vhost. The raw EC2 address on :80 is EHS, and :3100
+          # is not reachable from GitHub.
+          BASE="${FM_BASE:-https://fm.1pwrafrica.com}"
+          BASE="${BASE%/}"
 
           call_url() {
             local url="$1"
@@ -46,11 +46,8 @@ jobs:
             return 1
           }
 
-          if call_url "http://${HOST}/api/sync/cleanup-drafts"; then
+          if call_url "${BASE}/api/sync/cleanup-drafts"; then
             exit 0
-          elif call_url "http://${HOST}:3100/api/sync/cleanup-drafts"; then
-            exit 0
-          else
-            echo "::error::Draft cleanup failed via both :80 and :3100"
-            exit 1
           fi
+          echo "::error::Draft cleanup failed via ${BASE}"
+          exit 1

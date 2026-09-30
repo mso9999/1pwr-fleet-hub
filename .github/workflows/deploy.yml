@@ -160,7 +160,11 @@ jobs:
       - name: Health check
         run: |
           sleep 10
-          HOST="${{ secrets.EC2_HOST }}"
+          # Name-based vhost. The raw EC2 address on :80 is EHS, and :3100
+          # is not reachable from GitHub.
+          FM_BASE="${{ secrets.FLEET_PUBLIC_BASE_URL }}"
+          BASE="${FM_BASE:-https://fm.1pwrafrica.com}"
+          BASE="${BASE%/}"
           check_url() {
             local url="$1"
             local body
@@ -179,12 +183,8 @@ jobs:
             return 1
           }
 
-          # Production uses Apache/:80 in front of Node; :3100 may be firewalled.
-          if check_url "http://${HOST}/api/health"; then
+          if check_url "${BASE}/api/health"; then
             exit 0
-          elif check_url "http://${HOST}:3100/api/health"; then
-            exit 0
-          else
-            echo "::error::Health check failed for both :80 and :3100 /api/health (db not ok or endpoint unreachable)"
-            exit 1
           fi
+          echo "::error::Health check failed via ${BASE}/api/health (db not ok or endpoint unreachable)"
+          exit 1

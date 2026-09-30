@@ -13,14 +13,18 @@ jobs:
     steps:
       - name: Call pr-spend sync endpoint
         env:
-          HOST: ${{ secrets.EC2_HOST }}
           SYNC_KEY: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+          FM_BASE: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${HOST:-}" ] || [ -z "${SYNC_KEY:-}" ]; then
-            echo "::error::EC2_HOST and DRAFT_CLEANUP_SECRET secrets are required"
+          if [ -z "${SYNC_KEY:-}" ]; then
+            echo "::error::DRAFT_CLEANUP_SECRET secret is required"
             exit 1
           fi
+          # Name-based vhost. The raw EC2 address on :80 is EHS, and :3100
+          # is not reachable from GitHub.
+          BASE="${FM_BASE:-https://fm.1pwrafrica.com}"
+          BASE="${BASE%/}"
 
           call_url() {
             local url="$1"
@@ -43,11 +47,8 @@ jobs:
             return 1
           }
 
-          if call_url "http://${HOST}/api/sync/pr-spend"; then
+          if call_url "${BASE}/api/sync/pr-spend"; then
             exit 0
-          elif call_url "http://${HOST}:3100/api/sync/pr-spend"; then
-            exit 0
-          else
-            echo "::error::PR spend sync failed via both :80 and :3100"
-            exit 1
           fi
+          echo "::error::PR spend sync failed via ${BASE}"
+          exit 1

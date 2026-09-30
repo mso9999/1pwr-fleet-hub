@@ -13,14 +13,18 @@ jobs:
     steps:
       - name: Call stale-approval endpoint
         env:
-          HOST: ${{ secrets.EC2_HOST }}
           CLEANUP_KEY: ${{ secrets.DRAFT_CLEANUP_SECRET }}
+          FM_BASE: ${{ secrets.FLEET_PUBLIC_BASE_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${HOST:-}" ] || [ -z "${CLEANUP_KEY:-}" ]; then
-            echo "::error::EC2_HOST and DRAFT_CLEANUP_SECRET secrets are required"
+          if [ -z "${CLEANUP_KEY:-}" ]; then
+            echo "::error::DRAFT_CLEANUP_SECRET secret is required"
             exit 1
           fi
+          # Name-based vhost. The raw EC2 address on :80 is EHS, and :3100
+          # is not reachable from GitHub.
+          BASE="${FM_BASE:-https://fm.1pwrafrica.com}"
+          BASE="${BASE%/}"
 
           call_url() {
             local url="$1"
@@ -41,11 +45,8 @@ jobs:
             return 1
           }
 
-          if call_url "http://${HOST}/api/sync/stale-approvals"; then
+          if call_url "${BASE}/api/sync/stale-approvals"; then
             exit 0
-          elif call_url "http://${HOST}:3100/api/sync/stale-approvals"; then
-            exit 0
-          else
-            echo "::error::Stale approval timeout failed via both :80 and :3100"
-            exit 1
           fi
+          echo "::error::Stale approval timeout failed via ${BASE}"
+          exit 1
