@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/entity-picker";
 import { WORK_ORDER_TYPE, WORK_ORDER_PRIORITY, REPAIR_LOCATION } from "@/types";
 import { useAuth } from "@/lib/auth-context";
+import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { AssigneeCombo } from "@/components/AssigneeCombo";
 import { useFleetMechanicOptions } from "@/lib/useFleetMechanics";
 import { FailureFieldGuide } from "@/components/FailureFieldGuide";
@@ -58,6 +59,7 @@ export function CreateWorkOrderForm({
 }: CreateWorkOrderFormProps): React.ReactElement {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
   const [repairLoc, setRepairLoc] = useState("hq");
   const [woType, setWoType] = useState("corrective");
   const [assignedTo, setAssignedTo] = useState("");
@@ -75,14 +77,18 @@ export function CreateWorkOrderForm({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
+    setFormError("");
     setIsSubmitting(true);
     const fd = new FormData(e.currentTarget);
-    const vehicleId = lockVehicle && defaultVehicleId ? defaultVehicleId : (fd.get("vehicleId") as string);
+    const vehicleId = lockVehicle && defaultVehicleId
+      ? defaultVehicleId
+      : (selectedVehicleId || String(fd.get("vehicleId") || ""));
     const body = {
       organizationId,
       vehicleId,
       title: fd.get("title"),
       description: fd.get("description"),
+      symptom: fd.get("symptom"),
       type: fd.get("type"),
       priority: fd.get("priority"),
       assignedTo: fd.get("assignedTo"),
@@ -93,13 +99,22 @@ export function CreateWorkOrderForm({
       reportedById: user?.id || "",
     };
 
-    const res = await fetch("/api/work-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) onCreated();
-    else setIsSubmitting(false);
+    try {
+      const res = await fetch("/api/work-orders", {
+        method: "POST",
+        headers: await jsonHeadersWithBearer(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        onCreated();
+        return;
+      }
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setFormError(err.error || "Could not submit work order. Please try again.");
+    } catch {
+      setFormError("Network error — please try again.");
+    }
+    setIsSubmitting(false);
   }
 
   return (
@@ -196,6 +211,9 @@ export function CreateWorkOrderForm({
               className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
             />
           </div>
+          {formError ? (
+            <p className="sm:col-span-2 text-sm text-red-700" role="alert">{formError}</p>
+          ) : null}
           <div className="sm:col-span-2 flex gap-3">
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Submitting..." : "Submit Work Order"}
