@@ -632,14 +632,11 @@ function FleetMissionReserveRow({
       <MissionNextOwnerBanner mission={m} />
       <div className="space-y-2">
         <div className="min-w-[200px] flex-1">
-          <p className="text-xs font-medium text-zinc-600 mb-1">
-            Allocate vehicle (Fleet lead)
-            {!loading && candidates.length > 0 ? ` · ${candidates.length} to choose` : ""}
-          </p>
+          <p className="text-xs font-medium text-zinc-600 mb-1">Select vehicle</p>
           {loading ? (
             <p className="text-sm text-zinc-500">Loading vehicles…</p>
           ) : candidates.length === 0 ? (
-            <p className="text-sm text-amber-800">
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               No {m.required_vehicle_class || "matching"} vehicles to allocate
               {String(m.departure_date || "").slice(0, 10) === new Date().toISOString().slice(0, 10)
                 ? ". A trip leaving today only lists vehicles whose status is operational."
@@ -1223,6 +1220,7 @@ export default function VehicleRequestsPage() {
                 <CardContent className="space-y-4">
                   {[...new Set(readyToAllocate.map((m) => String(m.departure_date || "").slice(0, 10)))]
                     .sort()
+                    .reverse()
                     .map((date) => {
                       const flagged = shortfalls.find((s) => s.departure_date === date);
                       const dayMissions = readyToAllocate.filter(
