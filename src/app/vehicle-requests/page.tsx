@@ -562,9 +562,10 @@ function FleetMissionReserveRow({
       const res = await fetch(`/api/missions/${m.id}/reserve-candidates`, {
         headers: await jsonHeadersWithBearer(),
       });
-      const j = (await res.json().catch(() => ({}))) as { candidates?: typeof candidates };
+      const j = (await res.json().catch(() => ({}))) as { candidates?: typeof candidates; error?: string };
       if (!cancelled) {
-        setCandidates(Array.isArray(j.candidates) ? j.candidates : []);
+        setCandidates(res.ok && Array.isArray(j.candidates) ? j.candidates : []);
+        if (!res.ok) setErr(j.error || "Could not load vehicles.");
         setLoading(false);
       }
     })();
@@ -629,29 +630,50 @@ function FleetMissionReserveRow({
   return (
     <div className="space-y-2 pt-1 border-t border-zinc-100">
       <MissionNextOwnerBanner mission={m} />
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="space-y-2">
         <div className="min-w-[200px] flex-1">
-          <label className="text-xs font-medium text-zinc-600 block mb-1">Allocate vehicle (Fleet lead)</label>
-          <select
-            value={vehicleId}
-            onChange={(e) => setVehicleId(e.target.value)}
-            disabled={loading || saving}
-            className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-2 text-sm"
-          >
-            <option value="">{loading ? "Loading candidates…" : "Select vehicle…"}</option>
-            {candidates.map((v) => {
-              const needsInsp = v.localityRequired && !v.mechanicalInspectionOnFile;
-              const inspOk = v.localityRequired && v.mechanicalInspectionOnFile;
-              return (
-                <option key={v.id} value={v.id}>
-                  {v.code} — {v.make} {v.model}
-                  {v.status ? ` (${v.status})` : ""}
-                  {needsInsp ? " · mechanical inspection required" : ""}
-                  {inspOk ? " · inspection on file" : ""}
-                </option>
-              );
-            })}
-          </select>
+          <p className="text-xs font-medium text-zinc-600 mb-1">
+            Allocate vehicle (Fleet lead)
+            {!loading && candidates.length > 0 ? ` · ${candidates.length} to choose` : ""}
+          </p>
+          {loading ? (
+            <p className="text-sm text-zinc-500">Loading vehicles…</p>
+          ) : candidates.length === 0 ? (
+            <p className="text-sm text-amber-800">
+              No {m.required_vehicle_class || "matching"} vehicles to allocate
+              {String(m.departure_date || "").slice(0, 10) === new Date().toISOString().slice(0, 10)
+                ? ". A trip leaving today only lists vehicles whose status is operational."
+                : " for this departure date and class."}
+            </p>
+          ) : (
+            <ul className="space-y-1.5" role="listbox" aria-label="Vehicles to allocate">
+              {candidates.map((v) => {
+                const selected = vehicleId === v.id;
+                const needsInsp = v.localityRequired && !v.mechanicalInspectionOnFile;
+                return (
+                  <li key={v.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      disabled={saving}
+                      onClick={() => setVehicleId(v.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm touch-manipulation ${
+                        selected ? "border-emerald-600 bg-emerald-50" : "border-zinc-200 bg-white"
+                      }`}
+                    >
+                      <span>
+                        <span className="font-medium text-zinc-900">{v.code}</span>
+                        <span className="text-zinc-600"> — {v.make} {v.model}</span>
+                        {needsInsp ? <span className="block text-[11px] text-amber-800">Mechanical inspection required</span> : null}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-zinc-500">{v.status || ""}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
           {(() => {
             const sel = candidates.find((c) => c.id === vehicleId);
             if (!sel) return null;
