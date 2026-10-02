@@ -416,10 +416,10 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     path: "/vehicle-requests",
     target: "tutorial-vr-fleet-reserve",
     role: "Fleet manager / lead",
-    title: "4. Reserve a vehicle on the mission",
+    title: "4. Allocate a vehicle",
     body:
-      "Fleet lead allocates a concrete pool vehicle only after the requestor has created the planned trip. Missions shows an amber card until the trip exists, then a green allocate card for Fleet. Overlapping reservations and registration-disc windows still require an authorised override reason (8+ characters).",
-    suggestion: "Allocate appears when your role is fleet lead and a trip already exists for the mission.",
+      "After the requestor creates the planned trip, the green card Fleet lead: allocate vehicles lists matching vehicles under Select vehicle. Tap a row so it highlights, then press Allocate. A trip leaving today lists only operational vehicles of the required class. A later date can also list deployed and in-maintenance vehicles. If the row says Mechanical inspection required (more than 50 km from HQ and no passing inspection on file), the fleet lead types a reason of at least 8 characters in the box under Allocate, then presses Allocate. An overlapping booking needs a manager or admin reason. A registration disc that expires before the mission ends needs a mission approver or manager, not the fleet lead.",
+    suggestion: "The list is already open. There is no separate Select vehicle button beside Allocate.",
   },
   {
     id: "fd-calendar",
@@ -516,7 +516,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "nav-vehicle-requests",
     title: "Mission and vehicle workflow",
     body:
-      "Create a mission (profile, required vehicle class, dates); management approves it. Approved drivers add a logistics row and pick the designated driver from the EHS-approved list for the organisation. The fleet team lead reserves a specific pool vehicle on the mission (watch for overlap and registration disc gates). Switch to Vehicle Pool to see availability.",
+      "Create a mission (profile, required vehicle class, dates); management approves it. The requestor then creates the planned trip. On the green card, the fleet lead taps a vehicle under Select vehicle and presses Allocate. A trip leaving today lists operational vehicles of the required class only. Switch to Vehicle Pool to see availability.",
   },
   {
     id: "vr-button",
@@ -532,7 +532,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-form",
     title: "2. Mission form + driver row",
     body:
-      "Step 1: submit a mission with profile and required vehicle class for approval. Step 2 (drivers): link an approved mission, choose designated driver from the register search, purpose and priority; vehicle class comes from the mission when set. Fleet reserves the concrete vehicle on the mission after line approval (override reason if overlap or registration disc blocks).",
+      "Step 1: submit a mission with profile and required vehicle class for approval. Step 2 (drivers): link an approved mission, choose designated driver from the register search, purpose and priority; vehicle class comes from the mission when set. After the planned trip exists, the fleet lead allocates on the green card: tap a vehicle under Select vehicle, then Allocate. The box under Allocate is for a written reason when a gate blocks that vehicle.",
   },
   {
     id: "vr-route",
@@ -549,7 +549,7 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     target: "tutorial-vr-pool-toggle",
     title: "4. Vehicle pool (fleet lead)",
     body:
-      "Fleet team leads use the Vehicle Pool tab for operational snapshots; they reserve a vehicle on each approved mission from the mission list or request detail when linked to a mission. The same override box covers overlapping bookings and registration disc exceeded — only for users who can approve mission requests, with an 8+ character reason.",
+      "Fleet team leads use the Vehicle Pool tab for operational snapshots. Allocation is on the green card: tap a listed vehicle, then Allocate. Use the reason box under Allocate only when a gate blocks that vehicle — inspection outside 50 km (fleet lead), an overlapping booking (manager or admin), or a registration disc that expires before the mission ends (mission approver or manager). The reason must be at least 8 characters.",
   },
 ];
 
