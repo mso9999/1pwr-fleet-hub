@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { isFleetManagementRole } from "@/lib/fleet-roles";
 import { runStaleApprovalTimeout } from "@/lib/stale-approval-job";
 import { runStaleNoTripCleanup } from "@/lib/stale-no-trip-job";
+import { syncFleetRolesFromHr } from "@/lib/hr-fleet-role-sync";
 
 /**
  * POST /api/sync/stale-approvals
@@ -32,5 +33,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const summary = await runStaleApprovalTimeout(db);
   const noTrip = await runStaleNoTripCleanup(db);
-  return NextResponse.json({ success: true, ...summary, noTrip, ranAt: new Date().toISOString() });
+  let fleetRoles: { email: string; from: string; to: string }[] = [];
+  try {
+    fleetRoles = await syncFleetRolesFromHr(db);
+  } catch (err) {
+    console.error("[stale-approvals] HR fleet role sync", err);
+  }
+  return NextResponse.json({ success: true, ...summary, noTrip, fleetRoles, ranAt: new Date().toISOString() });
 }

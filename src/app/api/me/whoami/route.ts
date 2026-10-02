@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { verifyFleetUser } from "@/lib/server-auth";
 import { getFirebaseAdminStatus } from "@/lib/firebase-admin-init";
+import { getDb } from "@/lib/db";
+import { syncFleetRoleForEmail } from "@/lib/hr-fleet-role-sync";
 
 /**
  * GET /api/me/whoami
@@ -18,6 +20,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     ? { ok: true as const, source: admin.source }
     : { ok: false as const, error: admin.error, tried: admin.tried };
   if (user) {
+    if (user.email) {
+      try {
+        const change = await syncFleetRoleForEmail(getDb(), user.email);
+        if (change) user.role = change.to;
+      } catch (err) {
+        console.error("[whoami] HR fleet role sync", err);
+      }
+    }
     return NextResponse.json({ ok: true, user, admin: adminInfo });
   }
   return NextResponse.json(

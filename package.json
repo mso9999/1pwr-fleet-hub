@@ -21,6 +21,7 @@
     "test:fleet-performance": "tsx scripts/test-fleet-performance.ts",
     "test:mission-next-owner": "tsx scripts/test-mission-next-owner.ts",
     "test:stale-approvals": "tsx scripts/test-stale-approvals.ts",
+    "test:hr-fleet-role": "tsx scripts/test-hr-fleet-role.ts",
     "test:stale-wos": "tsx scripts/test-stale-wos.ts",
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",
     "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts",

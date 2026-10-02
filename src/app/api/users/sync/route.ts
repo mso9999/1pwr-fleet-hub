@@ -10,8 +10,9 @@ import { verifyFleetUser } from "@/lib/server-auth";
  * deliberately NOT accepted here. This endpoint used to upsert whatever the
  * client sent, which let the Nexus/PR profile overwrite real fleet roles
  * (manager/driver/…) with PR roles (REQ/USER) on every login — the
- * 2026-07-09 incident. Fleet authority is managed server-side (admin tooling
- * / HR-canonical grants), never from a login-time client payload.
+ * 2026-07-09 incident. Fleet authority is managed server-side. Job titles
+ * such as Fleet Lead are copied from HR onto users.role by hr-fleet-role-sync,
+ * never from a login-time client payload.
  *
  * The caller must present a valid Firebase bearer token and may only sync
  * their own row (verifyFleetUser resolves — and auto-provisions — that row).

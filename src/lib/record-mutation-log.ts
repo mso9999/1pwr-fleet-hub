@@ -49,7 +49,8 @@ export type MutationEntityType =
   | "personal_vehicle_reimbursement_request"
   | "organization"
   | "reference_data"
-  | "media_attachment";
+  | "media_attachment"
+  | "user";
 
 export interface MutationActor {
   id: string;
