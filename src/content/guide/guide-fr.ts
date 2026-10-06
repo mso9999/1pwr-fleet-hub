@@ -353,11 +353,9 @@ export const guideFr: GuideContent = {
             ". La demande est liée à cette ligne du registre. Le superadmin peut encore utiliser des dérogations selon la politique.",
           ],
           [
-            "Lorsque vous choisissez une ",
-            B("destination"),
-            " dans la liste des sites, Fleet Hub estime la ",
-            B("distance routière aller simple"),
-            " (itinéraire routier public). Une destination saisie en texte libre (« Autre ») ne donne pas de distance cartographiée.",
+            "Le formulaire de mission affiche une carte. Cherchez un site pour l’origine et la destination, ou cliquez sur la carte pour poser une épingle. Un ",
+            B("aller-retour"),
+            " revient à l’origine. Les autres trajets peuvent ajouter des arrêts entre les deux. La ligne et la distance se dessinent pendant la saisie, et la même carte apparaît sur la mission en attente et sur les missions approuvées. Un site sans GPS est nommé sous la carte ; renseignez-le dans Admin pour que l’épingle rejoigne la ligne.",
           ],
           [
             "Après ",

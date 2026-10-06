@@ -538,10 +538,10 @@ const VEHICLE_REQUEST_STEPS: TutorialStep[] = [
     id: "vr-route",
     path: "/vehicle-requests",
     target: "tutorial-vr-route-estimate",
-    title: "3. Route distance and fuel",
+    title: "3. Route map and fuel",
     body:
-      "Choosing a destination from the site list shows an estimated one-way driving distance (mapped roads). After a vehicle is assigned, the request shows fuel (L) and efficiency from that vehicle’s consumption—manual L/100 km on the vehicle if set, otherwise a typical value from the reference table. Admins set GPS per site and the fleet HQ start under Admin.",
-    suggestion: "Select a site in the destination dropdown to see the distance update.",
+      "Search a site for the origin and the destination, or click the map to drop a pin. Tick round trip to return to the origin; otherwise add stops between them. The road line and distance update as you edit. The same map is on the mission after you submit. A site with no GPS is named under the map until an admin sets coordinates. Fuel still uses that distance and the vehicle’s consumption.",
+    suggestion: "Pick HQ as the origin and a site as the destination to see the line.",
   },
   {
     id: "vr-pool",

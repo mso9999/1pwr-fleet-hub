@@ -7,7 +7,6 @@ import {
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
-import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
 import { canActOnMissionFuel, canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
@@ -183,7 +182,6 @@ export async function PATCH(
   const orgId = String(row.organization_id ?? "");
   const action = String(body.action || "").toLowerCase();
   const now = new Date().toISOString();
-  const rollout = isMultiStopRolloutEnabledServer();
   const existingStops = getMissionStops(db, id);
 
   if (action === "approve" || action === "reject" || action === "revise") {
@@ -420,8 +418,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not allowed to edit this mission." }, { status: 403 });
   }
   const material = materialMissionFieldsChanged(row, body as Record<string, unknown>);
-  const incomingStops =
-    rollout && body.stops !== undefined ? normalizeRouteStops(body.stops) : null;
+  const incomingStops = body.stops !== undefined ? normalizeRouteStops(body.stops) : null;
   const existingStopShape = existingStops.map((s) => ({
     location: String(s.location || "").trim(),
     loadOut: String(s.load_out || "").trim(),
@@ -469,7 +466,6 @@ export async function PATCH(
         v = JSON.stringify(Array.isArray(v) ? v.filter((s: unknown): s is string => typeof s === "string") : []);
       }
       if (js === "tripShape") {
-        if (!rollout) continue;
         v = normalizeTripShape(v);
       }
       if (js === "rrStatus") {
@@ -552,9 +548,7 @@ export async function PATCH(
     }
   }
 
-  const nextTripShape = rollout
-    ? normalizeTripShape(body.tripShape ?? row.trip_shape)
-    : normalizeTripShape(row.trip_shape);
+  const nextTripShape = normalizeTripShape(body.tripShape ?? row.trip_shape);
   const nextDestination = String(body.destination ?? row.destination ?? "").trim();
   const nextStops = incomingStops ?? existingStopShape;
   const routeValidationError = validateRoutePlan({
@@ -584,11 +578,15 @@ export async function PATCH(
       if (incomingStops.length > 0) {
         const insStop = db.prepare(`
           INSERT INTO mission_stops (
-            id, mission_id, stop_order, location, load_out, load_in, notes, created_at, updated_at
-          ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?)
+            id, mission_id, stop_order, location, load_out, load_in, notes, lat, lng, created_at, updated_at
+          ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
+        const rawStops = Array.isArray(body.stops) ? body.stops : [];
         for (let i = 0; i < incomingStops.length; i += 1) {
           const stop = incomingStops[i];
+          const raw = rawStops[i] as { lat?: unknown; lng?: unknown } | undefined;
+          const lat = typeof raw?.lat === "number" && Number.isFinite(raw.lat) ? raw.lat : null;
+          const lng = typeof raw?.lng === "number" && Number.isFinite(raw.lng) ? raw.lng : null;
           insStop.run(
             id,
             i + 1,
@@ -596,6 +594,8 @@ export async function PATCH(
             stop.loadOut,
             stop.loadIn,
             stop.notes,
+            lat,
+            lng,
             now,
             now
           );

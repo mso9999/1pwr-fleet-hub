@@ -398,7 +398,11 @@ export type MissionFuelInput = {
   transportMode: string;
   tripShape: string;
   departureLocation: string;
+  departureLat?: number | null;
+  departureLng?: number | null;
   destination: string;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
   stops: Array<{ location: string; lat?: number | null; lng?: number | null }>;
   vehicleClass?: string | null;
   vehicleId?: string | null;
@@ -431,6 +435,8 @@ export async function buildMissionFuelSnapshot(
     {
       label: input.departureLocation || "HQ",
       siteCode: input.departureLocation || "HQ",
+      lat: input.departureLat ?? null,
+      lng: input.departureLng ?? null,
     },
     ...input.stops.map((s) => ({
       label: s.location,
@@ -445,7 +451,12 @@ export async function buildMissionFuelSnapshot(
       .slice(1)
       .some((w) => String(w.label || "").toLowerCase() === dest.toLowerCase());
     if (!hasDest) {
-      waypoints.push({ label: dest, siteCode: dest });
+      waypoints.push({
+        label: dest,
+        siteCode: dest,
+        lat: input.destinationLat ?? null,
+        lng: input.destinationLng ?? null,
+      });
     }
   }
 

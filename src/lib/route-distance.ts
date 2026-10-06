@@ -21,6 +21,8 @@ export type MultiLegRouteResult = {
   roadKm: number;
   estimatedKm: number;
   totalKm: number;
+  /** Road line as [lat, lng] pairs. Empty when the router returned no geometry. */
+  geometry: Array<[number, number]>;
 };
 
 /** Earth-radius haversine in km (same math as locality-gate). */
@@ -48,30 +50,52 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/** OSRM GeoJSON coordinates are [lng, lat]. Leaflet wants [lat, lng]. */
+export function latLngsFromGeoJsonLine(geometry: unknown): Array<[number, number]> {
+  if (!geometry || typeof geometry !== "object") return [];
+  const coords = (geometry as { coordinates?: unknown }).coordinates;
+  if (!Array.isArray(coords)) return [];
+  const out: Array<[number, number]> = [];
+  for (const pair of coords) {
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    const lng = Number(pair[0]);
+    const lat = Number(pair[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    out.push([lat, lng]);
+  }
+  return out;
+}
+
+type OsrmRoute = { meters: number[]; geometry: Array<[number, number]> };
+
 /**
- * OSRM multi-waypoint request. Returns per-leg metres or null if the whole call fails.
+ * OSRM multi-waypoint request. Returns per-leg metres and the road line, or null if the call fails.
  */
-async function osrmLegDistancesMeters(points: LatLng[]): Promise<number[] | null> {
-  if (points.length < 2) return [];
+async function osrmRoute(points: LatLng[]): Promise<OsrmRoute | null> {
+  if (points.length < 2) return { meters: [], geometry: [] };
   const path = points.map((p) => `${p.lng},${p.lat}`).join(";");
-  const url = `https://router.project-osrm.org/route/v1/driving/${path}?overview=false`;
+  const url = `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`;
   try {
     const res = await fetch(url, { next: { revalidate: 0 } });
     if (!res.ok) return null;
     const data = (await res.json()) as {
       code?: string;
-      routes?: Array<{ legs?: Array<{ distance?: number }> }>;
+      routes?: Array<{
+        legs?: Array<{ distance?: number }>;
+        geometry?: { coordinates?: unknown };
+      }>;
     };
     if (data.code && data.code !== "Ok") return null;
-    const legs = data.routes?.[0]?.legs;
+    const route = data.routes?.[0];
+    const legs = route?.legs;
     if (!Array.isArray(legs) || legs.length !== points.length - 1) return null;
-    const out: number[] = [];
+    const meters: number[] = [];
     for (const leg of legs) {
       const m = leg?.distance;
       if (typeof m !== "number" || !Number.isFinite(m)) return null;
-      out.push(m);
+      meters.push(m);
     }
-    return out;
+    return { meters, geometry: latLngsFromGeoJsonLine(route?.geometry) };
   } catch {
     return null;
   }
@@ -92,15 +116,17 @@ async function resolveOneLeg(from: LatLng, to: LatLng): Promise<{ km: number; so
  */
 export async function multiLegDrivingDistance(points: LatLng[]): Promise<MultiLegRouteResult> {
   if (points.length < 2) {
-    return { legs: [], roadKm: 0, estimatedKm: 0, totalKm: 0 };
+    return { legs: [], roadKm: 0, estimatedKm: 0, totalKm: 0, geometry: [] };
   }
 
   const legs: RouteLegResult[] = [];
-  const bulk = await osrmLegDistancesMeters(points);
+  const bulk = await osrmRoute(points);
+  let geometry: Array<[number, number]> = [];
 
   if (bulk) {
-    for (let i = 0; i < bulk.length; i += 1) {
-      const meters = bulk[i];
+    geometry = bulk.geometry;
+    for (let i = 0; i < bulk.meters.length; i += 1) {
+      const meters = bulk.meters[i];
       const km = round1(meters / 1000);
       legs.push({
         fromIndex: i,
@@ -136,6 +162,7 @@ export async function multiLegDrivingDistance(points: LatLng[]): Promise<MultiLe
     roadKm: round1(roadKm),
     estimatedKm: round1(estimatedKm),
     totalKm: round1(roadKm + estimatedKm),
+    geometry,
   };
 }
 

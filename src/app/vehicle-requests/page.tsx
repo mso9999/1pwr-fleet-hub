@@ -19,7 +19,6 @@ import { ASSET_CLASS, ASSET_CLASS_LABELS, type AssetClass } from "@/types";
 import { lPer100kmToUsMpg } from "@/lib/vehicle-fuel-lookup";
 import { useOverrideCapability } from "@/lib/useOverrideCapability";
 import { cn } from "@/lib/utils";
-import { isMultiStopRolloutEnabled } from "@/lib/feature-flags";
 import {
   MissionPipelineStepper,
   MissionLifecycleTimeline,
@@ -33,6 +32,8 @@ import {
   type DesignatedOperatorSelection,
 } from "@/components/EhsCompliantDriverPickerField";
 import { FuelBudgetPanel, type FuelStopDraft } from "@/components/FuelBudgetPanel";
+import { MissionRouteEditor, type MissionRouteValue } from "@/components/MissionRouteEditor";
+import { MissionRouteMap } from "@/components/MissionRouteMap";
 import type { FuelDisposition } from "@/lib/fuel-calculator";
 
 interface RequestRow {
@@ -87,6 +88,8 @@ interface MissionStopRow {
   load_out?: string;
   load_in?: string;
   notes?: string;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 interface PoolVehicle {
@@ -124,7 +127,7 @@ const MISSION_PROFILE_OPTIONS: { value: string; label: string }[] = [
 /** Filters / column labels for list view */
 const STATUS_FILTERS: { status: string; label: string }[] = [
   { status: "requested", label: "Pending approval" },
-  { status: "approved", label: "Approved" },
+  { status: "approved", label: "Approved requests" },
   { status: "assigned", label: "Assigned" },
   { status: "completed", label: "Completed" },
   { status: "rejected", label: "Rejected" },
@@ -191,6 +194,24 @@ function noTripClearDate(m: PlannedMissionRow): string | null {
   return new Date(t + NO_TRIP_EXPIRE_AFTER_DAYS * 86_400_000).toISOString().slice(0, 10);
 }
 
+function missionRoutePoints(m: PlannedMissionRow): Array<{ label: string; siteCode?: string; lat?: number | null; lng?: number | null }> {
+  const origin = missionOriginLabel(m);
+  const stops = [...(Array.isArray(m.stops) ? m.stops : [])].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
+  const dest = String(m.destination || "").trim();
+  const points: Array<{ label: string; siteCode?: string; lat?: number | null; lng?: number | null }> = [
+    { label: origin, siteCode: origin },
+  ];
+  for (const s of stops) {
+    const label = String(s.location || "").trim();
+    if (!label) continue;
+    points.push({ label, siteCode: label, lat: s.lat ?? null, lng: s.lng ?? null });
+  }
+  if (dest && !points.slice(1).some((p) => p.label.toLowerCase() === dest.toLowerCase())) {
+    points.push({ label: dest, siteCode: dest });
+  }
+  return points;
+}
+
 function missionRouteSummary(m: PlannedMissionRow): string {
   const stops = Array.isArray(m.stops) ? m.stops : [];
   const ordered = [...stops].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
@@ -205,6 +226,7 @@ interface RefRow {
   code: string;
   label: string;
   active: number;
+  meta?: string;
 }
 
 interface PlannedMissionRow {
@@ -262,13 +284,6 @@ interface PlannedMissionRow {
   transport_mode?: string | null;
   organization_id?: string;
   pr_links?: MissionPrLink[];
-}
-
-interface RouteStopInput {
-  location: string;
-  loadOut: string;
-  loadIn: string;
-  notes: string;
 }
 
 function missionApprovalStage(statusRaw: string | undefined): {
@@ -737,7 +752,7 @@ export default function VehicleRequestsPage() {
   const [shortfalls, setShortfalls] = useState<CapacityShortfall[]>([]);
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
   const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
-  const [waitingTripOpen, setWaitingTripOpen] = useState(false);
+  const [waitingTripOpen, setWaitingTripOpen] = useState(true);
 
   const roleLooksFleet =
     !!user &&
@@ -924,6 +939,7 @@ export default function VehicleRequestsPage() {
     }
     void loadData();
     void refetchApprovedMissionsFleet();
+    if (action === "approve") setWaitingTripOpen(true);
   }
 
   const statusCounts = STATUS_FILTERS.map((p) => ({
@@ -1156,7 +1172,7 @@ export default function VehicleRequestsPage() {
                     onClick={() => setWaitingTripOpen((v) => !v)}
                   >
                     <CardTitle className="text-base">
-                      Next: requestor creates the trip ({waitingTrip.length})
+                      Approved missions ({waitingTrip.length})
                     </CardTitle>
                     <span className="text-xs text-zinc-500 shrink-0">{waitingTripOpen ? "Hide ▲" : "Show ▼"}</span>
                   </button>
@@ -1193,6 +1209,12 @@ export default function VehicleRequestsPage() {
                           </Badge>
                         )}
                       </div>
+                      <MissionRouteMap
+                        organizationId={organizationId}
+                        tripShape={m.trip_shape || "one_way"}
+                        height={180}
+                        points={missionRoutePoints(m)}
+                      />
                       {noTripClearDate(m) && (
                         <p className="text-xs text-amber-800">
                           {String(noTripClearDate(m)) > new Date().toISOString().slice(0, 10)
@@ -1492,6 +1514,12 @@ export default function VehicleRequestsPage() {
                 </button>
                 {expandedPendingMissionId === m.id && (
                   <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
+                    <MissionRouteMap
+                      organizationId={organizationId}
+                      tripShape={m.trip_shape || "one_way"}
+                      height={220}
+                      points={missionRoutePoints(m)}
+                    />
                     <MissionLifecycleTimeline mission={m} />
                     {!!m.assets_being_moved && (
                       <MissionManifestLinker
@@ -2316,7 +2344,6 @@ function RequestForm({
   onComplete: () => void;
   onCancel: () => void;
 }) {
-  const multiStopEnabled = isMultiStopRolloutEnabled();
   const returnTo = useSearchParams().get("returnTo") || "";
   const [vrSubmitting, setVrSubmitting] = useState(false);
   const [missionSubmitting, setMissionSubmitting] = useState(false);
@@ -2347,13 +2374,13 @@ function RequestForm({
   const [editingMissionDraftId, setEditingMissionDraftId] = useState<string | null>(null);
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState("");
-  const [destinationChoice, setDestinationChoice] = useState("");
-  const [destinationOther, setDestinationOther] = useState("");
-  const [tripShape, setTripShape] = useState<"one_way" | "round_trip" | "multi_stop">("one_way");
-  const [routeOrigin, setRouteOrigin] = useState("HQ");
-  const [routeStops, setRouteStops] = useState<RouteStopInput[]>([
-    { location: "", loadOut: "", loadIn: "", notes: "" },
-  ]);
+  const emptyRoutePlan = (): MissionRouteValue => ({
+    roundTrip: false,
+    origin: { siteCode: "HQ", label: "Head office", lat: null, lng: null },
+    destination: { siteCode: "", label: "", lat: null, lng: null },
+    waypoints: [],
+  });
+  const [routePlan, setRoutePlan] = useState<MissionRouteValue>(emptyRoutePlan);
   const [requestedForChoice, setRequestedForChoice] = useState("");
   const [requestedForOther, setRequestedForOther] = useState("");
   const [designatedOperator, setDesignatedOperator] = useState<DesignatedOperatorSelection | null>(null);
@@ -2362,14 +2389,6 @@ function RequestForm({
     isApprovedDriver: boolean;
     fmAppQuizPassed: boolean;
     fmQuizPath: string;
-  } | null>(null);
-  const [routeEstimateLoading, setRouteEstimateLoading] = useState(false);
-  const [routeEstimate, setRouteEstimate] = useState<{
-    ok: boolean;
-    message?: string | null;
-    distanceKm: number | null;
-    fuelLiters: number | null;
-    lPer100km: number | null;
   } | null>(null);
   const missionFormRef = useRef<HTMLFormElement | null>(null);
 
@@ -2462,79 +2481,50 @@ function RequestForm({
     };
   }, [organizationId]);
 
-  useEffect(() => {
-    if (!destinationChoice || destinationChoice === "__write__") {
-      setRouteEstimate(null);
-      setRouteEstimateLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setRouteEstimateLoading(true);
-    void (async () => {
-      try {
-        const res = await fetch("/api/vehicle-requests/estimate", {
-          method: "POST",
-          headers: await jsonHeadersWithBearer(),
-          body: JSON.stringify({
-            organizationId,
-            destinationSiteCode: destinationChoice,
-          }),
-        });
-        const data = (await res.json()) as {
-          ok: boolean;
-          message?: string | null;
-          distanceKm: number | null;
-          fuelLiters: number | null;
-          lPer100km: number | null;
-        };
-        if (!cancelled) {
-          setRouteEstimate(data);
-          setRouteEstimateLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setRouteEstimate(null);
-          setRouteEstimateLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [destinationChoice, organizationId]);
-
   const siteRows = sites.filter((s) => s.code !== "OTHER");
   const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
 
   function loadMissionDraftIntoForm(m: PlannedMissionRow): void {
     setEditingMissionDraftId(m.id);
-    const knownSite = siteRows.some((s) => s.code === m.destination);
-    setDestinationChoice(knownSite ? m.destination : "__write__");
-    setDestinationOther(knownSite ? "" : String(m.destination || ""));
     const shape = normalizeTripShape(m.trip_shape);
-    setTripShape(shape);
     const orderedStops = [...(m.stops || [])].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
+    const originCode = String(m.departure_location || "HQ").trim() || "HQ";
+    const originSite = siteRows.find((s) => s.code === originCode);
+    let stopRows = orderedStops;
     if (shape === "round_trip" && orderedStops.length > 0) {
-      const returnLeg = orderedStops[orderedStops.length - 1];
-      // Prefer the stored departure_location; fall back to the synthesized return leg.
-      setRouteOrigin(String(m.departure_location || returnLeg.location || "HQ"));
-      const interior = orderedStops.slice(0, -1).map((s) => ({
-        location: String(s.location || ""),
-        loadOut: String(s.load_out || ""),
-        loadIn: String(s.load_in || ""),
-        notes: String(s.notes || ""),
-      }));
-      setRouteStops(interior.length > 0 ? interior : [{ location: "", loadOut: "", loadIn: "", notes: "" }]);
-    } else {
-      setRouteOrigin(String(m.departure_location || "HQ"));
-      const nextStops = orderedStops.map((s) => ({
-        location: String(s.location || ""),
-        loadOut: String(s.load_out || ""),
-        loadIn: String(s.load_in || ""),
-        notes: String(s.notes || ""),
-      }));
-      setRouteStops(nextStops.length > 0 ? nextStops : [{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+      const last = orderedStops[orderedStops.length - 1];
+      if (String(last.location || "").trim().toUpperCase() === originCode.toUpperCase() || /return leg/i.test(String(last.notes || ""))) {
+        stopRows = orderedStops.slice(0, -1);
+      }
     }
+    const destCode = String(m.destination || "").trim();
+    const destIsStop = stopRows.some((s) => String(s.location || "").trim().toLowerCase() === destCode.toLowerCase());
+    const interior = (destIsStop ? stopRows.filter((s) => String(s.location || "").trim().toLowerCase() !== destCode.toLowerCase()) : stopRows);
+    const destSite = siteRows.find((s) => s.code === destCode);
+    setRoutePlan({
+      roundTrip: shape === "round_trip",
+      origin: {
+        siteCode: originSite ? originCode : "",
+        label: originSite?.label || originCode,
+        lat: null,
+        lng: null,
+      },
+      destination: {
+        siteCode: destSite ? destCode : "",
+        label: destSite?.label || destCode,
+        lat: null,
+        lng: null,
+      },
+      waypoints: interior.map((s) => ({
+        siteCode: siteRows.some((row) => row.code === s.location) ? String(s.location || "") : "",
+        label: String(s.location || ""),
+        lat: s.lat ?? null,
+        lng: s.lng ?? null,
+        loadOut: String(s.load_out || ""),
+        loadIn: String(s.load_in || ""),
+        notes: String(s.notes || ""),
+      })),
+    });
     const form = missionFormRef.current;
     if (!form) return;
     const setValue = (name: string, value: string): void => {
@@ -2551,22 +2541,6 @@ function RequestForm({
     setValue("cmMissionProfile", String(m.mission_profile || "local"));
     setValue("cmRequiredVehicleClass", String(m.required_vehicle_class || ""));
     setMissionVehicleClass(String(m.required_vehicle_class || ""));
-  }
-
-  function addRouteStop(): void {
-    setRouteStops((prev) => [...prev, { location: "", loadOut: "", loadIn: "", notes: "" }]);
-  }
-
-  function updateRouteStop(idx: number, field: keyof RouteStopInput, value: string): void {
-    setRouteStops((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value };
-      return next;
-    });
-  }
-
-  function removeRouteStop(idx: number): void {
-    setRouteStops((prev) => prev.filter((_, i) => i !== idx));
   }
 
   async function resubmitMissionForApproval(missionId: string): Promise<void> {
@@ -2614,20 +2588,17 @@ function RequestForm({
     const fd = new FormData(form);
     const intent = String(fd.get("intent") || "submit").toLowerCase();
     const saveAsDraft = intent === "savedraft";
-    let destination = "";
-    const destChoice = String(fd.get("cmDestination") || "");
-    if (destChoice === "__write__") {
-      destination = String(fd.get("cmDestinationOther") || "").trim();
-      if (!destination) {
-        setMissionFormError("Enter a destination or choose a site for the mission.");
-        return;
-      }
-    } else if (destChoice) {
-      destination = destChoice;
-    } else {
+    const destination = (routePlan.destination.siteCode || routePlan.destination.label).trim();
+    if (!destination) {
       setMissionFormError("Choose a destination for the mission.");
       return;
     }
+    const originLabel = (routePlan.origin.siteCode || routePlan.origin.label || "HQ").trim() || "HQ";
+    const tripShape: "one_way" | "round_trip" | "multi_stop" = routePlan.roundTrip
+      ? "round_trip"
+      : routePlan.waypoints.some((w) => (w.siteCode || w.label).trim() || w.lat != null)
+        ? "multi_stop"
+        : "one_way";
     const departureDate = String(fd.get("cmDepartureDate") || "").trim();
     if (!departureDate) {
       setMissionFormError("Departure date is required for the mission.");
@@ -2651,34 +2622,55 @@ function RequestForm({
       setMissionFormError("Crew size is required and must be a whole number of at least 1.");
       return;
     }
-    const normalizedStops = routeStops
+    const waypointStops = routePlan.waypoints
       .map((s) => ({
-        location: s.location.trim(),
+        location: (s.siteCode || s.label).trim(),
         loadOut: s.loadOut.trim(),
         loadIn: s.loadIn.trim(),
         notes: s.notes.trim(),
+        lat: s.lat,
+        lng: s.lng,
       }))
-      .filter((s) => s.location);
-    if (multiStopEnabled && tripShape === "multi_stop" && normalizedStops.length < 2) {
-      setMissionFormError("Multi-stop missions need at least two planned stops.");
+      .filter((s) => s.location || s.lat != null);
+    if (tripShape === "multi_stop" && waypointStops.length < 1) {
+      setMissionFormError("Add at least one stop between the origin and the destination, or mark the trip as a round trip.");
       return;
     }
+    const destStop = {
+      location: destination,
+      loadOut: "",
+      loadIn: "",
+      notes: "",
+      lat: routePlan.destination.lat,
+      lng: routePlan.destination.lng,
+    };
+    const returnStop = {
+      location: originLabel,
+      loadOut: "",
+      loadIn: "",
+      notes: "Return leg",
+      lat: routePlan.origin.lat,
+      lng: routePlan.origin.lng,
+    };
     const finalStops =
-      !multiStopEnabled || tripShape === "one_way"
-        ? []
+      tripShape === "one_way"
+        ? routePlan.destination.lat != null
+          ? [destStop]
+          : []
         : tripShape === "round_trip"
-          ? [
-              ...(normalizedStops.length > 0 ? normalizedStops : [{ location: destination, loadOut: "", loadIn: "", notes: "" }]),
-              { location: routeOrigin.trim() || "HQ", loadOut: "", loadIn: "", notes: "Return leg" },
-            ]
-          : normalizedStops;
+          ? [...waypointStops, destStop, returnStop]
+          : [...waypointStops, destStop];
     setMissionSubmitting(true);
     try {
       const payload = {
         organizationId,
         title: String(fd.get("cmTitle") || "").slice(0, 240),
         destination,
-        departureLocation: routeOrigin.trim() || "HQ",
+        departureLocation: originLabel,
+        departureLat: routePlan.origin.lat,
+        departureLng: routePlan.origin.lng,
+        destinationLat: routePlan.destination.lat,
+        destinationLng: routePlan.destination.lng,
         departureDate,
         returnDate: String(fd.get("cmReturnDate") || ""),
         passengers: String(fd.get("cmPassengers") || ""),
@@ -2687,8 +2679,8 @@ function RequestForm({
         missionType: "other",
         notes: String(fd.get("cmNotes") || ""),
         missionProfile: String(fd.get("cmMissionProfile") || "local"),
-        tripShape: multiStopEnabled ? tripShape : "one_way",
-        stops: multiStopEnabled ? finalStops : [],
+        tripShape,
+        stops: finalStops,
         requiredVehicleClass: reqClass,
         transportMode,
         publicTransportJustification: publicTransport
@@ -2731,11 +2723,7 @@ function RequestForm({
         form.reset();
         setMissionVehicleClass("");
         setFuelSubmitFields({});
-        setDestinationChoice("");
-        setDestinationOther("");
-        setTripShape("one_way");
-        setRouteOrigin("HQ");
-        setRouteStops([{ location: "", loadOut: "", loadIn: "", notes: "" }]);
+        setRoutePlan(emptyRoutePlan());
         setEditingMissionDraftId(null);
         loadApprovedMissions();
       } else {
@@ -2831,160 +2819,24 @@ function RequestForm({
         <CardHeader>
           <CardTitle className="text-base">1. Create a mission (any signed-in user)</CardTitle>
           <p className="text-sm text-zinc-600 font-normal">
-            One form captures timeframe, route shape (one-way, round-trip, multi-stop), destination, mission profile, required vehicle class, and loadout. Management approves the mission; fleet then reserves a pool vehicle on the mission.
+            Set the route on the map (origin, destination, round trip or stops), then the dates, vehicle class, and loadout. Management approves the mission; fleet allocates a vehicle after the trip exists.
           </p>
         </CardHeader>
         <CardContent>
           <form ref={missionFormRef} onSubmit={(e) => void handleCreateMission(e)} className="space-y-4">
             <Input name="cmTitle" label="Mission title" placeholder="Short label (optional)" />
+            <div data-tutorial="tutorial-vr-route-estimate">
+              <MissionRouteEditor
+                organizationId={organizationId}
+                sites={siteRows.map((s) => ({ code: s.code, label: s.label, meta: s.meta }))}
+                value={routePlan}
+                onChange={setRoutePlan}
+              />
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="flex flex-col gap-1.5 sm:col-span-1">
-                <label className="text-sm font-medium text-zinc-700">Destination *</label>
-                <select
-                  name="cmDestination"
-                  required
-                  value={destinationChoice}
-                  onChange={(e) => setDestinationChoice(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select site or other…</option>
-                  {siteRows.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code} — {s.label}
-                    </option>
-                  ))}
-                  <option value="__write__">Other…</option>
-                </select>
-                {destinationChoice === "__write__" && (
-                  <Input
-                    name="cmDestinationOther"
-                    label=""
-                    value={destinationOther}
-                    onChange={(e) => setDestinationOther(e.target.value)}
-                    placeholder="Site code or location"
-                  />
-                )}
-                <div className="space-y-2" data-tutorial="tutorial-vr-route-estimate">
-                  <p className="text-xs text-zinc-500">Pick a site for route distance estimate.</p>
-                  {destinationChoice && destinationChoice !== "__write__" && (
-                    <div className="rounded-md border border-zinc-100 bg-white px-3 py-2 text-xs text-zinc-700">
-                      {routeEstimateLoading && <span className="text-zinc-500">Calculating…</span>}
-                      {!routeEstimateLoading && routeEstimate?.ok && routeEstimate.distanceKm != null && (
-                        <span>
-                          Est. one-way: <strong>{Math.round(routeEstimate.distanceKm * 10) / 10} km</strong>
-                        </span>
-                      )}
-                      {!routeEstimateLoading && routeEstimate && !routeEstimate.ok && (
-                        <span className="text-amber-900">
-                          {routeEstimate.message || "Could not estimate route."}{" "}
-                          {routeEstimate.message && /set GPS on site/i.test(routeEstimate.message) && (
-                            <a
-                              href="/admin"
-                              className="text-blue-700 underline underline-offset-2"
-                            >
-                              Open Admin → Sites
-                            </a>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
               <Input name="cmDepartureDate" label="Departure date *" type="date" required />
               <Input name="cmReturnDate" label="Return date" type="date" />
             </div>
-            {multiStopEnabled && (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-zinc-700">Trip shape *</label>
-                  <select
-                    value={tripShape}
-                    onChange={(e) =>
-                      setTripShape(
-                        e.target.value === "round_trip"
-                          ? "round_trip"
-                          : e.target.value === "multi_stop"
-                            ? "multi_stop"
-                            : "one_way"
-                      )
-                    }
-                    className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  >
-                    <option value="one_way">One-way</option>
-                    <option value="round_trip">Round trip</option>
-                    <option value="multi_stop">Multi-stop</option>
-                  </select>
-                </div>
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-zinc-700">Route origin / departure point *</label>
-                <select
-                  value={routeOrigin}
-                  onChange={(e) => setRouteOrigin(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="HQ">HQ — Head office</option>
-                  {siteRows.filter((s) => s.code !== "HQ").map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code} — {s.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-zinc-500">
-                  Where the vehicle departs from. Defaults to HQ. Shown on the mission approval
-                  view so reviewers can see the full route, not just the destination.
-                </p>
-              </div>
-            </div>
-            {multiStopEnabled && tripShape !== "one_way" && (
-              <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/20 p-4">
-                <p className="text-xs font-medium text-zinc-500 uppercase">Planned stops</p>
-                {routeStops.map((stop, idx) => (
-                  <div key={idx} className="grid gap-2 sm:grid-cols-5 items-end">
-                    <select
-                      value={stop.location}
-                      onChange={(e) => updateRouteStop(idx, "location", e.target.value)}
-                      className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    >
-                      <option value="">Stop location…</option>
-                      {siteRows.map((s) => (
-                        <option key={s.code} value={s.code}>
-                          {s.code} — {s.label}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      label="Load out"
-                      value={stop.loadOut}
-                      onChange={(e) => updateRouteStop(idx, "loadOut", e.target.value)}
-                    />
-                    <Input
-                      label="Load in"
-                      value={stop.loadIn}
-                      onChange={(e) => updateRouteStop(idx, "loadIn", e.target.value)}
-                    />
-                    <Input
-                      label="Stop notes"
-                      value={stop.notes}
-                      onChange={(e) => updateRouteStop(idx, "notes", e.target.value)}
-                    />
-                    <div className="flex gap-2">
-                      {routeStops.length > 1 && (
-                        <Button type="button" variant="outline" size="sm" onClick={() => removeRouteStop(idx)}>
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={addRouteStop}>
-                  + Add stop
-                </Button>
-              </div>
-            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Input name="cmCrewSize" label="Crew size *" type="number" min={1} step={1} required placeholder="Number of people on this mission" />
               <Input name="cmPassengers" label="Passenger names / notes" placeholder="Optional — names or notes" />
@@ -3179,32 +3031,33 @@ function RequestForm({
             {!publicTransport && (
               <FuelBudgetPanel
                 organizationId={organizationId}
-                tripShape={multiStopEnabled ? tripShape : "one_way"}
+                tripShape={
+                  routePlan.roundTrip
+                    ? "round_trip"
+                    : routePlan.waypoints.some((w) => (w.siteCode || w.label).trim())
+                      ? "multi_stop"
+                      : "one_way"
+                }
                 vehicleClass={missionVehicleClass}
                 routeLocked
                 stops={(() => {
-                  const destLabel =
-                    destinationChoice === "__write__"
-                      ? destinationOther.trim()
-                      : destinationChoice;
+                  const originLabel = (routePlan.origin.siteCode || routePlan.origin.label || "HQ").trim() || "HQ";
+                  const destLabel = (routePlan.destination.siteCode || routePlan.destination.label).trim();
                   const pts: FuelStopDraft[] = [
-                    { label: routeOrigin.trim() || "HQ", siteCode: routeOrigin.trim() || "HQ", lat: null, lng: null },
+                    { label: originLabel, siteCode: originLabel, lat: routePlan.origin.lat, lng: routePlan.origin.lng },
                   ];
-                  for (const s of routeStops) {
-                    if (s.location.trim()) {
-                      pts.push({
-                        label: s.location.trim(),
-                        siteCode: s.location.trim(),
-                        lat: null,
-                        lng: null,
-                      });
-                    }
+                  for (const s of routePlan.waypoints) {
+                    const label = (s.siteCode || s.label).trim();
+                    if (!label && s.lat == null) continue;
+                    pts.push({ label, siteCode: s.siteCode || label, lat: s.lat, lng: s.lng });
                   }
-                  if (
-                    destLabel &&
-                    !pts.slice(1).some((p) => p.label.toLowerCase() === destLabel.toLowerCase())
-                  ) {
-                    pts.push({ label: destLabel, siteCode: destLabel, lat: null, lng: null });
+                  if (destLabel && !pts.slice(1).some((p) => p.label.toLowerCase() === destLabel.toLowerCase())) {
+                    pts.push({
+                      label: destLabel,
+                      siteCode: routePlan.destination.siteCode || destLabel,
+                      lat: routePlan.destination.lat,
+                      lng: routePlan.destination.lng,
+                    });
                   }
                   return pts.length >= 2 ? pts : [...pts, { label: "", siteCode: "", lat: null, lng: null }];
                 })()}

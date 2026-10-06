@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "mission-route-map",
+    title: "Missions show the road on a map",
+    summary:
+      "Create a mission from a map: origin, destination, round trip, and stops. Approved missions stay in their own list.",
+    category: "feature",
+    audience: "all",
+    effectiveAt: "2026-10-06",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- **New mission** opens a map. Search a site for the origin and the destination, or click the map to drop a pin.\n- Tick **Round trip** to return to the origin. For any other trip, add stops between the origin and the destination. The road line and distance update as you edit.\n- The same map is on the mission while it waits for approval and on **Approved missions** after it is approved.\n- A site with no GPS is named under the map. Set coordinates in Admin so that stop can join the line.\n- **Approved missions** is the open list of approved missions that do not have a trip yet. The table chip **Approved requests** is the logistics queue, not that list.",
+      },
+    ],
+  },
+  {
     slug: "capacity-arbitration-after-fleet-shortage",
     title: "Management arbitrates a day only after fleet reports no vehicle left",
     summary:

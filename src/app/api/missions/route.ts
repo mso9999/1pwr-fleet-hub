@@ -9,7 +9,6 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { insertPlannedMission } from "@/lib/missions";
 import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
-import { isMultiStopRolloutEnabledServer } from "@/lib/feature-flags";
 import { canViewPrivateDraft } from "@/lib/fleet-roles";
 import {
   normalizeRouteStops,
@@ -229,9 +228,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     : "pending";
   const organizationId = String(body.organizationId || "1pwr_lesotho");
   const db = getDb();
-  const rollout = isMultiStopRolloutEnabledServer();
-  const tripShape = rollout ? normalizeTripShape(body.tripShape) : "one_way";
-  const stops = rollout ? normalizeRouteStops(body.stops) : [];
+  const tripShape = normalizeTripShape(body.tripShape);
+  const stops = normalizeRouteStops(body.stops);
   const destination = String(body.destination || "").trim();
   const routeValidationError = validateRoutePlan({ tripShape, destination, stops });
   if (routeValidationError) {
@@ -283,6 +281,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const departureLocation = String(body.departureLocation || body.departure_location || "HQ");
+  const numOrNull = (v: unknown): number | null => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+  };
   const stopsWithCoords = (Array.isArray(body.stops) ? body.stops : []).map(
     (s: { location?: string; loadOut?: string; loadIn?: string; notes?: string; lat?: number; lng?: number }, i: number) => ({
       ...(stops[i] || { location: String(s.location || ""), loadOut: "", loadIn: "", notes: "" }),
@@ -296,7 +298,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     transportMode,
     tripShape,
     departureLocation,
+    departureLat: numOrNull(body.departureLat),
+    departureLng: numOrNull(body.departureLng),
     destination,
+    destinationLat: numOrNull(body.destinationLat),
+    destinationLng: numOrNull(body.destinationLng),
     stops: stopsWithCoords,
     vehicleClass: String(body.requiredVehicleClass || body.required_vehicle_class || "") || null,
     vehicleId: body.fuelVehicleId ? String(body.fuelVehicleId) : null,

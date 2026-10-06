@@ -332,11 +332,9 @@ export const guideEn: GuideContent = {
             ". The request is tied to that register row. Superadmin testing may still use overrides where policy allows.",
           ],
           [
-            "When you choose a ",
-            B("destination"),
-            " from the site list, Fleet Hub estimates ",
-            B("one-way driving distance"),
-            " along roads (public routing). Free-text “Other” destinations do not get a mapped distance.",
+            "The mission form has a map. Search a site for the origin and the destination, or click the map to drop a pin. A ",
+            B("round trip"),
+            " returns to the origin. Any other trip can add stops between them. The road line and distance draw as you edit, and the same map appears on the pending and approved mission. A site with no GPS is named under the map; set it in Admin so that pin can join the line.",
           ],
           [
             "After a vehicle is ",
