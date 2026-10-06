@@ -7,6 +7,12 @@ import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import {
+  decideMissionRequestInsert,
+  findOpenMissionRequests,
+  supersedeRequests,
+  type InsertDecision,
+} from "@/lib/vehicle-request-duplicates";
 import { v4 as uuidv4 } from "uuid";
 import { ASSET_CLASS } from "@/types";
 
@@ -15,6 +21,11 @@ export function GET(request: NextRequest): NextResponse {
     const db = getDb();
     const sp = request.nextUrl.searchParams;
     const org = sp.get("org") || "1pwr_lesotho";
+
+    const openForMission = sp.get("openForMission");
+    if (openForMission) {
+      return NextResponse.json({ requests: findOpenMissionRequests(db, openForMission) });
+    }
 
     let query = `
     SELECT ${VR_SELECT_FIELDS}
@@ -202,38 +213,56 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const rrRaw = String(body.rrStatus ?? "na").toLowerCase();
   const rrStatus = rrRaw === "pending" || rrRaw === "approved" || rrRaw === "na" ? rrRaw : "na";
 
-  db.prepare(`
-    INSERT INTO vehicle_requests (
-      id, organization_id, mission_id, requested_by_id, requested_by_name, requested_for,
-      designated_operator_id,
-      vehicle_id, purpose, destination, departure_date, return_date,
-      passengers, required_vehicle_class, loadout_description,
-      priority, status, notes, rr_status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
-  `).run(
-    id,
-    orgId,
-    missionId || null,
-    requestedById,
-    requestedByName,
+  const resolution = typeof body.openRequestResolution === "string" ? body.openRequestResolution : null;
+  const separateReasonRaw = typeof body.separateReason === "string" ? body.separateReason : null;
+
+  const insertWithDuplicateCheck = db.transaction((): InsertDecision => {
+    const decision: InsertDecision = missionId
+      ? decideMissionRequestInsert(findOpenMissionRequests(db, missionId), resolution, separateReasonRaw)
+      : { ok: true, supersedeIds: [], separateReason: null };
+    if (!decision.ok) return decision;
+    if (decision.supersedeIds.length > 0) {
+      supersedeRequests(db, decision.supersedeIds, orgId, actorFrom(user), now);
+    }
+    db.prepare(`
+      INSERT INTO vehicle_requests (
+        id, organization_id, mission_id, requested_by_id, requested_by_name, requested_for,
+        designated_operator_id,
+        vehicle_id, purpose, destination, departure_date, return_date,
+        passengers, required_vehicle_class, loadout_description,
+        priority, status, notes, rr_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)
+    `).run(
+      id,
+      orgId,
+      missionId || null,
+      requestedById,
+      requestedByName,
       body.requestedFor || "",
-    designatedOperatorId || null,
-    null,
-    body.purpose || "",
-    destination,
-    departureDate,
-    returnDate,
-    body.passengers !== undefined && body.passengers !== "" ? String(body.passengers) : passengersDefault,
-    requiredVehicleClassRaw,
-    body.loadoutDescription !== undefined && body.loadoutDescription !== ""
-      ? String(body.loadoutDescription)
-      : loadoutDefault,
-    body.priority || "normal",
-    body.notes || "",
-    rrStatus,
-    now,
-    now
-  );
+      designatedOperatorId || null,
+      null,
+      body.purpose || "",
+      destination,
+      departureDate,
+      returnDate,
+      body.passengers !== undefined && body.passengers !== "" ? String(body.passengers) : passengersDefault,
+      requiredVehicleClassRaw,
+      body.loadoutDescription !== undefined && body.loadoutDescription !== ""
+        ? String(body.loadoutDescription)
+        : loadoutDefault,
+      body.priority || "normal",
+      body.notes || "",
+      rrStatus,
+      now,
+      now
+    );
+    return decision;
+  });
+
+  const decision = insertWithDuplicateCheck.immediate();
+  if (!decision.ok) {
+    return NextResponse.json(decision.body, { status: decision.status });
+  }
 
   await recalculateVehicleRequestFuel(db, id);
 
@@ -251,7 +280,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       priority: body.priority || "normal",
       prerequisiteOverride: overrideUsable && bypassedGates.length > 0,
       designatedOperatorId: designatedOperatorId || null,
+      supersededRequestIds: decision.supersedeIds.length > 0 ? decision.supersedeIds : undefined,
+      separateRequest: decision.separateReason ? true : undefined,
     },
+    reason: decision.separateReason ? `Separate request: ${decision.separateReason}` : undefined,
   });
 
   if (overrideUsable && bypassedGates.length > 0) {

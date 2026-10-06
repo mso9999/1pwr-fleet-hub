@@ -8,6 +8,10 @@ import {
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import { requestorMayEditRequest } from "@/lib/vehicle-request-duplicates";
+import { isApprovedOperatorIdForCategory } from "@/lib/approved-drivers";
+import { DEFAULT_OPERATOR_CATEGORY } from "@/lib/ehs-operator-categories";
+import { ASSET_CLASS } from "@/types";
 
 function vehicleRequestAudit(r: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -80,6 +84,8 @@ export async function PATCH(
         "loadoutDescription",
         "priority",
         "rrStatus",
+        "requestedFor",
+        "designatedOperatorId",
       ].includes(k) && body[k as keyof typeof body] !== undefined
   );
 
@@ -110,6 +116,7 @@ export async function PATCH(
     const missionOnly =
       keysForAuth.length > 0 &&
       keysForAuth.every((k) => k === "status" || k === "rejectionReason");
+    const requestorMayEdit = requestorMayEditRequest(existing as Record<string, unknown>, user.id, keysForAuth);
     if (missionOnly) {
       if (!canMission) {
         return NextResponse.json(
@@ -117,9 +124,34 @@ export async function PATCH(
           { status: 403 }
         );
       }
-    } else if (!canFull) {
-      return NextResponse.json({ error: "Only fleet management can edit this request" }, { status: 403 });
+    } else if (!canFull && !requestorMayEdit) {
+      return NextResponse.json(
+        {
+          error: isRequestor
+            ? "You can edit your request only until fleet allocates a vehicle. After that, ask fleet management."
+            : "Only fleet management can edit this request",
+        },
+        { status: 403 }
+      );
     }
+  }
+
+  if (body.requiredVehicleClass !== undefined) {
+    const cls = String(body.requiredVehicleClass).trim();
+    if (!(Object.values(ASSET_CLASS) as string[]).includes(cls)) {
+      return NextResponse.json({ error: "Choose a valid vehicle type." }, { status: 400 });
+    }
+    body.requiredVehicleClass = cls;
+  }
+  if (body.designatedOperatorId !== undefined) {
+    const op = String(body.designatedOperatorId || "").trim();
+    if (op && !isApprovedOperatorIdForCategory(db, orgId, op, DEFAULT_OPERATOR_CATEGORY)) {
+      return NextResponse.json(
+        { error: "That driver is not on the compliant EHS register for on-road fleet in this organisation." },
+        { status: 403 }
+      );
+    }
+    body.designatedOperatorId = op || null;
   }
 
   const existingStatus = (existing as Record<string, unknown>).status as string;
@@ -149,6 +181,8 @@ export async function PATCH(
     loadoutDescription: "loadout_description",
     priority: "priority",
     rrStatus: "rr_status",
+    requestedFor: "requested_for",
+    designatedOperatorId: "designated_operator_id",
   };
 
   const fields: string[] = [];

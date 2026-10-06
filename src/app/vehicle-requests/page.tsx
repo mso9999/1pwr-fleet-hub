@@ -36,6 +36,24 @@ import { MissionRouteEditor, type MissionRouteValue } from "@/components/Mission
 import { MissionRouteMap } from "@/components/MissionRouteMap";
 import type { FuelDisposition } from "@/lib/fuel-calculator";
 
+/** Mirrors `OpenMissionRequest` from `@/lib/vehicle-request-duplicates` (server-only module). */
+interface OpenMissionRequestRow {
+  id: string;
+  purpose: string;
+  status: string;
+  createdAt: string;
+  requestedById: string;
+  requestedByName: string;
+  assignedVehicleCode: string | null;
+  allocated: boolean;
+}
+
+function formatOpenRequestTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso.slice(0, 16);
+  return new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
 interface RequestRow {
   id: string;
   requested_by_id: string;
@@ -737,6 +755,7 @@ export default function VehicleRequestsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
   const [view, setView] = useState<"requests" | "pool">("requests");
   const [listStatusFilter, setListStatusFilter] = useState<string | null>(null);
   const [detailRequest, setDetailRequest] = useState<RequestRow | null>(null);
@@ -1150,9 +1169,29 @@ export default function VehicleRequestsPage() {
           organizationId={organizationId}
           userId={user?.id || ""}
           userName={user?.name || ""}
-          onComplete={() => { setShowForm(false); loadData(); }}
+          onComplete={(message) => {
+            setShowForm(false);
+            setRequestNotice(message || null);
+            loadData();
+          }}
           onCancel={() => setShowForm(false)}
         />
+      )}
+      {requestNotice && !showForm && (
+        <div
+          className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+          role="status"
+          data-testid="vr-request-notice"
+        >
+          <span>{requestNotice}</span>
+          <button
+            type="button"
+            className="text-emerald-800 underline text-xs shrink-0"
+            onClick={() => setRequestNotice(null)}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
 
       {(() => {
@@ -2420,7 +2459,7 @@ function RequestForm({
   organizationId: string;
   userId: string;
   userName: string;
-  onComplete: () => void;
+  onComplete: (message?: string) => void;
   onCancel: () => void;
 }) {
   const returnTo = useSearchParams().get("returnTo") || "";
@@ -2453,6 +2492,11 @@ function RequestForm({
   const [editingMissionDraftId, setEditingMissionDraftId] = useState<string | null>(null);
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState("");
+  const [openRequests, setOpenRequests] = useState<OpenMissionRequestRow[]>([]);
+  const [openResolution, setOpenResolution] = useState<"" | "resume" | "supersede" | "separate">("");
+  const [resumingRequestId, setResumingRequestId] = useState<string | null>(null);
+  const [separateReason, setSeparateReason] = useState("");
+  const vrFormRef = useRef<HTMLFormElement | null>(null);
   const emptyRoutePlan = (): MissionRouteValue => ({
     roundTrip: false,
     origin: { siteCode: "HQ", label: "Head office", lat: null, lng: null },
@@ -2559,6 +2603,80 @@ function RequestForm({
       cancelled = true;
     };
   }, [organizationId]);
+
+  function selectMissionForRequest(missionId: string): void {
+    setSelectedMissionId(missionId);
+    setOpenRequests([]);
+    setOpenResolution("");
+    setResumingRequestId(null);
+    setSeparateReason("");
+  }
+
+  useEffect(() => {
+    if (!selectedMissionId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/vehicle-requests?org=${encodeURIComponent(organizationId)}&openForMission=${encodeURIComponent(selectedMissionId)}`,
+          { headers: await jsonHeadersWithBearer() }
+        );
+        if (!res.ok || cancelled) return;
+        const j = (await res.json()) as { requests?: OpenMissionRequestRow[] };
+        if (!cancelled) setOpenRequests(Array.isArray(j.requests) ? j.requests : []);
+      } catch {
+        if (!cancelled) setOpenRequests([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMissionId, organizationId]);
+
+  const replaceableRequests = openRequests.filter((r) => !r.allocated);
+
+  async function resumeOpenRequest(requestId: string): Promise<void> {
+    setVrFormError("");
+    const res = await fetch(`/api/vehicle-requests/${encodeURIComponent(requestId)}`, {
+      headers: await jsonHeadersWithBearer(),
+    });
+    if (!res.ok) {
+      setVrFormError("Could not load that request. Try again, or choose another option.");
+      return;
+    }
+    const r = (await res.json()) as Record<string, string | null>;
+    const form = vrFormRef.current;
+    const setField = (name: string, value: string | null | undefined) => {
+      const el = form?.elements.namedItem(name);
+      if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) {
+        el.value = String(value ?? "");
+      }
+    };
+    setField("purpose", r.purpose);
+    setField("passengers", r.passengers);
+    setField("loadoutDescription", r.loadout_description);
+    setField("priority", r.priority || "normal");
+    setField("notes", r.notes);
+    const requestedFor = String(r.requested_for || "").trim();
+    const dept = departments.find((d) => d.label === requestedFor || d.code === requestedFor);
+    if (!requestedFor) {
+      setRequestedForChoice("");
+    } else if (dept) {
+      setRequestedForChoice(dept.code);
+    } else {
+      setRequestedForChoice("__other__");
+      setRequestedForOther(requestedFor);
+    }
+    if (r.designated_operator_id) {
+      setDesignatedOperator({
+        id: String(r.designated_operator_id),
+        displayName: String(r.designated_operator_label || r.designated_operator_email || ""),
+        email: String(r.designated_operator_email || ""),
+      });
+    }
+    setResumingRequestId(requestId);
+    setOpenResolution("resume");
+  }
 
   const siteRows = sites.filter((s) => s.code !== "OTHER");
   const selectedMission = approvedMissions.find((m) => m.id === selectedMissionId);
@@ -2849,6 +2967,40 @@ function RequestForm({
       const dept = departments.find((d) => d.code === requestedForChoice);
       requestedFor = dept ? dept.label : requestedForChoice;
     }
+    if (openRequests.length > 0 && !openResolution) {
+      setVrFormError("This mission already has a vehicle request. Choose one of the options above before submitting.");
+      return;
+    }
+    if (openResolution === "separate" && separateReason.trim().length < 8) {
+      setVrFormError("Say why this is a separate request (at least 8 characters).");
+      return;
+    }
+    if (openResolution === "resume" && resumingRequestId) {
+      setVrSubmitting(true);
+      const patch: Record<string, unknown> = {
+        purpose: fd.get("purpose") || "",
+        passengers: fd.get("passengers") || "",
+        loadoutDescription: fd.get("loadoutDescription") || "",
+        priority: fd.get("priority") || "normal",
+        notes: fd.get("notes") || "",
+        requestedFor,
+      };
+      if (vehicleClass) patch.requiredVehicleClass = vehicleClass;
+      if (designatedOperator?.id) patch.designatedOperatorId = designatedOperator.id;
+      const res = await fetch(`/api/vehicle-requests/${encodeURIComponent(resumingRequestId)}`, {
+        method: "PATCH",
+        headers: await jsonHeadersWithBearer(),
+        body: JSON.stringify(patch),
+      });
+      setVrSubmitting(false);
+      if (res.ok) {
+        onComplete("Vehicle request updated. Fleet allocates the vehicle on that request.");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setVrFormError((err as { error?: string }).error || "Could not save your changes.");
+      }
+      return;
+    }
     setVrSubmitting(true);
     const payload: Record<string, unknown> = {
       organizationId,
@@ -2869,17 +3021,36 @@ function RequestForm({
     if (designatedOperator?.id) {
       payload.designatedOperatorId = designatedOperator.id;
     }
+    if (openResolution === "supersede" || openResolution === "separate") {
+      payload.openRequestResolution = openResolution;
+    }
+    if (openResolution === "separate") {
+      payload.separateReason = separateReason.trim();
+    }
     const res = await fetch("/api/vehicle-requests", {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify(payload),
     });
     setVrSubmitting(false);
-    if (res.ok) onComplete();
-    else {
-      const err = await res.json().catch(() => ({}));
-      setVrFormError((err as { error?: string }).error || "Failed to submit request.");
+    if (res.ok) {
+      onComplete(
+        openResolution === "supersede"
+          ? "Vehicle request submitted and the earlier one cancelled. Fleet allocates the vehicle on the new request."
+          : "Vehicle request submitted. Fleet allocates the vehicle on that request."
+      );
+      return;
     }
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+      requests?: OpenMissionRequestRow[];
+    };
+    if (res.status === 409 && Array.isArray(err.requests)) {
+      setOpenRequests(err.requests);
+      setOpenResolution("");
+    }
+    setVrFormError(err.error || "Failed to submit request.");
   }
 
   return (
@@ -3202,7 +3373,7 @@ function RequestForm({
               Quiz passed — ask EHS to finish your approved-driver file (assessments + attestation) if you need to be designated yourself.
             </div>
           )}
-          <form onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
+          <form ref={vrFormRef} onSubmit={(e) => void handleVehicleRequest(e)} className="space-y-4">
             <EhsCompliantDriverPickerField
               organizationId={organizationId}
               value={designatedOperator}
@@ -3221,7 +3392,7 @@ function RequestForm({
                   label="Approved mission"
                   required
                   value={selectedMissionId}
-                  onChange={setSelectedMissionId}
+                  onChange={selectMissionForRequest}
                   modalTitle="Pick an approved mission"
                   modalDescription="Only management-approved missions are listed. Create one above and wait for approval if you don't see it."
                   searchPlaceholder="Search by title, destination, dates…"
@@ -3267,6 +3438,88 @@ function RequestForm({
                   <div className="text-xs text-zinc-600 mt-1">
                     <span className="font-medium">Route:</span> {missionRouteSummary(selectedMission)}
                   </div>
+                </div>
+              )}
+              {openRequests.length > 0 && (
+                <div
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 space-y-3"
+                  data-testid="open-request-prompt"
+                >
+                  <p className="font-medium">
+                    This mission already has {openRequests.length === 1 ? "a vehicle request" : `${openRequests.length} vehicle requests`}.
+                    If you started over because something went wrong, fix or replace it instead of adding another.
+                  </p>
+                  <ul className="space-y-2">
+                    {openRequests.map((r) => (
+                      <li key={r.id} className="rounded-md border border-amber-200 bg-white px-3 py-2">
+                        <div className="text-zinc-900">{r.purpose || "(no purpose)"}</div>
+                        <div className="text-xs text-zinc-600">
+                          {r.requestedByName || "Unknown"} · {formatOpenRequestTime(r.createdAt)} ·{" "}
+                          {r.allocated
+                            ? `Vehicle allocated${r.assignedVehicleCode ? `: ${r.assignedVehicleCode}` : ""}`
+                            : "Waiting for a vehicle"}
+                        </div>
+                        {!r.allocated && r.requestedById === userId && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={resumingRequestId === r.id ? "default" : "outline"}
+                            className="mt-2"
+                            onClick={() => void resumeOpenRequest(r.id)}
+                          >
+                            {resumingRequestId === r.id ? "Editing this request" : "Resume and fix this request"}
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    {replaceableRequests.length > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={openResolution === "supersede" ? "default" : "outline"}
+                        onClick={() => {
+                          setOpenResolution("supersede");
+                          setResumingRequestId(null);
+                        }}
+                      >
+                        {replaceableRequests.length === 1
+                          ? "Cancel it and submit this instead"
+                          : `Cancel those ${replaceableRequests.length} and submit this instead`}
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={openResolution === "separate" ? "default" : "outline"}
+                      onClick={() => {
+                        setOpenResolution("separate");
+                        setResumingRequestId(null);
+                      }}
+                    >
+                      This is a separate request
+                    </Button>
+                  </div>
+                  {replaceableRequests.length === 0 && (
+                    <p className="text-xs text-amber-900">
+                      Fleet has already put a vehicle on this request, so it cannot be replaced by starting over. Ask fleet if it needs to change.
+                    </p>
+                  )}
+                  {replaceableRequests.some((r) => r.requestedById !== userId) && (
+                    <p className="text-xs text-amber-900">
+                      A request filed by someone else can only be changed by them or by fleet.
+                    </p>
+                  )}
+                  {openResolution === "separate" && (
+                    <textarea
+                      value={separateReason}
+                      onChange={(e) => setSeparateReason(e.target.value)}
+                      rows={2}
+                      placeholder="Why is this a separate request? e.g. second vehicle for the crew"
+                      className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    />
+                  )}
                 </div>
               )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -3367,7 +3620,15 @@ function RequestForm({
               )}
               <div className="flex gap-3">
                 <Button type="submit" disabled={vrSubmitting} size="lg" className="min-h-[48px] touch-manipulation">
-                  {vrSubmitting ? "Submitting…" : "Submit vehicle request"}
+                  {vrSubmitting
+                    ? "Submitting…"
+                    : openResolution === "resume"
+                      ? "Save changes to request"
+                      : openResolution === "supersede"
+                        ? "Replace and submit"
+                        : openResolution === "separate"
+                          ? "Submit separate request"
+                          : "Submit vehicle request"}
                 </Button>
                 <Button type="button" variant="outline" onClick={onCancel} size="lg" className="min-h-[48px]">
                   Cancel

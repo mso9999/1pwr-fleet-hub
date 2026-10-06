@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "vehicle-request-already-open",
+    title: "A mission with a vehicle request asks before you file another",
+    summary:
+      "Pick a mission that already has a vehicle request and Fleet Hub shows it. Fix it, replace it, or confirm a separate request.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-10-06",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- In **Driver logistics request**, picking a mission that already has a vehicle request shows that request: who filed it, when, and whether fleet has put a vehicle on it.\n- **Resume and fix this request** loads your request into the form. Saving updates it. You can change your own request until fleet allocates a vehicle.\n- **Cancel it and submit this instead** cancels the request that is still waiting and files yours. Use it if you started over because something went wrong.\n- **This is a separate request** files a second request beside the first. Say why, for example a second vehicle for the crew.\n- A request that already has a vehicle cannot be replaced by starting over. Ask fleet if it needs to change.\n- After you submit, a green line confirms the request went through.",
+      },
+    ],
+  },
+  {
     slug: "unallocated-requests-cancelled",
     title: "Unallocated vehicle requests are cancelled after 14 days",
     summary:
