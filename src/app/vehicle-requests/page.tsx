@@ -753,6 +753,14 @@ export default function VehicleRequestsPage() {
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
   const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
   const [waitingTripOpen, setWaitingTripOpen] = useState(true);
+  // Approved-missions list: list/tiles toggle + filter/sort + click-to-expand maps
+  const [missionViewMode, setMissionViewMode] = useState<"list" | "tiles">(() => {
+    if (typeof window === "undefined") return "list";
+    return (window.localStorage.getItem("missionViewMode") as "list" | "tiles") || "list";
+  });
+  const [missionFilter, setMissionFilter] = useState("");
+  const [missionSort, setMissionSort] = useState<"departure" | "created" | "destination">("departure");
+  const [expandedApprovedMissionId, setExpandedApprovedMissionId] = useState<string | null>(null);
 
   const roleLooksFleet =
     !!user &&
@@ -1160,6 +1168,24 @@ export default function VehicleRequestsPage() {
           if (String(m.assigned_vehicle_code || "").toUpperCase() === "UNALLOCATED") return true;
           return false;
         });
+        // Approved-missions list: text filter + sort (departure default).
+        const mf = missionFilter.trim().toLowerCase();
+        const filteredMissions = mf
+          ? waitingTrip.filter((m) =>
+              [m.title, m.destination, m.created_by_name]
+                .filter(Boolean)
+                .some((v) => String(v).toLowerCase().includes(mf))
+            )
+          : waitingTrip;
+        const sortedMissions = [...filteredMissions].sort((a, b) => {
+          if (missionSort === "destination") {
+            return String(a.destination || "").localeCompare(String(b.destination || ""));
+          }
+          if (missionSort === "created") {
+            return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+          }
+          return String(a.departure_date || "").localeCompare(String(b.departure_date || ""));
+        });
         return (
           <>
             {waitingTrip.length > 0 && (
@@ -1187,12 +1213,58 @@ export default function VehicleRequestsPage() {
                 </CardHeader>
                 {waitingTripOpen && (
                 <CardContent className="space-y-3">
-                  {waitingTrip.map((m) => (
+                  {/* Controls: list/tiles toggle + filter + sort */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-xs">
+                      {(["list", "tiles"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => {
+                            setMissionViewMode(mode);
+                            try { window.localStorage.setItem("missionViewMode", mode); } catch {}
+                          }}
+                          className={`rounded-md px-2.5 py-1 capitalize ${missionViewMode === mode ? "bg-zinc-900 text-white" : "text-zinc-600"}`}
+                        >
+                          {mode === "list" ? "List" : "Tiles"}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={missionFilter}
+                      onChange={(e) => setMissionFilter(e.target.value)}
+                      placeholder="Filter by destination, title, or requestor…"
+                      className="h-8 min-w-[200px] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                    />
+                    <select
+                      value={missionSort}
+                      onChange={(e) => setMissionSort(e.target.value as typeof missionSort)}
+                      className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-700"
+                      aria-label="Sort missions"
+                    >
+                      <option value="departure">Sort: departure date</option>
+                      <option value="created">Sort: recently created</option>
+                      <option value="destination">Sort: destination A–Z</option>
+                    </select>
+                  </div>
+                  {sortedMissions.length === 0 && (
+                    <p className="text-sm text-zinc-500">No approved missions match{missionFilter ? ` “${missionFilter}”` : ""}.</p>
+                  )}
+                  <div className={missionViewMode === "tiles" ? "grid gap-3 sm:grid-cols-2" : "space-y-2"}>
+                  {sortedMissions.map((m) => {
+                    const expanded = expandedApprovedMissionId === m.id;
+                    return (
                     <div
                       key={m.id}
                       className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm space-y-2"
                     >
-                      <div className="flex flex-wrap justify-between gap-2">
+                      <button
+                        type="button"
+                        className="flex w-full flex-wrap justify-between gap-2 text-left"
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedApprovedMissionId(expanded ? null : m.id)}
+                      >
                         <div className="min-w-0">
                           <span className="font-medium text-zinc-900">
                             {(m.title || m.destination).slice(0, 80)}
@@ -1203,18 +1275,23 @@ export default function VehicleRequestsPage() {
                             {m.created_by_name ? ` · by ${m.created_by_name}` : ""}
                           </span>
                         </div>
-                        {m.required_vehicle_class && (
-                          <Badge variant="secondary" className="text-[10px] shrink-0">
-                            Class: {m.required_vehicle_class}
-                          </Badge>
-                        )}
-                      </div>
-                      <MissionRouteMap
-                        organizationId={organizationId}
-                        tripShape={m.trip_shape || "one_way"}
-                        height={180}
-                        points={missionRoutePoints(m)}
-                      />
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {m.required_vehicle_class && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Class: {m.required_vehicle_class}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-zinc-400">{expanded ? "Hide map ▲" : "Map ▼"}</span>
+                        </span>
+                      </button>
+                      {expanded && (
+                        <MissionRouteMap
+                          organizationId={organizationId}
+                          tripShape={m.trip_shape || "one_way"}
+                          height={180}
+                          points={missionRoutePoints(m)}
+                        />
+                      )}
                       {noTripClearDate(m) && (
                         <p className="text-xs text-amber-800">
                           {String(noTripClearDate(m)) > new Date().toISOString().slice(0, 10)
@@ -1224,7 +1301,9 @@ export default function VehicleRequestsPage() {
                       )}
                       <MissionNextOwnerBanner mission={m} />
                     </div>
-                  ))}
+                    );
+                  })}
+                  </div>
                 </CardContent>
                 )}
               </Card>
