@@ -80,15 +80,25 @@ export async function syncReferenceListFromPr(
     try {
       snapshot = await firestore
         .collection(collectionName)
+        .where("organizationId", "==", organizationId)
         .where("active", "!=", false)
         .limit(500)
         .get();
     } catch (queryErr) {
       console.warn(
-        `[firestore-sync] active filter query failed for ${collectionName}, using full scan:`,
+        `[firestore-sync] org+active filter query failed for ${collectionName}, using org-only scan:`,
         queryErr
       );
-      snapshot = await firestore.collection(collectionName).limit(500).get();
+      try {
+        snapshot = await firestore
+          .collection(collectionName)
+          .where("organizationId", "==", organizationId)
+          .limit(500)
+          .get();
+      } catch (orgErr) {
+        console.warn(`[firestore-sync] org filter query failed for ${collectionName}, full scan:`, orgErr);
+        snapshot = await firestore.collection(collectionName).limit(500).get();
+      }
     }
 
     if (snapshot.empty) {
@@ -104,6 +114,13 @@ export async function syncReferenceListFromPr(
       for (const doc of snapshot.docs) {
         const data = doc.data();
         if (data.active === false) continue;
+
+        // Only mirror the target org's rows. The catalog is multi-org and the
+        // read above is not org-filtered — without this, every country's sites
+        // were mirrored into every org (last-write-wins per shared code, e.g.
+        // Benin's "Siège social" overwrote the Lesotho HQ label).
+        const docOrg = String(data.organizationId || "").trim();
+        if (docOrg && docOrg !== organizationId) continue;
 
         const code = String(data.code || doc.id).trim();
         if (!code) continue;
