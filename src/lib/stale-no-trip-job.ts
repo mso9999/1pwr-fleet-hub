@@ -8,6 +8,7 @@ import { sendMail, type MailResult } from "@/lib/mailer";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { addCalendarDays, parseDbTime } from "@/lib/stale-approval";
 import { NO_TRIP_EXPIRE_AFTER_DAYS, decideNoTrip, type NoTripAction } from "@/lib/stale-no-trip";
+import { closeUnallocatedRequests } from "@/lib/stale-allocation-job";
 
 const SYSTEM_ACTOR = { id: "system", name: "Fleet Hub", role: "", department: "" };
 export const NO_TRIP_EXPIRE_REASON = `Automatically cleared: approved but no trip was created within ${NO_TRIP_EXPIRE_AFTER_DAYS} days.`;
@@ -195,6 +196,7 @@ function expireMission(db: Database.Database, item: Candidate, nowIso: string): 
      SET lifecycle_status = 'expired_no_trip', rejection_reason = ?, updated_at = ?
      WHERE id = ? AND lower(COALESCE(lifecycle_status, 'active')) = 'active' AND trim(COALESCE(trip_id, '')) = ''`,
   ).run(NO_TRIP_EXPIRE_REASON, nowIso, item.id);
+  closeUnallocatedRequests(db, item.id, NO_TRIP_EXPIRE_REASON, nowIso);
   recordMutation(db, {
     entityType: "mission",
     entityId: item.id,

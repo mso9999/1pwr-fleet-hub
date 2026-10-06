@@ -29,9 +29,12 @@ jobs:
           call_url() {
             local url="$1"
             local status body
+            # The endpoint bounds its own outbound calls, but email sends for a
+            # large backlog can run past a minute. 180s plus one retry rides out
+            # a slow pass or a transient blip instead of failing the day.
             body="$(curl -sS -X POST \
               -H "X-API-Key: ${CLEANUP_KEY}" \
-              --connect-timeout 8 --max-time 60 \
+              --connect-timeout 8 --max-time 180 \
               -w '\n%{http_code}' "$url" || true)"
             status="$(echo "$body" | tail -n 1)"
             body="$(echo "$body" | sed '$d')"
@@ -45,6 +48,11 @@ jobs:
             return 1
           }
 
+          if call_url "${BASE}/api/sync/stale-approvals"; then
+            exit 0
+          fi
+          echo "First attempt failed; retrying once in 30s"
+          sleep 30
           if call_url "${BASE}/api/sync/stale-approvals"; then
             exit 0
           fi

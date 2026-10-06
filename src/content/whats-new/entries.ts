@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "unallocated-requests-cancelled",
+    title: "Unallocated vehicle requests are cancelled after 14 days",
+    summary:
+      "A request on an approved mission that still has no vehicle is warned at 7 days and cancelled at 14. Requests left behind on a cleared mission are cancelled straight away.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-10-06",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- A vehicle request on an **approved** mission that still has no vehicle gets an email after **7 days**. If it is still unallocated after **14 days**, it is cancelled. The requestor and the fleet lead both get the email.\n- A request already past 14 days gets the warning first and is cancelled on the next daily check.\n- When a mission is cleared because no trip was created, its open vehicle requests are cancelled at the same time. Requests stranded on missions that were already cleared, cancelled, or rejected are cancelled on the next check.\n- Missions still waiting for approval, and missions that management deferred, are not affected.",
+      },
+    ],
+  },
+  {
     slug: "mission-route-map",
     title: "Missions show the road on a map",
     summary:

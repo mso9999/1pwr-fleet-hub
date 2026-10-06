@@ -5,6 +5,9 @@
  * the browser.
  */
 
+/** The daily jobs call HR inline; a hung HR portal must not stall them past the cron budget. */
+const HR_FETCH_TIMEOUT_MS = 15_000;
+
 export interface HrToolsetApproval {
   toolset: string;
   approval_role: string;
@@ -126,6 +129,7 @@ export async function fetchHrEmployeeDirectory(params?: {
     const res = await fetch(url.toString(), {
       headers: { "X-API-Key": cfg.key },
       next: { revalidate: 0 },
+      signal: AbortSignal.timeout(HR_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -156,6 +160,7 @@ export async function fetchHrEmployeeMeta(): Promise<HrDirectoryMeta> {
     const res = await fetch(`${cfg.base}/api/employees/meta`, {
       headers: { "X-API-Key": cfg.key },
       next: { revalidate: 300 },
+      signal: AbortSignal.timeout(HR_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = await res.text();

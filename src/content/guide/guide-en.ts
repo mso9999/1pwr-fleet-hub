@@ -317,6 +317,9 @@ export const guideEn: GuideContent = {
             " (purpose, priority); the vehicle class usually comes from the mission. Line approval of that request remains separate from mission approval where that flow is still used.",
           ],
           [
+            "Requests that sit still are cleared on a daily check. A mission waiting for approval is warned at 20 days and rejected at 30. An approved mission with no trip is reminded with 7, 3 and 1 day left and cleared at 14 days, and its vehicle requests are cancelled with it. A vehicle request on an approved mission that still has no vehicle is warned at 7 days and cancelled at 14, and the fleet lead is emailed. A request whose mission was already cleared, cancelled, or rejected is cancelled on the next check.",
+          ],
+          [
             L("/trips", "Trips"),
             " is different: it records an ",
             B("operational check-out"),
