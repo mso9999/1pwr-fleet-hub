@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
   canApproveMissionRequests,
   canReserveMissionVehicleForOrg,
+  canOverrideDriverApproval,
   canArbitrateMissionCapacity,
   canFullyManageVehicleRequests,
 } from "@/lib/vehicle-check-approvers";
@@ -24,5 +25,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   const canFullEdit = canFullyManageVehicleRequests(user.role);
   const canAllocateVehicle = await canReserveMissionVehicleForOrg(db, org, user);
   const canArbitrateCapacity = await canArbitrateMissionCapacity(db, org, user.email, user.role);
-  return NextResponse.json({ canApprove, canFullEdit, canAllocateVehicle, canArbitrateCapacity });
+  const canOverrideDriver = canApprove || (await canOverrideDriverApproval(db, org, user));
+  return NextResponse.json({ canApprove, canFullEdit, canAllocateVehicle, canArbitrateCapacity, canOverrideDriver });
 }

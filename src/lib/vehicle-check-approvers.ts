@@ -195,6 +195,21 @@ export async function canOverrideInspectionGate(
 }
 
 /**
+ * Who may set an unapproved / not-yet-registered driver on a vehicle request
+ * (EHS approved-driver gate), with an 8+ character reason (enforced by the route).
+ * Same cohort as {@link canOverrideInspectionGate}: manager / fleet_lead of the
+ * org, HR fm:vehicle_allocator for its country, superadmin anywhere. Hotfix
+ * 2026-10-09 for orgs with no approved drivers yet (ZM).
+ */
+export async function canOverrideDriverApproval(
+  db: Database,
+  organizationId: string,
+  user: FleetCaller
+): Promise<boolean> {
+  return canOverrideInspectionGate(db, organizationId, user);
+}
+
+/**
  * Capacity / defer / cancel arbitration when too many approved missions
  * compete for vehicles.
  *

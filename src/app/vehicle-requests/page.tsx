@@ -2506,9 +2506,14 @@ function RequestForm({
   const [fuelDisposition, setFuelDisposition] = useState<FuelDisposition>("");
   const [fuelSubmitFields, setFuelSubmitFields] = useState<Record<string, unknown>>({});
   const [missionVehicleClass, setMissionVehicleClass] = useState("");
-  const { canOverride } = useOverrideCapability(organizationId);
+  const { canOverride, canOverrideDriver } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
+  // Driver-approval override (hotfix 2026-10-09): also manager / fleet lead / HR allocator.
+  const showOverridePanel = canOverride || canOverrideDriver;
+  const driverOverrideReady =
+    showOverridePanel && overrideEnabled && overrideReason.trim().length >= 8;
+  const [driverOverrideName, setDriverOverrideName] = useState("");
   const [missionMessage, setMissionMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
@@ -2962,10 +2967,20 @@ function RequestForm({
     e.preventDefault();
     setVrFormError("");
     const overrideReady = managerOverrideReady;
-    if (!designatedOperator?.id && !overrideReady) {
+    if (overrideEnabled && overrideReason.trim().length > 0 && overrideReason.trim().length < 8) {
+      setVrFormError(`Override reason must be at least 8 characters (${overrideReason.trim().length} typed).`);
+      return;
+    }
+    if (!designatedOperator?.id && !overrideReady && !driverOverrideReady) {
       setVrFormError(
-        "Select the approved driver for this request from the list (EHS register for the organisation shown in the dialog). If you are eligible but not listed, ask EHS to complete your file."
+        showOverridePanel
+          ? "Select the approved driver from the list, or tick the override below, give a reason (8+ characters) and type the driver's name."
+          : "Select the approved driver for this request from the list (EHS register for the organisation shown in the dialog). If you are eligible but not listed, ask EHS to complete your file."
       );
+      return;
+    }
+    if (!designatedOperator?.id && driverOverrideReady && !overrideReady && !driverOverrideName.trim()) {
+      setVrFormError("Driver override: type the driver's name (staff member not yet on the approved-driver register).");
       return;
     }
     if (!selectedMissionId && !overrideReady) {
@@ -3013,6 +3028,7 @@ function RequestForm({
       };
       if (vehicleClass) patch.requiredVehicleClass = vehicleClass;
       if (designatedOperator?.id) patch.designatedOperatorId = designatedOperator.id;
+      if (driverOverrideReady) patch.overrideReason = overrideReason.trim();
       const res = await fetch(`/api/vehicle-requests/${encodeURIComponent(resumingRequestId)}`, {
         method: "PATCH",
         headers: await jsonHeadersWithBearer(),
@@ -3041,8 +3057,11 @@ function RequestForm({
       priority: fd.get("priority") || "normal",
       notes: fd.get("notes") || "",
     };
-    if (overrideReady) {
+    if (overrideReady || driverOverrideReady) {
       payload.overrideReason = overrideReason.trim();
+    }
+    if (driverOverrideReady && !designatedOperator?.id && driverOverrideName.trim()) {
+      payload.driverOverrideName = driverOverrideName.trim();
     }
     if (designatedOperator?.id) {
       payload.designatedOperatorId = designatedOperator.id;
@@ -3404,13 +3423,13 @@ function RequestForm({
               organizationId={organizationId}
               value={designatedOperator}
               onChange={setDesignatedOperator}
-              required
-              disabled={managerOverrideReady}
+              required={!driverOverrideReady}
+              disabled={driverOverrideReady}
               helperText="Scoped to the organisation in the sidebar. Search the full EHS register; only Ready on-road operators (including FM app quiz pass) can be submitted. Incomplete files stay in the list with the reason they are blocked."
             />
-            {managerOverrideReady && (
+            {driverOverrideReady && (
               <p className="text-xs text-amber-800 rounded-md border border-amber-100 bg-amber-50/80 px-2 py-1.5">
-                Manager override is active — driver selection is optional if you are bypassing the EHS gate. The request will still be logged.
+                Driver override is active — type the driver's name in the override box below (not yet on the approved-driver register). The override and reason are logged.
               </p>
             )}
             <div className="max-w-xl">
@@ -3608,7 +3627,7 @@ function RequestForm({
                 <Input name="loadoutDescription" label="Loadout / equipment" placeholder="For this vehicle request" />
               </div>
               <Input name="notes" label="Notes" placeholder="Additional information" />
-              {canOverride && (
+              {showOverridePanel && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
                   <label className="flex items-start gap-2 text-sm cursor-pointer">
                     <input
@@ -3619,25 +3638,44 @@ function RequestForm({
                     />
                     <span>
                       <span className="font-medium text-amber-900">
-                        Manager / approver override
+                        {canOverride ? "Manager / approver override" : "Driver approval override"}
                       </span>
                       <span className="block text-xs text-amber-800">
-                        Bypass the EHS-approved-driver gate or the approved-mission requirement.
+                        {canOverride
+                          ? "Bypass the EHS-approved-driver gate or the approved-mission requirement."
+                          : "Use a driver who is not yet on the EHS approved-driver register (e.g. no approved drivers exist for this country yet)."}{" "}
                         Use sparingly. Override and reason are logged with this request.
                       </span>
                     </span>
                   </label>
                   {overrideEnabled && (
-                    <textarea
-                      value={overrideReason}
-                      onChange={(e) => setOverrideReason(e.target.value)}
-                      rows={2}
-                      placeholder="Why are you bypassing? (e.g. urgent maintenance run, driver newly approved offline, mission still pending sign-off but field-critical, etc.)"
-                      className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                    />
-                  )}
-                  {overrideEnabled && overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
-                    <p className="text-xs text-amber-700">Reason needs at least 8 characters.</p>
+                    <>
+                      <textarea
+                        value={overrideReason}
+                        onChange={(e) => {
+                          setOverrideReason(e.target.value);
+                          if (vrFormError) setVrFormError("");
+                        }}
+                        rows={2}
+                        placeholder="Why are you bypassing? (e.g. no approved drivers in ZM yet; licence checked offline by fleet lead)"
+                        className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      />
+                      <p className={`text-xs ${overrideReason.trim().length >= 8 ? "text-emerald-700" : "text-amber-700"}`}>
+                        {overrideReason.trim().length}/8 characters
+                        {overrideReason.trim().length < 8
+                          ? ` — ${8 - overrideReason.trim().length} more needed`
+                          : " — OK"}
+                      </p>
+                      {!designatedOperator?.id && (
+                        <input
+                          type="text"
+                          value={driverOverrideName}
+                          onChange={(e) => setDriverOverrideName(e.target.value)}
+                          placeholder="Driver's name (staff member not yet on the approved-driver register)"
+                          className="w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-sm"
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               )}

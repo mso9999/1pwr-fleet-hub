@@ -5,7 +5,7 @@ import { isApprovedOperatorIdForCategory } from "@/lib/approved-drivers";
 import { DEFAULT_OPERATOR_CATEGORY } from "@/lib/ehs-operator-categories";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
-import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
+import { canOverrideDriverApproval, canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import {
   decideMissionRequestInsert,
@@ -76,14 +76,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const hasOverridePermission = await canOverridePrerequisite(db, orgId, user.email, user.role);
   const wantsOverride = overrideReasonRaw.length > 0;
   const overrideUsable = wantsOverride && hasOverridePermission && overrideReasonRaw.length >= 8;
+  // Driver-approval override (hotfix 2026-10-09): manager / fleet_lead of the org,
+  // HR vehicle allocator for its country, superadmin — or the prerequisite approvers.
+  const hasDriverOverridePermission =
+    hasOverridePermission || (await canOverrideDriverApproval(db, orgId, user));
+  const driverOverrideUsable = wantsOverride && hasDriverOverridePermission && overrideReasonRaw.length >= 8;
+  const driverOverrideName =
+    typeof body.driverOverrideName === "string" ? body.driverOverrideName.trim().slice(0, 120) : "";
   const bypassedGates: Array<{ id: string; detail: string }> = [];
 
-  if (wantsOverride && !overrideUsable) {
+  if (wantsOverride && !overrideUsable && !driverOverrideUsable) {
     return NextResponse.json(
       {
         error: !hasOverridePermission
           ? "You are not allowed to use prerequisite overrides for this organisation."
-          : "Override needs at least 8 characters in the reason field, and you must be an admin or PR-credentialed approver.",
+          : `Override reason must be at least 8 characters (you typed ${overrideReasonRaw.length}).`,
       },
       { status: 403 },
     );
@@ -93,7 +100,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     typeof body.designatedOperatorId === "string" ? body.designatedOperatorId.trim() : "";
   const designatedOperatorId = designatedOperatorIdRaw || "";
 
-  if (!overrideUsable) {
+  const driverApproved =
+    !!designatedOperatorId &&
+    isApprovedOperatorIdForCategory(db, orgId, designatedOperatorId, DEFAULT_OPERATOR_CATEGORY);
+  const driverOverrideApplied = driverOverrideUsable && !driverApproved;
+  if (driverOverrideApplied && !overrideUsable && !designatedOperatorId && !driverOverrideName) {
+    return NextResponse.json(
+      {
+        error:
+          "Driver override: type the driver's name (staff member not yet on the approved-driver register), or pick them from the list.",
+        reason: "driver_override_name_required",
+      },
+      { status: 400 },
+    );
+  }
+
+  if (driverOverrideApplied) {
+    bypassedGates.push({
+      id: "ehs_approved_driver",
+      detail: designatedOperatorId
+        ? `Designated operator ${designatedOperatorId} is not compliant — driver-approval override.`
+        : `No approved driver — driver-approval override${driverOverrideName ? ` for "${driverOverrideName}"` : ""}.`,
+    });
+  } else if (!overrideUsable) {
     if (!designatedOperatorId) {
       return NextResponse.json(
         {
@@ -122,7 +151,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (overrideUsable && !designatedOperatorId) {
+  if (overrideUsable && !designatedOperatorId && !driverOverrideApplied) {
     bypassedGates.push({
       id: "ehs_approved_driver",
       detail: "No designated EHS operator id — submitter used prerequisite override.",
@@ -251,7 +280,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? String(body.loadoutDescription)
         : loadoutDefault,
       body.priority || "normal",
-      body.notes || "",
+      driverOverrideApplied && driverOverrideName
+        ? [String(body.notes || "").trim(), `Driver (override, not yet EHS-approved): ${driverOverrideName}`]
+            .filter(Boolean)
+            .join("\n")
+        : body.notes || "",
       rrStatus,
       now,
       now
@@ -286,7 +319,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     reason: decision.separateReason ? `Separate request: ${decision.separateReason}` : undefined,
   });
 
-  if (overrideUsable && bypassedGates.length > 0) {
+  if (driverOverrideApplied) {
+    recordMutation(db, {
+      entityType: "vehicle_request",
+      entityId: id,
+      organizationId: orgId,
+      action: "driver_approval_override",
+      actor: actorFrom(user),
+      after: {
+        missionId: missionId || null,
+        designatedOperatorId: designatedOperatorId || null,
+        driverName: driverOverrideName || null,
+        gatesBypassed: ["ehs_approved_driver"],
+      },
+      reason: overrideReasonRaw,
+    });
+  }
+
+  if (overrideUsable && bypassedGates.some((g) => g.id !== "ehs_approved_driver")) {
     recordMutation(db, {
       entityType: "vehicle_request",
       entityId: id,

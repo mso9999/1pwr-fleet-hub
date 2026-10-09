@@ -16,6 +16,7 @@ export type MutationAction =
   | "attest"
   | "authorization"
   | "prerequisite_override"
+  | "driver_approval_override"
   | "mission_lifecycle"
   | "mission_reopened_approval"
   | "status_sync"

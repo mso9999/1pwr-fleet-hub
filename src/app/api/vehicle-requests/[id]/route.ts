@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
   canApproveMissionRequests,
   canFullyManageVehicleRequests,
+  canOverrideDriverApproval,
 } from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
@@ -146,10 +147,27 @@ export async function PATCH(
   if (body.designatedOperatorId !== undefined) {
     const op = String(body.designatedOperatorId || "").trim();
     if (op && !isApprovedOperatorIdForCategory(db, orgId, op, DEFAULT_OPERATOR_CATEGORY)) {
-      return NextResponse.json(
-        { error: "That driver is not on the compliant EHS register for on-road fleet in this organisation." },
-        { status: 403 }
-      );
+      const reason = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+      const mayOverride = !!user && (await canOverrideDriverApproval(db, orgId, user));
+      if (!mayOverride || reason.length < 8) {
+        return NextResponse.json(
+          {
+            error: mayOverride
+              ? "That driver is not on the compliant EHS register for on-road fleet in this organisation. Enter a driver override reason (8+ characters) to use them anyway."
+              : "That driver is not on the compliant EHS register for on-road fleet in this organisation.",
+          },
+          { status: 403 }
+        );
+      }
+      recordMutation(db, {
+        entityType: "vehicle_request",
+        entityId: id,
+        organizationId: orgId,
+        action: "driver_approval_override",
+        actor: actorFrom(user),
+        after: { designatedOperatorId: op, gatesBypassed: ["ehs_approved_driver"] },
+        reason,
+      });
     }
     body.designatedOperatorId = op || null;
   }
