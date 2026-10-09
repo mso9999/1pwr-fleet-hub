@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { type LatLng } from "@/lib/routing-osrm";
 import { multiLegDrivingDistance } from "@/lib/route-distance";
 import { litersForDistanceKm, suggestFuelLPer100km } from "@/lib/vehicle-fuel-lookup";
+import { usesLesothoLegacySiteCoords } from "@/lib/site-orgs";
 
 /**
  * Last-resort fallback coordinates for common Lesotho route sites.
@@ -102,9 +103,12 @@ export function getSiteCoordsByCode(
     return getRouteOrigin(db, organizationId);
   }
 
-  // Safety-net fallback for known static sites when metadata is absent.
-  const legacy = LEGACY_SITE_COORDINATES[normalizedCode];
-  if (legacy) return legacy;
+  // Safety-net fallback for known static Lesotho sites when metadata is absent.
+  // Lesotho orgs only: other countries reuse codes (e.g. HQ, MAK) for other places.
+  if (usesLesothoLegacySiteCoords(db, organizationId)) {
+    const legacy = LEGACY_SITE_COORDINATES[normalizedCode];
+    if (legacy) return legacy;
+  }
 
   return null;
 }

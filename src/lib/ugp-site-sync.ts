@@ -87,14 +87,20 @@ function parseNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function parseSitePayload(siteCode: string, raw: unknown): { label: string; lat?: number; lng?: number } {
+function parseSitePayload(
+  siteCode: string,
+  raw: unknown,
+  countryCode: string
+): { label: string; lat?: number; lng?: number } {
+  // Legacy coordinates are Lesotho sites; never apply them to another country.
+  const legacyFor = (code: string) => (countryCode.toUpperCase() === "LS" ? LEGACY_SITE_COORDINATES[code] : undefined);
   if (typeof raw === "string") {
-    const legacy = LEGACY_SITE_COORDINATES[siteCode];
+    const legacy = legacyFor(siteCode);
     return { label: raw.trim() || siteCode, lat: legacy?.lat, lng: legacy?.lng };
   }
 
   if (!raw || typeof raw !== "object") {
-    const legacy = LEGACY_SITE_COORDINATES[siteCode];
+    const legacy = legacyFor(siteCode);
     return { label: siteCode, lat: legacy?.lat, lng: legacy?.lng };
   }
 
@@ -104,7 +110,7 @@ function parseSitePayload(siteCode: string, raw: unknown): { label: string; lat?
   const lng = parseNumber(o.lng ?? o.lon ?? o.longitude ?? o.gps_x ?? o.GPS_X);
 
   if (lat !== undefined && lng !== undefined) return { label, lat, lng };
-  const legacy = LEGACY_SITE_COORDINATES[siteCode];
+  const legacy = legacyFor(siteCode);
   return { label, lat: legacy?.lat, lng: legacy?.lng };
 }
 
@@ -150,7 +156,7 @@ function upsertCountrySites(
       const code = rawCode.trim().toUpperCase();
       if (!code) continue;
 
-      const parsed = parseSitePayload(code, payload);
+      const parsed = parseSitePayload(code, payload, countryCode);
       const existing = db
         .prepare(
           "SELECT id, sort_order, meta FROM reference_data WHERE organization_id = ? AND type = 'site' AND code = ? LIMIT 1"
