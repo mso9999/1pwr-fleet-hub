@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicleForOrg } from "@/lib/vehicle-check-approvers";
+import { canOverrideInspectionGate, canReserveMissionVehicleForOrg } from "@/lib/vehicle-check-approvers";
 import {
   FUTURE_MISSION_RESERVABLE_STATUSES,
   isMissionDepartureToday,
@@ -28,7 +28,7 @@ export async function GET(
   }
 
   const orgId = String(m.organization_id ?? "");
-  if (!(await canAllocateFleetVehicleForOrg(db, orgId, user.email, user.role))) {
+  if (!(await canReserveMissionVehicleForOrg(db, orgId, user))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const dep = String(m.departure_date || "").slice(0, 10);
@@ -68,6 +68,7 @@ export async function GET(
   return NextResponse.json({
     missionDeparture: dep,
     reservationMode: today ? "today_operational_only" : "future_extended_statuses",
+    canOverrideInspection: await canOverrideInspectionGate(db, orgId, user),
     candidates,
   });
 }

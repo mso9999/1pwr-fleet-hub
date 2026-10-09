@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canApproveMissionRequests } from "@/lib/vehicle-check-approvers";
-import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
+import {
+  canApproveMissionRequests,
+  canFullyManageVehicleRequests,
+  canOverrideDriverApproval,
+} from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
@@ -91,8 +94,8 @@ export async function PATCH(
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
+  const canFull = canFullyManageVehicleRequests(user.role);
   const orgId = String((existing as Record<string, unknown>).organization_id || "");
-  const canFull = isFleetManagementForOrg(db, orgId, user.email, user.role);
   const canMission = await canApproveMissionRequests(db, orgId, user.email, user.role);
   const isRequestor = String((existing as Record<string, unknown>).requested_by_id || "") === user.id;
   const onlyRr = allowedKeys.length === 1 && allowedKeys[0] === "rrStatus";
@@ -144,10 +147,27 @@ export async function PATCH(
   if (body.designatedOperatorId !== undefined) {
     const op = String(body.designatedOperatorId || "").trim();
     if (op && !isApprovedOperatorIdForCategory(db, orgId, op, DEFAULT_OPERATOR_CATEGORY)) {
-      return NextResponse.json(
-        { error: "That driver is not on the compliant EHS register for on-road fleet in this organisation." },
-        { status: 403 }
-      );
+      const reason = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+      const mayOverride = !!user && (await canOverrideDriverApproval(db, orgId, user));
+      if (!mayOverride || reason.length < 8) {
+        return NextResponse.json(
+          {
+            error: mayOverride
+              ? "That driver is not on the compliant EHS register for on-road fleet in this organisation. Enter a driver override reason (8+ characters) to use them anyway."
+              : "That driver is not on the compliant EHS register for on-road fleet in this organisation.",
+          },
+          { status: 403 }
+        );
+      }
+      recordMutation(db, {
+        entityType: "vehicle_request",
+        entityId: id,
+        organizationId: orgId,
+        action: "driver_approval_override",
+        actor: actorFrom(user),
+        after: { designatedOperatorId: op, gatesBypassed: ["ehs_approved_driver"] },
+        reason,
+      });
     }
     body.designatedOperatorId = op || null;
   }
@@ -246,7 +266,7 @@ export async function DELETE(
   }
   const row = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!isFleetManagementForOrg(db, String(row.organization_id || ""), user.email, user.role)) {
+  if (!canFullyManageVehicleRequests(user.role) && user.role !== "superadmin") {
     return NextResponse.json({ error: "Only fleet management may delete vehicle requests." }, { status: 403 });
   }
 

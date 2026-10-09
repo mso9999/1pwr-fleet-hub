@@ -19,6 +19,7 @@
     "test:transmission-scope": "tsx scripts/test-transmission-scope.ts",
     "test:wo-labor-gate": "tsx scripts/test-wo-labor-gate.ts",
     "test:fleet-performance": "tsx scripts/test-fleet-performance.ts",
+    "test:wa-approval-routing": "tsx scripts/test-wa-approval-routing.ts",
     "test:mission-next-owner": "tsx scripts/test-mission-next-owner.ts",
     "test:stale-approvals": "tsx scripts/test-stale-approvals.ts",
     "test:stale-allocation": "tsx scripts/test-stale-allocation.ts",
@@ -33,7 +34,11 @@
     "test:eligible-departure": "tsx scripts/test-eligible-for-departure.ts",
     "test:stragglers-public-transport": "tsx scripts/test-stragglers-and-public-transport.ts",
     "notify:pending-missions": "tsx scripts/notify-pending-mission-approvals.ts",
-    "test:deployment-employee-matching": "tsx scripts/test-deployment-employee-matching.ts"
+    "test:deployment-employee-matching": "tsx scripts/test-deployment-employee-matching.ts",
+    "test:inspection-override": "tsx scripts/test-inspection-override.ts",
+    "test:org-currency": "tsx scripts/test-org-currency.ts",
+    "test:org-hq-site": "tsx scripts/test-org-hq-site.ts",
+    "test:driver-override": "tsx scripts/test-driver-override.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

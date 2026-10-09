@@ -8,6 +8,8 @@ export interface OverrideCapability {
   loading: boolean;
   /** True if the caller can override prerequisite gates (admin / fleet management / PR-credentialed approver). */
   canOverride: boolean;
+  /** True if the caller can override the EHS approved-driver gate (prerequisite approvers + manager/fleet_lead/HR allocator). */
+  canOverrideDriver: boolean;
 }
 
 /**
@@ -20,6 +22,7 @@ export interface OverrideCapability {
 export function useOverrideCapability(organizationId: string | undefined): OverrideCapability {
   const [loading, setLoading] = useState(true);
   const [canOverride, setCanOverride] = useState(false);
+  const [canOverrideDriver, setCanOverrideDriver] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,9 +49,10 @@ export function useOverrideCapability(organizationId: string | undefined): Overr
           }
           return;
         }
-        const data = (await res.json()) as { canApprove?: boolean };
+        const data = (await res.json()) as { canApprove?: boolean; canOverrideDriver?: boolean };
         if (active && !cancelled) {
           setCanOverride(!!data.canApprove);
+          setCanOverrideDriver(!!data.canApprove || !!data.canOverrideDriver);
           setLoading(false);
         }
       } catch {
@@ -64,5 +68,5 @@ export function useOverrideCapability(organizationId: string | undefined): Overr
     };
   }, [organizationId]);
 
-  return { loading, canOverride };
+  return { loading, canOverride, canOverrideDriver };
 }

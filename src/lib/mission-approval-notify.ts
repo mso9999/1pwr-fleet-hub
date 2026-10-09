@@ -17,6 +17,7 @@ import { fetchHrEmployeeDirectory } from "@/lib/hr-directory-client";
 import { countryFromOrganization } from "@/lib/hr-approval-roles";
 import { sendMail } from "@/lib/mailer";
 import { recordMutation } from "@/lib/record-mutation-log";
+import { resolveApprovalGroupJid } from "@/lib/wa-approval-routing";
 
 const SYSTEM_ACTOR = { id: "system", name: "Fleet Hub", role: "", department: "" };
 
@@ -26,6 +27,8 @@ export interface WhatsAppNotifyResult {
   ok: boolean;
   skipped?: string;
   error?: string;
+  /** Routing source key (e.g. "map:1pwr_zambia", "legacy:LS"); never the JID itself. */
+  target?: string;
 }
 
 export interface ApprovalNotifyOutcome {
@@ -37,18 +40,36 @@ export interface ApprovalNotifyOutcome {
 }
 
 /**
- * Post the approval notice to the ops WhatsApp group via the CC bridge
- * (Baileys on the CC host, exposed to the fleet EC2 only through Caddy).
- * Env: WA_BRIDGE_URL (e.g. https://cc.1pwrafrica.com/bridge),
- * WA_BRIDGE_SECRET (shared bridge secret), WA_BRIDGE_GROUP_JID (target group).
+ * Post the approval notice to the mission's country/org WhatsApp group via the
+ * CC bridge (Baileys on the CC host, exposed to the fleet EC2 only through Caddy).
+ * Env:
+ *  - WA_BRIDGE_URL (e.g. https://cc.1pwrafrica.com/bridge), WA_BRIDGE_SECRET (shared secret)
+ *  - WA_BRIDGE_GROUP_JID_BY_ORG: routing map, "1pwr_zambia=x@g.us,BJ=y@g.us" (or a JSON
+ *    object). Keys are org ids or country codes; org match wins over country.
+ *  - WA_BRIDGE_GROUP_JID: legacy Lesotho group; used ONLY for 1pwr_lesotho / LS missions.
+ *  - WA_BRIDGE_DRY_RUN=1: resolve and log the target but do not call the bridge.
+ * Missions with no configured group are suppressed (never sent to the LS group).
  * Any missing piece skips cleanly and is audit-logged.
  */
-async function sendWhatsAppApprovalNotice(text: string): Promise<WhatsAppNotifyResult> {
+async function sendWhatsAppApprovalNotice(
+  text: string,
+  missionId: string,
+  organizationId: string,
+  country: string | null,
+): Promise<WhatsAppNotifyResult> {
   const url = (process.env.WA_BRIDGE_URL || "").replace(/\/$/, "");
   const secret = process.env.WA_BRIDGE_SECRET || "";
-  const jid = (process.env.WA_BRIDGE_GROUP_JID || "").trim();
   if (!url || !secret) return { ok: false, skipped: "WA_BRIDGE_URL/SECRET not configured" };
-  if (!jid) return { ok: false, skipped: "WA_BRIDGE_GROUP_JID not configured" };
+  const { jid, source, reason } = resolveApprovalGroupJid({ organizationId, country });
+  if (!jid) {
+    const skipped = reason || "no WhatsApp approval group configured";
+    console.warn(`[wa-approval] suppressed mission=${missionId} org=${organizationId}: ${skipped}`);
+    return { ok: false, skipped };
+  }
+  if (process.env.WA_BRIDGE_DRY_RUN === "1") {
+    console.log(`[wa-approval] DRY RUN would post to ${jid} for org ${organizationId}`);
+    return { ok: true, skipped: "dry-run", target: source };
+  }
   try {
     const res = await fetch(`${url}/broadcast`, {
       method: "POST",
@@ -58,11 +79,11 @@ async function sendWhatsAppApprovalNotice(text: string): Promise<WhatsAppNotifyR
     });
     if (!res.ok) {
       const body = (await res.text().catch(() => "")).slice(0, 120);
-      return { ok: false, error: `bridge ${res.status}: ${body}` };
+      return { ok: false, error: `bridge ${res.status}: ${body}`, target: source };
     }
-    return { ok: true };
+    return { ok: true, target: source };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: err instanceof Error ? err.message : String(err), target: source };
   }
 }
 
@@ -222,7 +243,12 @@ export async function notifyMissionApproversOfSubmission(
     `*By:* ${mission.created_by_name} · ${mission.crew_size} pax · ${mission.required_vehicle_class || "any class"}`,
     `Review: ${reviewUrl}`,
   ];
-  const whatsapp = await sendWhatsAppApprovalNotice(waLines.join("\n"));
+  const whatsapp = await sendWhatsAppApprovalNotice(
+    waLines.join("\n"),
+    missionId,
+    mission.organization_id,
+    country,
+  );
 
   const outcome: ApprovalNotifyOutcome = result.ok
     ? { ok: true, recipients, whatsapp }
