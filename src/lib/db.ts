@@ -819,6 +819,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   safeMigrate(db, "migrateOrganizationsFuelDefaults", migrateOrganizationsFuelDefaults);
   safeMigrate(db, "migrateMissionFuelBudget", migrateMissionFuelBudget);
   safeMigrate(db, "migrateVehicleStatusEnforcement", migrateVehicleStatusEnforcement);
+  safeMigrate(db, "migrateVehicleSecondment", migrateVehicleSecondment);
 
   // Table-existence check is a read, not a migration — keep it direct so a
   // missing-tables state is always detected and repaired regardless of which
@@ -1844,6 +1845,26 @@ function migrateVehiclesPhase1(db: Database.Database): void {
       db.exec(`ALTER TABLE vehicles ADD COLUMN ${col} ${def}`);
     }
   }
+}
+
+/**
+ * Secondment: the owner stays in organization_id; the borrowing org and window live here.
+ * NULL seconded_to_org = not seconded. See src/lib/vehicle-secondment.ts.
+ */
+function migrateVehicleSecondment(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info(vehicles)").all() as Array<{ name: string }>;
+  const has = (col: string) => cols.some((c) => c.name === col);
+  for (const col of [
+    "seconded_to_org",
+    "secondment_start",
+    "secondment_expected_return",
+    "secondment_request_id",
+  ]) {
+    if (!has(col)) {
+      db.exec(`ALTER TABLE vehicles ADD COLUMN ${col} TEXT DEFAULT NULL`);
+    }
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_vehicles_seconded_to_org ON vehicles(seconded_to_org)`);
 }
 
 /**

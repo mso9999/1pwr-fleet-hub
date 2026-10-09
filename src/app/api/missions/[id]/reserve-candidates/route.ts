@@ -7,6 +7,7 @@ import {
   isMissionDepartureToday,
 } from "@/lib/mission-reservations";
 import { localityGateRequired } from "@/lib/locality-gate";
+import { vehicleOperableByOrgSql } from "@/lib/vehicle-org-scope";
 
 /**
  * GET /api/missions/[id]/reserve-candidates
@@ -39,12 +40,15 @@ export async function GET(
     : FUTURE_MISSION_RESERVABLE_STATUSES;
 
   const placeholders = [...allowed].map(() => "?").join(", ");
+  // Operating scope: seconded-in vehicles are candidates; seconded-out ones are not.
+  const scope = vehicleOperableByOrgSql(orgId);
   let sql = `
-    SELECT id, code, make, model, asset_class, status, pool, current_location
+    SELECT id, code, make, model, asset_class, status, pool, current_location,
+           organization_id, seconded_to_org, secondment_expected_return
     FROM vehicles
-    WHERE organization_id = ? AND status IN (${placeholders})
+    WHERE ${scope.sql} AND status IN (${placeholders})
   `;
-  const p: unknown[] = [orgId, ...allowed];
+  const p: unknown[] = [...scope.params, ...allowed];
   if (reqClass) {
     sql += " AND asset_class = ?";
     p.push(reqClass);

@@ -8,6 +8,7 @@ import {
 } from "@/lib/gps-history";
 import { usesLesothoLegacySiteCoords } from "@/lib/site-orgs";
 import { getRouteOrigin } from "@/lib/vehicle-request-fuel";
+import { vehicleOperableByOrgSql, vehicleVisibleToOrgSql } from "@/lib/vehicle-org-scope";
 
 const SINOTRACK_SERVERS = ["https://245.sinotrack.com", "https://242.sinotrack.com"];
 const SINOTRACK_PASSWORD = "123456";
@@ -209,11 +210,15 @@ export async function GET(request: Request): Promise<NextResponse> {
   const db = getDb();
   const siteCoordinates = loadSiteCoordinates(db, orgId);
   const orgFallbackCoords = fallbackOrgCoordinates(db, orgId, siteCoordinates);
+  // Fleet map uses the operating scope: a seconded vehicle is on the borrower's map
+  // (placed with the borrower's sites), not the owner's. A single-vehicle lookup
+  // (report-issue) accepts owner or borrower.
+  const scope = vehicleIdFilter ? vehicleVisibleToOrgSql(orgId) : vehicleOperableByOrgSql(orgId);
   let vehicleSql = `SELECT id, code, make, model, license_plate, current_location, status,
             tracker_imei, tracker_status, tracker_provider
      FROM vehicles
-     WHERE organization_id = ?`;
-  const vehicleParams: string[] = [orgId];
+     WHERE ${scope.sql}`;
+  const vehicleParams: string[] = [...scope.params];
   if (vehicleIdFilter) {
     vehicleSql += " AND id = ?";
     vehicleParams.push(vehicleIdFilter);

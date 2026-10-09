@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { registrationDiscMissionBlocked } from "@/lib/registration-disc";
 import { evaluateTransmissionGate } from "@/lib/transmission-scope";
+import { vehicleAllocationOrgError } from "@/lib/vehicle-org-scope";
 
 /** Short local runs vs multi-day field deployments — drives checklist + inspection rules. */
 export const MISSION_PROFILE = {
@@ -83,7 +84,7 @@ export function evaluateTripReadiness(
 
   const vehicle = db
     .prepare(
-      "SELECT id, code, status, organization_id, registration_disc_expiry_date FROM vehicles WHERE id = ?"
+      "SELECT id, code, status, organization_id, seconded_to_org, registration_disc_expiry_date FROM vehicles WHERE id = ?"
     )
     .get(input.vehicleId) as
     | {
@@ -91,6 +92,7 @@ export function evaluateTripReadiness(
         code: string;
         status: string;
         organization_id: string;
+        seconded_to_org: string | null;
         registration_disc_expiry_date: string | null;
       }
     | undefined;
@@ -105,12 +107,13 @@ export function evaluateTripReadiness(
     return { ok: false, gates, missionProfile };
   }
 
-  if (vehicle.organization_id !== input.organizationId) {
+  const orgErr = vehicleAllocationOrgError(vehicle, input.organizationId);
+  if (orgErr) {
     gates.push({
       id: "vehicle_org",
       label: "Organization",
       status: "blocked",
-      detail: "Vehicle does not belong to this organization.",
+      detail: orgErr,
     });
     return { ok: false, gates, missionProfile };
   }

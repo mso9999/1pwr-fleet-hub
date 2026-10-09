@@ -2,43 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser, isExecutiveRole, isFleetManagementRole } from "@/lib/server-auth";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
-
-function applyApprovedRequest(
-  db: ReturnType<typeof getDb>,
-  requestId: string,
-  vehicleId: string,
-  toOrganizationId: string,
-  signerId: string,
-  signerName: string,
-  now: string,
-  opts: { kind: "fleet" | "executive" }
-): void {
-  const reviewedId = opts.kind === "fleet" ? signerId : "";
-  const reviewedName = opts.kind === "fleet" ? signerName : "";
-  const reviewedAt = opts.kind === "fleet" ? now : "";
-  const execId = opts.kind === "executive" ? signerId : "";
-  const execName = opts.kind === "executive" ? signerName : "";
-  const execAt = opts.kind === "executive" ? now : "";
-
-  db.prepare(
-    `UPDATE vehicle_country_change_requests SET
-      status = 'approved',
-      updated_at = ?,
-      reviewed_by_id = ?,
-      reviewed_by_name = ?,
-      reviewed_at = ?,
-      executive_signed_by_id = ?,
-      executive_signed_by_name = ?,
-      executive_signed_at = ?
-    WHERE id = ?`
-  ).run(now, reviewedId, reviewedName, reviewedAt, execId, execName, execAt, requestId);
-
-  db.prepare("UPDATE vehicles SET organization_id = ?, updated_at = ? WHERE id = ?").run(
-    toOrganizationId,
-    now,
-    vehicleId
-  );
-}
+import {
+  applyApprovedCountryChangeRequest as applyApprovedRequest,
+  countryChangeBlockedBySecondment,
+  orgCountryCode,
+} from "@/lib/vehicle-secondment";
+import { pushVehicleRowToPr } from "@/lib/pr-vehicle-sync";
 
 export async function POST(
   request: NextRequest,
@@ -57,8 +26,8 @@ export async function POST(
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const vehicleId = row.vehicle_id as string;
-  const vehicleBefore = db.prepare("SELECT organization_id FROM vehicles WHERE id = ?").get(vehicleId) as
-    | { organization_id: string }
+  const vehicleBefore = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(vehicleId) as
+    | Record<string, unknown>
     | undefined;
 
   const status = row.status as string;
@@ -68,6 +37,18 @@ export async function POST(
 
   const kind = row.change_kind as string;
   const now = new Date().toISOString();
+
+  // Re-check at approval time: the vehicle may have been seconded since this was filed.
+  if (vehicleBefore) {
+    const secondedErr = countryChangeBlockedBySecondment(
+      vehicleBefore,
+      kind,
+      orgCountryCode(db, vehicleBefore.seconded_to_org as string | null)
+    );
+    if (secondedErr) {
+      return NextResponse.json({ error: secondedErr, reason: "already_seconded" }, { status: 409 });
+    }
+  }
 
   if (status === "pending_fleet") {
     if (kind !== "data_correction") {
@@ -80,8 +61,8 @@ export async function POST(
       applyApprovedRequest(
         db,
         requestId,
-        row.vehicle_id as string,
-        row.to_organization_id as string,
+        row,
+        actorFrom(user),
         user.id,
         user.name,
         now,
@@ -100,8 +81,8 @@ export async function POST(
       applyApprovedRequest(
         db,
         requestId,
-        row.vehicle_id as string,
-        row.to_organization_id as string,
+        row,
+        actorFrom(user),
         user.id,
         user.name,
         now,
@@ -127,19 +108,14 @@ export async function POST(
       from_organization_id: row.from_organization_id,
       to_organization_id: row.to_organization_id,
     },
-    after: { status: "approved", vehicleId, toOrganizationId: toOrg },
+    after: { status: "approved", vehicleId, toOrganizationId: toOrg, ownerChanged: kind !== "secondment" },
   });
 
-  recordMutation(db, {
-    entityType: "vehicle",
-    entityId: vehicleId,
-    organizationId: toOrg,
-    action: "update",
-    actor: actorFrom(user),
-    before: { organization_id: fromOrg },
-    after: { organization_id: toOrg },
-    reason: `vehicle_country_change_request:${requestId}`,
-  });
+  // The vehicle-row mutation entry is written by applySecondmentStart / applyOwnershipMove.
+  const vehicleAfter = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(vehicleId) as
+    | Record<string, unknown>
+    | undefined;
+  if (vehicleAfter) await pushVehicleRowToPr(vehicleAfter);
 
   const updated = db.prepare("SELECT * FROM vehicle_country_change_requests WHERE id = ?").get(requestId);
   return NextResponse.json(updated);

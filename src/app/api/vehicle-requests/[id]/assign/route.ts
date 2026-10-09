@@ -14,6 +14,8 @@ import {
   registrationDiscOverrideAllowed,
 } from "@/lib/registration-disc";
 import { syncAllocatedVehicleToPlannedTrip } from "@/lib/mission-checkout";
+import { vehicleAllocationOrgError } from "@/lib/vehicle-org-scope";
+import { orgCountryCode } from "@/lib/vehicle-secondment";
 
 /**
  * POST /api/vehicle-requests/[id]/assign
@@ -56,6 +58,12 @@ export async function POST(
 
   const missionId = String(existing.mission_id || "").trim();
   const orgId = String(existing.organization_id || "");
+  const orgErr = orgId
+    ? vehicleAllocationOrgError(vehicle, orgId, orgCountryCode(db, vehicle.seconded_to_org as string | null))
+    : null;
+  if (orgErr) {
+    return NextResponse.json({ error: orgErr, reason: "vehicle_org_mismatch" }, { status: 400 });
+  }
   const dep = String(existing.departure_date || "").slice(0, 10);
   const retRaw = String(existing.return_date || "").trim();
   const endDate = (retRaw ? retRaw.slice(0, 10) : dep) || dep;

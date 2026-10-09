@@ -4,31 +4,9 @@ import { defaultCurrencyForOrg } from "@/lib/org-currency";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
-import { syncVehicleToPrFirestore, type FmVehicleRow } from "@/lib/pr-vehicle-sync";
+import { pushVehicleRowToPr as pushVehicleToPr } from "@/lib/pr-vehicle-sync";
+import { vehicleVisibleToOrgSql } from "@/lib/vehicle-org-scope";
 import { v4 as uuidv4 } from "uuid";
-
-function rowToFmVehicle(row: Record<string, unknown>): FmVehicleRow {
-  return {
-    id: String(row.id),
-    organization_id: String(row.organization_id ?? "1pwr_lesotho"),
-    code: String(row.code ?? ""),
-    make: row.make != null ? String(row.make) : "",
-    model: row.model != null ? String(row.model) : "",
-    year: typeof row.year === "number" ? row.year : null,
-    license_plate: row.license_plate != null ? String(row.license_plate) : "",
-    vin: row.vin != null ? String(row.vin) : "",
-    engine_number: row.engine_number != null ? String(row.engine_number) : "",
-    status: row.status != null ? String(row.status) : "operational",
-    pr_firestore_id: row.pr_firestore_id != null ? String(row.pr_firestore_id) : "",
-  };
-}
-
-async function pushVehicleToPr(row: Record<string, unknown>, deactivate = false): Promise<void> {
-  const result = await syncVehicleToPrFirestore(rowToFmVehicle(row), { deactivate });
-  if (!result.success) {
-    console.warn("[vehicles] PR Firestore sync failed:", result.error);
-  }
-}
 
 export function GET(request: NextRequest): NextResponse {
   const db = getDb();
@@ -41,31 +19,38 @@ export function GET(request: NextRequest): NextResponse {
 
   const org = searchParams.get("org") || "1pwr_lesotho";
 
-  let query = "SELECT * FROM vehicles WHERE organization_id = ? AND COALESCE(is_synthetic, 0) = 0";
-  const params: string[] = [org];
+  // Owned + seconded-in vehicles. owner_country / seconded_to_country feed the
+  // "Seconded from LS" / "Seconded to ZM" badges.
+  const scope = vehicleVisibleToOrgSql(org, "v");
+  let query = `SELECT v.*, oo.country AS owner_country, so.country AS seconded_to_country
+    FROM vehicles v
+    LEFT JOIN organizations oo ON oo.id = v.organization_id
+    LEFT JOIN organizations so ON so.id = v.seconded_to_org
+    WHERE ${scope.sql} AND COALESCE(v.is_synthetic, 0) = 0`;
+  const params: string[] = [...scope.params];
 
   if (status) {
-    query += " AND status = ?";
+    query += " AND v.status = ?";
     params.push(status);
   }
   if (assetClass) {
-    query += " AND asset_class = ?";
+    query += " AND v.asset_class = ?";
     params.push(assetClass);
   }
   if (pool) {
-    query += " AND pool = ?";
+    query += " AND v.pool = ?";
     params.push(pool);
   }
   if (currentLocation) {
-    query += " AND current_location = ?";
+    query += " AND v.current_location = ?";
     params.push(currentLocation);
   }
   if (homeLocation) {
-    query += " AND home_location = ?";
+    query += " AND v.home_location = ?";
     params.push(homeLocation);
   }
 
-  query += " ORDER BY code ASC";
+  query += " ORDER BY v.code ASC";
 
   const vehicles = db.prepare(query).all(...params);
   return NextResponse.json(vehicles);

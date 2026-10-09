@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { verifyFleetIntegrationKey } from "@/lib/integration-auth";
+import { vehicleOperableByOrgSql } from "@/lib/vehicle-org-scope";
 
 /**
  * GET /api/integrations/v1/employee-locations/live
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const org = searchParams.get("org") || "1pwr_lesotho";
 
   const db = getDb();
+  // Operating scope, same as the fleet map that records these snapshots.
+  const scope = vehicleOperableByOrgSql(org, "v");
   // Latest GPS per vehicle
   const locations = db.prepare(`
     SELECT g.vehicle_id as vehicleId, g.lat, g.lng, g.speed, g.mileage,
@@ -31,8 +34,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       WHERE organization_id = ?
       GROUP BY vehicle_id
     )
-    AND v.organization_id = ?
-  `).all(org, org);
+    AND ${scope.sql}
+  `).all(org, ...scope.params);
 
   return NextResponse.json({ count: locations.length, locations });
 }

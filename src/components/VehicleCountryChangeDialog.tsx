@@ -128,6 +128,10 @@ export function VehicleCountryChangeDialog({
       setError("Select a different country / organization.");
       return;
     }
+    if (changeKind === "secondment" && expectedReturnDate && effectiveDate && expectedReturnDate < effectiveDate) {
+      setError("Expected return date cannot be before the effective date.");
+      return;
+    }
     const token = await auth.currentUser?.getIdToken();
     if (!token) {
       setError("You must be signed in to submit a country change.");
@@ -218,7 +222,8 @@ export function VehicleCountryChangeDialog({
                   <span>
                     <span className="font-medium">Secondment (temporary)</span>
                     <span className="block text-zinc-500">
-                      Real transfer: mission, passed mechanical inspection, and C-level sign-off required.
+                      Lent to the destination country; ownership stays here. Mission, passed mechanical inspection,
+                      and C-level sign-off required.
                     </span>
                   </span>
                 </label>
@@ -281,11 +286,11 @@ export function VehicleCountryChangeDialog({
                 />
                 {changeKind === "secondment" && (
                   <Input
-                    label="Expected return date *"
+                    label="Expected return date (leave blank if open-ended)"
                     type="date"
                     value={expectedReturnDate}
+                    min={effectiveDate || undefined}
                     onChange={(e) => setExpectedReturnDate(e.target.value)}
-                    required
                   />
                 )}
                 <div>

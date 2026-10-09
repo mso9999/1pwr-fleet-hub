@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { registrationDiscDashboardTier, calendarDaysUntil } from "@/lib/registration-disc";
+import { vehicleOperableByOrgSql, vehicleVisibleToOrgSql } from "@/lib/vehicle-org-scope";
 
 export function GET(request: NextRequest): NextResponse {
   try {
@@ -8,10 +9,16 @@ export function GET(request: NextRequest): NextResponse {
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const today = new Date().toISOString().slice(0, 10);
 
+  // Fleet counts use the operating scope (seconded-in counted, seconded-out not);
+  // disc and secondment alerts use the visible scope (owner + borrower both see them).
+  const operable = vehicleOperableByOrgSql(org);
+  const visible = vehicleVisibleToOrgSql(org);
+  const visibleV = vehicleVisibleToOrgSql(org, "v");
+
   // ── Vehicle status breakdown ──
   const statusCounts = db.prepare(
-    "SELECT status, COUNT(*) as count FROM vehicles WHERE organization_id = ? GROUP BY status"
-  ).all(org) as { status: string; count: number }[];
+    `SELECT status, COUNT(*) as count FROM vehicles WHERE ${operable.sql} GROUP BY status`
+  ).all(...operable.params) as { status: string; count: number }[];
 
   const stats: Record<string, number> = {};
   let total = 0;
@@ -42,8 +49,8 @@ export function GET(request: NextRequest): NextResponse {
   const operationalDays = db.prepare(`
     SELECT COUNT(DISTINCT v.id) as vehicle_count,
            SUM(CASE WHEN v.status IN ('operational', 'deployed') THEN 1 ELSE 0 END) as up_count
-    FROM vehicles v WHERE v.organization_id = ? AND v.status != 'written-off'
-  `).get(org) as { vehicle_count: number; up_count: number };
+    FROM vehicles v WHERE ${vehicleOperableByOrgSql(org, "v").sql} AND v.status != 'written-off'
+  `).get(...operable.params) as { vehicle_count: number; up_count: number };
 
   const fleetUptimePct = operationalDays.vehicle_count > 0
     ? Math.round((operationalDays.up_count / operationalDays.vehicle_count) * 1000) / 10
@@ -121,14 +128,14 @@ export function GET(request: NextRequest): NextResponse {
     .prepare(
       `SELECT id, code, registration_disc_expiry_date AS exp
        FROM vehicles
-       WHERE organization_id = ?
+       WHERE ${visible.sql}
          AND registration_disc_expiry_date IS NOT NULL
          AND trim(registration_disc_expiry_date) != ''
          AND length(trim(registration_disc_expiry_date)) >= 10
        ORDER BY registration_disc_expiry_date ASC
        LIMIT 24`
     )
-    .all(org) as Array<{ id: string; code: string; exp: string }>;
+    .all(...visible.params) as Array<{ id: string; code: string; exp: string }>;
 
   for (const row of discRows) {
     const exp = row.exp.trim().slice(0, 10);
@@ -157,6 +164,25 @@ export function GET(request: NextRequest): NextResponse {
         entityId: row.id,
       });
     }
+  }
+
+  const overdueSecondments = db
+    .prepare(
+      `SELECT v.id, v.code, v.secondment_expected_return AS ret, so.country AS to_country
+       FROM vehicles v LEFT JOIN organizations so ON so.id = v.seconded_to_org
+       WHERE ${visibleV.sql}
+         AND COALESCE(v.seconded_to_org, '') != ''
+         AND COALESCE(v.secondment_expected_return, '') != ''
+         AND substr(v.secondment_expected_return, 1, 10) < ?`
+    )
+    .all(...visibleV.params, today) as Array<{ id: string; code: string; ret: string; to_country: string | null }>;
+  for (const r of overdueSecondments) {
+    alerts.push({
+      type: "secondment-overdue",
+      severity: "medium",
+      message: `${r.code}: secondment to ${r.to_country || "another country"} overdue (expected back ${r.ret.slice(0, 10)})`,
+      entityId: r.id,
+    });
   }
 
   const pendingRequests = db.prepare(

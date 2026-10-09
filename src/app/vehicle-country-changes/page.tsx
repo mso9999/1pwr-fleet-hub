@@ -24,6 +24,8 @@ interface ChangeRequestRow {
   status: string;
   requested_by_name: string;
   created_at: string;
+  /** vehicles.secondment_request_id — equals id while this secondment is active. */
+  vehicle_secondment_request_id?: string | null;
 }
 
 function kindLabel(k: string): string {
@@ -160,10 +162,18 @@ export default function VehicleCountryChangesPage(): React.ReactElement {
                             {r.effective_date}
                           </div>
                         )}
-                        {r.expected_return_date && (
+                        {(r.expected_return_date || r.change_kind === "secondment") && (
                           <div>
                             <span className="text-zinc-500">Expected return: </span>
-                            {r.expected_return_date}
+                            {r.expected_return_date || "open-ended"}
+                          </div>
+                        )}
+                        {r.change_kind === "secondment" && r.status === "approved" && (
+                          <div>
+                            <span className="text-zinc-500">Secondment: </span>
+                            {r.vehicle_secondment_request_id === r.id
+                              ? "active (vehicle still seconded; record the return on the vehicle page)"
+                              : "ended"}
                           </div>
                         )}
                         {r.transfer_summary && (

@@ -19,7 +19,9 @@ import {
   assetClassLabel,
 } from "@/types";
 import type { VehicleStatus, AssetClass, TrackerStatus } from "@/types";
-import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
+import { canSignOffVehicleStatus, isExecutiveRole, isFleetManagementRole } from "@/lib/fleet-roles";
+import { SecondmentBadge } from "@/components/SecondmentBadge";
+import { isSecondmentOverdue } from "@/lib/vehicle-org-scope";
 import { MediaUpload } from "@/components/MediaUpload";
 import { VehicleDashboardTabs } from "@/components/VehicleDashboardTabs";
 import { CreateWorkOrderForm } from "@/components/CreateWorkOrderForm";
@@ -54,6 +56,10 @@ interface VehicleDetail {
   tracker_install_date: string;
   tracker_status: TrackerStatus;
   registration_disc_expiry_date?: string | null;
+  seconded_to_org?: string | null;
+  secondment_start?: string | null;
+  secondment_expected_return?: string | null;
+  secondment_request_id?: string | null;
   created_at: string;
   updated_at: string;
   created_by_id?: string;
@@ -209,6 +215,11 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   const [organizations, setOrganizations] = useState<Array<{ id: string; name: string; country: string }>>([]);
   const [countryChangeRequests, setCountryChangeRequests] = useState<CountryReqRow[]>([]);
   const [showCountryDialog, setShowCountryDialog] = useState(false);
+  const [returnNote, setReturnNote] = useState("");
+  const [returnBusy, setReturnBusy] = useState(false);
+  const [returnMsg, setReturnMsg] = useState("");
+  const canRecordSecondmentReturn =
+    isFleetManagementRole(user?.role ?? "") || isExecutiveRole(user?.role ?? "");
   const [statusError, setStatusError] = useState<string | null>(null);
   const [needsWoPrompt, setNeedsWoPrompt] = useState<{ targetStatus: VehicleStatus } | null>(null);
   const [signoffDialog, setSignoffDialog] = useState<
@@ -463,6 +474,30 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  async function handleSecondmentReturn(): Promise<void> {
+    if (!window.confirm("Record that this vehicle has returned to its owning country?")) return;
+    setReturnBusy(true);
+    setReturnMsg("");
+    const res = await fetch(`/api/vehicles/${id}/secondment/return`, {
+      method: "POST",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ note: returnNote.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setVehicle(data.vehicle);
+      setReturnNote("");
+      setReturnMsg(
+        data.borrowerReservationsAfterReturn > 0
+          ? `Returned. Note: ${data.borrowerReservationsAfterReturn} active reservation(s) by the borrowing country remain on this vehicle — reassign them.`
+          : "Returned."
+      );
+    } else {
+      setReturnMsg(data.error || "Could not record the return.");
+    }
+    setReturnBusy(false);
+  }
+
   async function handleGenerateReport(): Promise<void> {
     setIsGenerating(true);
     setGenerateMsg("");
@@ -487,13 +522,27 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
   if (!vehicle) return <div className="text-red-500 text-center py-12">Vehicle not found</div>;
 
   const hasTracker = vehicle.tracker_imei && vehicle.tracker_imei.length > 0;
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const orgById = (orgId: string | null | undefined) => organizations.find((o) => o.id === orgId);
+  const ownerCountry = orgById(vehicle.organization_id)?.country;
+  const secondedToCountry = orgById(vehicle.seconded_to_org)?.country;
+  const secondmentOverdue = isSecondmentOverdue(vehicle, todayYmd);
 
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center gap-3">
         <Button variant="ghost" onClick={() => router.push("/vehicles")}>← Back</Button>
         <div className="flex-1">
-          <h2 className="text-2xl font-bold">{vehicle.code}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-2xl font-bold">{vehicle.code}</h2>
+            <SecondmentBadge
+              vehicle={vehicle}
+              viewerOrgId={organizationId}
+              ownerCountry={ownerCountry}
+              secondedToCountry={secondedToCountry}
+              todayYmd={todayYmd}
+            />
+          </div>
           <p className="text-sm text-zinc-500">{vehicle.make} {vehicle.model} {vehicle.year || ""}</p>
           {(vehicle.created_by_name || vehicle.updated_by_name) && (
             <p className="text-xs text-zinc-400 mt-1">
@@ -573,6 +622,47 @@ export default function VehicleDetailPage({ params }: { params: Promise<{ id: st
               {organizations.find((o) => o.id === vehicle.organization_id)?.country || "—"})
             </span>
           </div>
+          {vehicle.seconded_to_org && (
+            <div
+              className={`rounded-lg border px-3 py-2 text-sm space-y-2 ${
+                secondmentOverdue ? "border-red-200 bg-red-50 text-red-900" : "border-sky-200 bg-sky-50 text-sky-900"
+              }`}
+            >
+              <div>
+                <span className="font-medium">
+                  Seconded to {orgById(vehicle.seconded_to_org)?.name || vehicle.seconded_to_org} (
+                  {secondedToCountry || "—"})
+                </span>{" "}
+                since {vehicle.secondment_start || "—"} · expected return{" "}
+                {vehicle.secondment_expected_return || "open-ended"}
+                {secondmentOverdue && <span className="font-semibold"> — return overdue</span>}
+              </div>
+              <p className="text-xs opacity-80">
+                Owner stays {ownerCountry || vehicle.organization_id}. While seconded only the borrowing country can
+                allocate it.
+              </p>
+              {canRecordSecondmentReturn && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <Input
+                    label="Return note (optional)"
+                    value={returnNote}
+                    onChange={(e) => setReturnNote(e.target.value)}
+                    className="min-w-[240px]"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={returnBusy}
+                    onClick={() => void handleSecondmentReturn()}
+                  >
+                    {returnBusy ? "Recording…" : `Record return to ${ownerCountry || "owner"}`}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {returnMsg && <p className="text-xs text-zinc-600">{returnMsg}</p>}
           <p className="text-xs text-zinc-500">
             Use <strong>Request change</strong> to fix a wrong country on create, or to record a secondment or permanent
             transfer (with mission, mechanical inspection, and executive approval as required).

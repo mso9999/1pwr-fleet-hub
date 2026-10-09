@@ -4,6 +4,7 @@ import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { allocateIssueTicketUid } from "@/lib/issue-tickets";
+import { vehicleOperatingOrgId } from "@/lib/vehicle-org-scope";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import { writeFile, mkdir } from "fs/promises";
@@ -59,10 +60,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "vehicleId and title are required" }, { status: 400 });
     }
 
-    const vehicle = db.prepare("SELECT id, organization_id FROM vehicles WHERE id = ?").get(vehicleId) as
-      | { id: string; organization_id: string }
-      | undefined;
+    const vehicle = db
+      .prepare("SELECT id, organization_id, seconded_to_org FROM vehicles WHERE id = ?")
+      .get(vehicleId) as { id: string; organization_id: string; seconded_to_org: string | null } | undefined;
     if (!vehicle) return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
+    // A seconded vehicle's issues go to the borrowing country's fleet team.
+    const issueOrgId = vehicleOperatingOrgId(vehicle);
 
     const reportId = uuidv4();
     const description = (formData.get("description") as string) || "";
@@ -99,14 +102,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const ticketUid = allocateIssueTicketUid(db, vehicle.organization_id);
+    const ticketUid = allocateIssueTicketUid(db, issueOrgId);
 
     db.prepare(`
       INSERT INTO field_issue_reports (id, organization_id, vehicle_id, ticket_uid, reported_by_id, reported_by_name, title, description, severity, location, odometer, is_driveable, photo_count)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       reportId,
-      vehicle.organization_id,
+      issueOrgId,
       vehicleId,
       ticketUid,
       reportedById,
@@ -127,7 +130,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     recordMutation(db, {
       entityType: "field_report",
       entityId: reportId,
-      organizationId: String(vehicle.organization_id),
+      organizationId: issueOrgId,
       action: "create",
       actor: auditActorFrom(user, { id: reportedById, name: reportedByName }),
       after: {

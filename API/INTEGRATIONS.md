@@ -78,9 +78,9 @@ Fleet Hub is the **source of truth** for the vehicle registry. The PR system kee
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/integrations/v1/vehicles` | List FM vehicles for an org. Query: `org` (default `1pwr_lesotho`), optional `includeInactive=true`. Auth: `X-Fleet-Integration-Key`. |
+| `GET` | `/api/integrations/v1/vehicles` | List FM vehicles in scope for an org (owned, or seconded to it). Query: `org` (default `1pwr_lesotho`), optional `includeInactive=true`, optional `scope=owner` (owned only). Auth: `X-Fleet-Integration-Key`. |
 
-Response shape: `{ organizationId, count, vehicles: [{ fmVehicleId, organizationId, fleetCode, make, model, year, licensePlate, vin, engineNumber, status, prFirestoreId, updatedAt }] }`.
+Response shape: `{ organizationId, count, vehicles: [{ fmVehicleId, organizationId, fleetCode, make, model, year, licensePlate, vin, engineNumber, transmission, drivetrain, assetClass, status, prFirestoreId, updatedAt, secondedToOrganizationId, secondmentStart, secondmentExpectedReturn, operatingOrganizationId }] }`. `organizationId` is the owner; the secondment fields are null unless the vehicle is seconded (`secondmentExpectedReturn` null = open-ended).
 
 ## EHS written off-road
 

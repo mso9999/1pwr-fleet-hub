@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VehicleStatusBadge } from "@/components/StatusBadge";
+import { SecondmentBadge } from "@/components/SecondmentBadge";
 import type { VehicleStatus, AssetClass } from "@/types";
 import { VEHICLE_STATUS, ASSET_CLASS, ASSET_CLASS_LABELS, assetClassLabel } from "@/types";
 import { useAuth } from "@/lib/auth-context";
@@ -27,6 +28,12 @@ interface VehicleRow {
   status: VehicleStatus;
   photo_url?: string | null;
   registration_disc_expiry_date?: string | null;
+  organization_id?: string;
+  seconded_to_org?: string | null;
+  secondment_start?: string | null;
+  secondment_expected_return?: string | null;
+  owner_country?: string | null;
+  seconded_to_country?: string | null;
 }
 
 type VehiclesViewMode = "tiles" | "list";
@@ -259,6 +266,13 @@ export default function VehiclesPage(): React.ReactElement {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-bold text-zinc-900 group-hover:text-blue-600">{v.code}</span>
                   <DiscBadge todayYmd={todayYmd} expiry={v.registration_disc_expiry_date} />
+                  <SecondmentBadge
+                    vehicle={v}
+                    viewerOrgId={organizationId}
+                    ownerCountry={v.owner_country}
+                    secondedToCountry={v.seconded_to_country}
+                    todayYmd={todayYmd}
+                  />
                 </div>
                 <div className="text-xs text-zinc-500 truncate">
                   {[v.make, v.model].filter(Boolean).join(" ") || assetClassLabel(v.asset_class)}
@@ -303,6 +317,14 @@ export default function VehiclesPage(): React.ReactElement {
                         {v.code}
                       </Link>
                       <DiscBadge todayYmd={todayYmd} expiry={v.registration_disc_expiry_date} />
+                      <SecondmentBadge
+                        vehicle={v}
+                        viewerOrgId={organizationId}
+                        ownerCountry={v.owner_country}
+                        secondedToCountry={v.seconded_to_country}
+                        todayYmd={todayYmd}
+                        showDates
+                      />
                     </div>
                   </td>
                   <td className="py-3 pr-4">

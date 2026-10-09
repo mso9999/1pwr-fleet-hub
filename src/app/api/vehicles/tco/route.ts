@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { vehicleCostScopeSql } from "@/lib/secondment-cost-attribution";
 
 export function GET(request: NextRequest): NextResponse {
   const db = getDb();
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") || "1pwr_lesotho";
+  // Seconded vehicles follow FM_SECONDMENT_COST_ATTRIBUTION (default: the using org).
+  const costScope = vehicleCostScopeSql(org, "v");
 
   const rows = db.prepare(`
     SELECT 
@@ -45,10 +48,10 @@ export function GET(request: NextRequest): NextResponse {
       ELSE 0 END as avg_repair_days
     FROM vehicles v
     LEFT JOIN work_orders wo ON wo.vehicle_id = v.id
-    WHERE v.organization_id = ?
+    WHERE ${costScope.sql}
     GROUP BY v.id
     ORDER BY total_repair_cost DESC
-  `).all(org) as Array<Record<string, unknown>>;
+  `).all(...costScope.params) as Array<Record<string, unknown>>;
 
   const tco = rows.map((r) => {
     const purchasePrice = (r.purchase_price as number) || 0;

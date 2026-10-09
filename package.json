@@ -25,6 +25,7 @@
     "test:stale-approvals": "tsx scripts/test-stale-approvals.ts",
     "test:stale-allocation": "tsx scripts/test-stale-allocation.ts",
     "test:vr-duplicates": "tsx scripts/test-vehicle-request-duplicates.ts",
+    "test:vehicle-secondment": "tsx scripts/test-vehicle-secondment.ts",
     "test:hr-fleet-role": "tsx scripts/test-hr-fleet-role.ts",
     "test:hr-vehicle-allocator": "tsx scripts/test-hr-vehicle-allocator.ts",
     "test:zm-site-sync": "tsx scripts/test-zm-site-sync.ts",

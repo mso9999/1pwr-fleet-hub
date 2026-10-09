@@ -9,6 +9,7 @@ import {
   type OdoPoint,
   type SpendEvent,
 } from "@/lib/fleet-performance";
+import { costAttributionOrgSql } from "@/lib/secondment-cost-attribution";
 
 /**
  * GET /api/analytics/fleet-performance
@@ -19,6 +20,8 @@ import {
  * 1. Work orders — max(WO total, parts/labour lines, linked PR cache, PO links)
  * 2. Vehicle-tagged PRs in pr_cost_cache that are not already counted via a WO
  *    (covers historical / fuel / unlinked spend still associated to the vehicle)
+ *
+ * A seconded vehicle's country follows FM_SECONDMENT_COST_ATTRIBUTION (default: the using org).
  */
 export function GET(): NextResponse {
   const db = getDb();
@@ -42,7 +45,7 @@ export function GET(): NextResponse {
                  OR EXISTS (SELECT 1 FROM work_order_labor lb WHERE lb.work_order_id = wo.id AND COALESCE(lb.hours,0)*COALESCE(lb.rate_per_hour,0) > 0)
               )) as wo_with_cost
        FROM vehicles v
-       JOIN organizations o ON o.id = v.organization_id
+       JOIN organizations o ON o.id = ${costAttributionOrgSql("v")}
        WHERE COALESCE(v.is_synthetic, 0) = 0
        ORDER BY o.country, v.code`
     )

@@ -1,20 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Database from "better-sqlite3";
 import { getDb } from "@/lib/db";
+import { vehicleOperableByOrgSql } from "@/lib/vehicle-org-scope";
 
 function loadOperationalVehiclesForPool(
   db: Database.Database,
   org: string
 ): Array<Record<string, unknown>> {
   // Include deployed: vehicles on active trips are still part of the visible fleet pool (same as trips UI / dashboard KPIs).
+  // Operating scope: seconded-in vehicles are allocatable here, seconded-out ones are not.
+  const scope = vehicleOperableByOrgSql(org);
   const full = `
     SELECT id, code, make, model, year, asset_class, status, pool, assigned_team, current_location
     FROM vehicles
-    WHERE organization_id = ? AND status IN ('operational', 'deployed')
+    WHERE ${scope.sql} AND status IN ('operational', 'deployed')
     ORDER BY pool, code
   `;
   try {
-    return db.prepare(full).all(org) as Array<Record<string, unknown>>;
+    return db.prepare(full).all(...scope.params) as Array<Record<string, unknown>>;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (!msg.includes("no such column")) throw e;
@@ -23,11 +26,11 @@ function loadOperationalVehiclesForPool(
         `
       SELECT id, code, make, model, asset_class, status, current_location
       FROM vehicles
-      WHERE organization_id = ? AND status IN ('operational', 'deployed')
+      WHERE ${scope.sql} AND status IN ('operational', 'deployed')
       ORDER BY code
     `
       )
-      .all(org) as Array<Record<string, unknown>>;
+      .all(...scope.params) as Array<Record<string, unknown>>;
     return rows.map((v) => ({
       ...v,
       year: null,
@@ -71,9 +74,10 @@ export function GET(request: NextRequest): NextResponse {
       pools[pool].push(v);
     }
 
+    const operable = vehicleOperableByOrgSql(org);
     const statusCounts = db
-      .prepare(`SELECT status, COUNT(*) as count FROM vehicles WHERE organization_id = ? GROUP BY status`)
-      .all(org) as Array<{ status: string; count: number }>;
+      .prepare(`SELECT status, COUNT(*) as count FROM vehicles WHERE ${operable.sql} GROUP BY status`)
+      .all(...operable.params) as Array<{ status: string; count: number }>;
 
     return NextResponse.json({
       pools,

@@ -8,6 +8,11 @@ import {
 } from "@/lib/vehicle-country-change";
 import { canOverridePrerequisite } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
+import {
+  countryChangeBlockedBySecondment,
+  orgCountryCode,
+  validateSecondmentDates,
+} from "@/lib/vehicle-secondment";
 
 export async function GET(
   request: NextRequest,
@@ -79,6 +84,14 @@ export async function POST(
   if (toOrganizationId === fromOrganizationId) {
     return NextResponse.json({ error: "Target country must differ from the current assignment" }, { status: 400 });
   }
+  const secondedErr = countryChangeBlockedBySecondment(
+    vehicle,
+    kind,
+    orgCountryCode(db, vehicle.seconded_to_org as string | null)
+  );
+  if (secondedErr) {
+    return NextResponse.json({ error: secondedErr, reason: "already_seconded" }, { status: 409 });
+  }
 
   const orgExists = db.prepare("SELECT 1 FROM organizations WHERE id = ? AND active = 1").get(toOrganizationId);
   if (!orgExists) {
@@ -130,8 +143,10 @@ export async function POST(
     if (!effectiveDate) {
       return NextResponse.json({ error: "effectiveDate is required for transfers" }, { status: 400 });
     }
-    if (kind === "secondment" && !expectedReturnDate) {
-      return NextResponse.json({ error: "expectedReturnDate is required for a secondment" }, { status: 400 });
+    // Secondment expected return is optional (blank = open-ended); if given it must be >= start.
+    if (kind === "secondment") {
+      const dateErr = validateSecondmentDates(effectiveDate, expectedReturnDate);
+      if (dateErr) return NextResponse.json({ error: dateErr }, { status: 400 });
     }
     if (transferSummary.length < 5) {
       return NextResponse.json(
