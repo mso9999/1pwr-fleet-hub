@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, isExecutiveRole, isFleetManagementRole } from "@/lib/server-auth";
+import { getVerifiedFleetUser, isExecutiveRole } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 
 export async function POST(
@@ -31,7 +32,8 @@ export async function POST(
   const kind = row.change_kind as string;
 
   if (status === "pending_fleet") {
-    if (kind !== "data_correction" || !isFleetManagementRole(user.role)) {
+    const fromOrg = String(row.from_organization_id || "");
+    if (kind !== "data_correction" || !isFleetManagementForOrg(db, fromOrg, user)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   } else if (!isExecutiveRole(user.role)) {

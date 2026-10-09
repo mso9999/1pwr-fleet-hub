@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { DEFAULT_FUEL_SAFETY_FACTOR } from "@/lib/fuel-calculator";
@@ -14,13 +15,12 @@ export async function PATCH(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!["fleet_lead", "manager", "admin", "finance", "superadmin"].includes(user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { id } = await params;
   const body = await request.json();
   const db = getDb();
+  if (user.role !== "finance" && !isFleetManagementForOrg(db, id, user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const before = db
     .prepare(
       `SELECT id, route_origin_lat, route_origin_lng, currency, fuel_safety_factor, fuel_default_pump_price

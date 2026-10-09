@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, isFleetManagementRole } from "@/lib/server-auth";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { normalizeEmail } from "@/lib/vehicle-check-approvers";
 
 export async function GET(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || !isFleetManagementRole(user.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
   const org = new URL(request.url).searchParams.get("org") || "1pwr_lesotho";
   const db = getDb();
+  if (!user || !isFleetManagementForOrg(db, org, user)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const rows = db
     .prepare(
       `SELECT id, organization_id, hr_user_id, hr_employee_id, email, display_name, created_at
@@ -24,7 +25,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
 export async function PUT(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || !isFleetManagementRole(user.role)) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = (await request.json()) as {
@@ -42,6 +43,9 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "approvers array required" }, { status: 400 });
   }
   const db = getDb();
+  if (!isFleetManagementForOrg(db, organizationId, user)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const prevCount = (
     db
       .prepare(

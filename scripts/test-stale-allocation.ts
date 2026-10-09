@@ -51,10 +51,15 @@ db.exec(`
     actor_id TEXT, actor_name TEXT, actor_role TEXT, actor_department TEXT,
     before_json TEXT, after_json TEXT, reason TEXT, created_at TEXT
   );
+  CREATE TABLE user_fleet_lead_scopes (user_id TEXT, organization_id TEXT, granted_by TEXT, granted_at TEXT);
 `);
 
 db.prepare("INSERT INTO users (id, email, role, organization_id) VALUES ('req', 'driver@1pwr.org', 'driver', '1pwr_lesotho')").run();
 db.prepare("INSERT INTO users (id, email, role, organization_id) VALUES ('lead', 'lead@1pwr.org', 'fleet_lead', '1pwr_lesotho')").run();
+// A manager holding the org's fleet-lead scope is a recipient too; a ZM-only scope is not.
+db.prepare("INSERT INTO users (id, email, role, organization_id) VALUES ('mgr', 'mgr@1pwr.org', 'manager', '1pwr_lesotho')").run();
+db.prepare("INSERT INTO users (id, email, role, organization_id) VALUES ('zm', 'zm@1pwr.org', 'manager', '1pwr_zambia')").run();
+db.prepare("INSERT INTO user_fleet_lead_scopes (user_id, organization_id) VALUES ('mgr', '1pwr_lesotho'), ('zm', '1pwr_zambia')").run();
 
 function mission(id: string, approval: string, lifecycle: string, approvedAt: string | null): void {
   db.prepare(
@@ -105,7 +110,11 @@ async function main(): Promise<void> {
   assert.equal(statusOf("vr-fresh"), "requested", "clock starts at approval, not at creation");
   assert.equal(statusOf("vr-assigned"), "assigned");
   assert.ok(warnedAt("vr-due"), "warning is stamped");
-  assert.ok(sent.every((to) => to.includes("driver@1pwr.org") || to.includes("lead@1pwr.org")));
+  assert.ok(
+    sent.every((to) => to.includes("driver@1pwr.org") || to.includes("lead@1pwr.org") || to.includes("mgr@1pwr.org")),
+    "another country's fleet lead (zm@) is not notified",
+  );
+  assert.ok(sent.some((to) => to.includes("mgr@1pwr.org")), "scoped fleet lead is notified");
 
   // A failed email retries the warning next run and still closes orphans.
   mission("m-orphan-2", "approved", "capacity_cancelled", "2025-12-01T00:00:00.000Z");

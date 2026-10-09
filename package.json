@@ -40,7 +40,8 @@
     "test:inspection-override": "tsx scripts/test-inspection-override.ts",
     "test:org-currency": "tsx scripts/test-org-currency.ts",
     "test:org-hq-site": "tsx scripts/test-org-hq-site.ts",
-    "test:driver-override": "tsx scripts/test-driver-override.ts"
+    "test:driver-override": "tsx scripts/test-driver-override.ts",
+    "test:country-fleet-lead": "tsx scripts/test-country-fleet-lead.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",

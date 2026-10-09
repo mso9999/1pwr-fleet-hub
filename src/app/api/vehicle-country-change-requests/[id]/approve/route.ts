@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, isExecutiveRole, isFleetManagementRole } from "@/lib/server-auth";
+import { getVerifiedFleetUser, isExecutiveRole } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import {
   applyApprovedCountryChangeRequest as applyApprovedRequest,
@@ -54,7 +55,8 @@ export async function POST(
     if (kind !== "data_correction") {
       return NextResponse.json({ error: "Invalid state" }, { status: 400 });
     }
-    if (!isFleetManagementRole(user.role)) {
+    const fromOrg = String(row.from_organization_id || vehicleBefore?.organization_id || "");
+    if (!isFleetManagementForOrg(db, fromOrg, user)) {
       return NextResponse.json({ error: "Fleet lead, manager, or admin role required" }, { status: 403 });
     }
     const runFleet = db.transaction(() => {

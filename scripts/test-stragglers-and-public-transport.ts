@@ -133,8 +133,13 @@ async function main(): Promise<void> {
   });
   clearHrApprovalCache();
 
+  // Country-scoped fleet lead: the legacy fleet_lead shortcut applies in the user's own org only,
+  // so the fixture needs a users row with a home org.
+  db.prepare(
+    "INSERT OR IGNORE INTO users (id, email, name, role, organization_id) VALUES (?, ?, ?, ?, ?)"
+  ).run("u_fleet_lead_straggler", "fleet_lead@example.com", "Fleet Lead", "fleet_lead", ORG);
   results.push({
-    label: "canApproveVehicleCheckExceptions true for fleet_lead (legacy)",
+    label: "canApproveVehicleCheckExceptions true for fleet_lead (legacy, own org)",
     ok: await canApproveVehicleCheckExceptions(db, ORG, "fleet_lead@example.com", "fleet_lead"),
   });
   results.push({
