@@ -435,7 +435,7 @@ function TripsPageContent(): React.ReactElement {
                         })()}
                         {!trip.departed_at && !trip.trip_checklist_at && (
                           <Link
-                            href={`/vehicle-checks?vehicleId=${encodeURIComponent(String(trip.vehicle_id || ""))}&tripId=${encodeURIComponent(trip.id)}&returnTo=${encodeURIComponent(`/trips?trip=${trip.id}`)}`}
+                            href={`/vehicle-checks?${trip.mission_id ? `missionId=${encodeURIComponent(trip.mission_id)}&` : ""}vehicleId=${encodeURIComponent(String(trip.vehicle_id || ""))}&tripId=${encodeURIComponent(trip.id)}&returnTo=${encodeURIComponent(`/trips?trip=${trip.id}`)}`}
                             className="inline-flex h-9 items-center rounded-md border border-blue-200 bg-white px-3 text-sm font-medium text-blue-700 hover:bg-blue-50"
                           >
                             Complete trip checklist

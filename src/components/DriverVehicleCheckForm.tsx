@@ -33,6 +33,26 @@ interface EligibleTrip {
   vehicle_code: string | null;
 }
 
+interface MissionContext {
+  missionId: string | null;
+  tripId: string | null;
+  title: string;
+  vehicleId: string | null;
+  driverName: string | null;
+  routeFrom: string;
+  routeTo: string;
+  departureDate: string | null;
+  returnDate: string | null;
+  departed: boolean;
+  lastOdometerKm: number | null;
+}
+
+type PrefillKey = "vehicle" | "driver" | "routeFrom" | "routeTo" | "mileage" | "trip" | "direction";
+
+function FromMissionHint({ show, children }: { show: boolean; children?: React.ReactNode }): React.ReactElement | null {
+  return show ? <p className="text-[11px] text-emerald-700">{children ?? "from mission"}</p> : null;
+}
+
 interface ApprovedDriverOption {
   id: string;
   email: string;
@@ -392,6 +412,27 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     if (typeof window === "undefined") return "";
     return new URL(window.location.href).searchParams.get("vehicleId") ?? "";
   });
+  const [routeFrom, setRouteFrom] = useState("");
+  const [routeTo, setRouteTo] = useState("");
+  const [mileageInput, setMileageInput] = useState("");
+  const [missionCtx, setMissionCtx] = useState<MissionContext | null>(null);
+  const [prefilled, setPrefilled] = useState<Partial<Record<PrefillKey, boolean>>>({});
+  const [ctxRequest, setCtxRequest] = useState<{ missionId: string; tripId: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    const sp = new URL(window.location.href).searchParams;
+    const missionId = sp.get("missionId") ?? "";
+    const tripId = sp.get("tripId") ?? "";
+    return missionId || tripId ? { missionId, tripId } : null;
+  });
+  // Fields the user edited by hand; mission prefill never overwrites these.
+  const touchedRef = useRef<Set<PrefillKey>>(new Set());
+  const selectedVehicleIdRef = useRef(selectedVehicleId);
+  selectedVehicleIdRef.current = selectedVehicleId;
+
+  function touch(key: PrefillKey): void {
+    touchedRef.current.add(key);
+    setPrefilled((p) => (p[key] ? { ...p, [key]: false } : p));
+  }
 
   const selectedAssetClass = useMemo(() => {
     const v = vehicles.find((x) => x.id === selectedVehicleId);
@@ -462,6 +503,69 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       cancelled = true;
     };
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!ctxRequest) return;
+    const { missionId, tripId } = ctxRequest;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = missionId
+          ? `/api/missions/${encodeURIComponent(missionId)}/vehicle-check-context`
+          : `/api/trips/${encodeURIComponent(tripId)}/vehicle-check-context`;
+        const res = await fetch(url, { headers: await jsonHeadersWithBearer() });
+        if (!res.ok || cancelled) return;
+        const c = (await res.json()) as MissionContext;
+        if (cancelled) return;
+        const touched = touchedRef.current;
+        const next: Partial<Record<PrefillKey, boolean>> = {};
+        if (!touched.has("trip")) next.trip = true;
+        setMissionCtx(c);
+        let vehicleMatches = true;
+        if (c.vehicleId && !touched.has("vehicle")) {
+          setSelectedVehicleId(c.vehicleId);
+          next.vehicle = true;
+        } else if (c.vehicleId && c.vehicleId !== selectedVehicleIdRef.current) {
+          vehicleMatches = false;
+        }
+        if (c.driverName && !touched.has("driver")) {
+          autoFilledRef.current = true;
+          setDriverName(c.driverName);
+          next.driver = true;
+        }
+        if (c.routeFrom && !touched.has("routeFrom")) {
+          setRouteFrom(c.routeFrom);
+          next.routeFrom = true;
+        }
+        if (c.routeTo && !touched.has("routeTo")) {
+          setRouteTo(c.routeTo);
+          next.routeTo = true;
+        }
+        if (c.lastOdometerKm != null && vehicleMatches && !touched.has("mileage")) {
+          setMileageInput(String(c.lastOdometerKm));
+          next.mileage = true;
+        }
+        if (c.departed && !touched.has("direction")) {
+          setDirection("returning");
+          next.direction = true;
+        }
+        setPrefilled((p) => ({ ...p, ...next }));
+      } catch {
+        /* non-fatal: the form stays fully manual */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ctxRequest]);
+
+  // Once the eligible list loads, select the entry belonging to the mission we prefilled from.
+  useEffect(() => {
+    if (!missionCtx?.missionId || touchedRef.current.has("trip")) return;
+    if (eligibleTrips.some((t) => t.id === selectedTripId)) return;
+    const match = eligibleTrips.find((t) => t.mission_id === missionCtx.missionId);
+    if (match) setSelectedTripId(match.id);
+  }, [missionCtx, eligibleTrips, selectedTripId]);
 
   useEffect(() => {
     // Fetch approved-mission trips for the selected vehicle whenever the
@@ -749,7 +853,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               <button
                 key={d}
                 type="button"
-                onClick={() => setDirection(d)}
+                onClick={() => {
+                  touch("direction");
+                  setDirection(d);
+                }}
                 className={`rounded-lg px-5 py-2.5 text-sm font-medium capitalize touch-manipulation min-h-[44px] ${
                   direction === d
                     ? "bg-blue-600 text-white"
@@ -761,6 +868,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
             ))}
           </div>
 
+          <FromMissionHint show={!!prefilled.direction}>
+            Direction set to returning: this trip has already departed (from mission)
+          </FromMissionHint>
+
           {/* Header fields */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <EntityPickerField
@@ -768,7 +879,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               label="Vehicle"
               required
               value={selectedVehicleId}
-              onChange={setSelectedVehicleId}
+              onChange={(v) => {
+                touch("vehicle");
+                setSelectedVehicleId(v);
+              }}
               modalTitle="Pick a vehicle"
               modalDescription="Search the full fleet by code, make, or model."
               searchPlaceholder="Search by code, make, model…"
@@ -781,17 +895,36 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 searchTokens: [v.code, v.make, v.model, v.asset_class ?? ""],
               }))}
             />
-            <ApprovedDriverCombobox
-              value={driverName}
-              onChange={setDriverName}
-              options={driverOptions}
-              loading={driverOptionsLoading}
-              matched={matchedDriver}
-              organizationId={organizationId}
-              nonCompliant={nonCompliantDrivers}
-              restricted={restrictedDrivers}
-            />
+            <div className="flex flex-col gap-1">
+              <ApprovedDriverCombobox
+                value={driverName}
+                onChange={(v) => {
+                  touch("driver");
+                  setDriverName(v);
+                }}
+                options={driverOptions}
+                loading={driverOptionsLoading}
+                matched={matchedDriver}
+                organizationId={organizationId}
+                nonCompliant={nonCompliantDrivers}
+                restricted={restrictedDrivers}
+              />
+              <FromMissionHint show={!!prefilled.driver} />
+            </div>
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
+          </div>
+          <FromMissionHint show={!!prefilled.vehicle}>Vehicle: from mission</FromMissionHint>
+          <div className="space-y-0.5 text-xs text-zinc-600">
+            <div>
+              Inspector: <span className="font-medium text-zinc-800">{user?.name || user?.email || "—"}</span>
+            </div>
+            {missionCtx && (
+              <div>
+                Mission: <span className="font-medium text-zinc-800">{missionCtx.title || "(untitled mission)"}</span>
+                {missionCtx.departureDate ? ` · departs ${missionCtx.departureDate.slice(0, 10)}` : ""}
+                {missionCtx.returnDate ? ` · returns ${missionCtx.returnDate.slice(0, 10)}` : ""}
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4" data-tutorial="tutorial-dvc-photos">
@@ -805,7 +938,15 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   step={1}
                   required
                   placeholder="Type current ODO"
+                  value={mileageInput}
+                  onChange={(e) => {
+                    touch("mileage");
+                    setMileageInput(e.target.value);
+                  }}
                 />
+                <FromMissionHint show={!!prefilled.mileage}>
+                  last recorded reading — confirm against the gauge
+                </FromMissionHint>
                 <p className="text-xs text-zinc-500">
                   Enter the reading from the gauge, then take a photo of the odometer for verification.
                 </p>
@@ -862,20 +1003,32 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               <input
                 name="routeFrom"
                 list="dvc-sites"
+                value={routeFrom}
+                onChange={(e) => {
+                  touch("routeFrom");
+                  setRouteFrom(e.target.value);
+                }}
                 placeholder="Departure location"
                 className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                 autoComplete="off"
               />
+              <FromMissionHint show={!!prefilled.routeFrom} />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-zinc-700">Route to</label>
               <input
                 name="routeTo"
                 list="dvc-sites"
+                value={routeTo}
+                onChange={(e) => {
+                  touch("routeTo");
+                  setRouteTo(e.target.value);
+                }}
                 placeholder="Destination"
                 className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                 autoComplete="off"
               />
+              <FromMissionHint show={!!prefilled.routeTo} />
             </div>
             <datalist id="dvc-sites">
               {siteOptions.map((s) => (
@@ -908,7 +1061,18 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               ) : (
                 <select
                   value={selectedTripId}
-                  onChange={(e) => setSelectedTripId(e.target.value)}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    touch("trip");
+                    setSelectedTripId(id);
+                    const picked = eligibleTrips.find((t) => t.id === id);
+                    if (picked) {
+                      setCtxRequest({
+                        missionId: picked.mission_id,
+                        tripId: picked.id.startsWith("mission:") ? "" : picked.id,
+                      });
+                    }
+                  }}
                   className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                 >
                   <option value="">Select a mission…</option>
@@ -924,6 +1088,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   })}
                 </select>
               )}
+              <FromMissionHint show={!!prefilled.trip && !!selectedTripId} />
             </div>
           )}
 

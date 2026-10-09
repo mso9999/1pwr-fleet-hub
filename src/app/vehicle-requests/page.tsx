@@ -649,6 +649,14 @@ function FleetMissionReserveRow({
           <span className="text-zinc-500">Reserved: </span>
           <strong className="text-emerald-800">{m.assigned_vehicle_code || m.assigned_vehicle_id}</strong>
         </span>
+        {m.assigned_vehicle_id && (
+          <Link
+            href={`/vehicle-checks?missionId=${encodeURIComponent(m.id)}&tripId=${encodeURIComponent(m.trip_id || "")}&vehicleId=${encodeURIComponent(m.assigned_vehicle_id)}&returnTo=${encodeURIComponent("/vehicle-requests")}`}
+            className="inline-flex h-8 items-center rounded-md border border-blue-200 bg-white px-3 text-xs font-medium text-blue-700 hover:bg-blue-50"
+          >
+            Start vehicle check
+          </Link>
+        )}
       </div>
     );
   }
