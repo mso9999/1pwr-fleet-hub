@@ -32,7 +32,8 @@ export type MutationAction =
   | "approval_notify"
   | "allocation_cancel"
   | "stale_wo_nudge"
-  | "backdate_departure";
+  | "backdate_departure"
+  | "secondment_return";
 
 export type MutationEntityType =
   | "fleet_mechanic"
