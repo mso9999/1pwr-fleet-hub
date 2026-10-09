@@ -3,6 +3,7 @@ import {
   countryFromOrganization,
   hasHrFmApprovalRole,
 } from "@/lib/hr-approval-roles";
+import { holdsFleetLeadForOrg, isFleetLeadForOrg } from "@/lib/fleet-lead-scope";
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -34,10 +35,10 @@ export function isPrCountryMissionApprover(
  *
  * Per the cross-toolset approval consolidation (2026-07-03), this is now
  * gated by the HR-canonical `fm:mechanical_override_approver` role. The
- * fleet_lead role is the canonical grantee for that role (set in HR by the
- * backfill command), so legacy role-only checks for fleet_lead continue to
- * work during the transition. Manager/admin/superadmin remain break-glass
- * approvers.
+ * fleet lead is the canonical grantee for that role (set in HR by the
+ * backfill command), so fleet lead of THIS organization (own-org fleet_lead
+ * role or a fleet-lead scope row) still passes during the transition.
+ * Manager/admin/superadmin remain break-glass approvers.
  *
  * HR-canonical path is tried first; if HR is unreachable AND we have no
  * cached row for the user, we fall back to the legacy table.
@@ -50,10 +51,11 @@ export async function canApproveVehicleCheckExceptions(
 ): Promise<boolean> {
   const role = (userRole || "").toLowerCase();
   if (role === "superadmin") return true;
-  // Legacy role-based shortcut — fleet_lead is the canonical grantee for
-  // mechanical-override approver in HR, so honoring the role here is
-  // equivalent until Phase 6 removes the role fallback.
-  if (role === "fleet_lead" || role === "manager" || role === "admin") return true;
+  // Legacy role-based shortcut — fleet lead is the canonical grantee for
+  // mechanical-override approver in HR, so honoring it here (own organization
+  // only) is equivalent until Phase 6 removes the fallback.
+  if (role === "manager" || role === "admin") return true;
+  if (holdsFleetLeadForOrg(db, organizationId, userEmail, userRole)) return true;
 
   const country = countryFromOrganization(db, organizationId);
   const hrApproved = await hasHrFmApprovalRole(
@@ -72,8 +74,11 @@ export async function canApproveVehicleCheckExceptions(
  *
  * Per the cross-toolset approval consolidation (2026-07-03):
  *   - HR-canonical `fm:mission_approver` is the primary grant.
- *   - `fleet_lead` is EXPLICITLY EXCLUDED — fleet lead approves mechanical
- *     overrides and vehicle allocation, NOT missions or trips.
+ *   - users whose role is literally `fleet_lead` are EXPLICITLY EXCLUDED —
+ *     fleet lead approves mechanical overrides and vehicle allocation, NOT
+ *     missions or trips. The exclusion is on the role string only: a manager
+ *     who also holds a fleet-lead scope (user_fleet_lead_scopes) keeps the
+ *     manager's approval rights.
  *   - Manager/admin/superadmin remain break-glass approvers during the
  *     transition. Phase 6 will remove the role fallback.
  *   - Legacy vehicle_check_override_approvers table is the last-resort
@@ -87,7 +92,7 @@ export async function canApproveMissionRequests(
 ): Promise<boolean> {
   const role = (userRole || "").toLowerCase();
   if (role === "superadmin") return true;
-  // Drop fleet_lead from mission approval entirely.
+  // Drop the literal fleet_lead role from mission approval entirely.
   if (role === "fleet_lead") return false;
   // Backwards-compat role fallback (manager/admin). To be removed in Phase 6
   // once HR-canonical grants are verified via the backfill command.
@@ -105,40 +110,13 @@ export async function canApproveMissionRequests(
   return isPrCountryMissionApprover(db, organizationId, userEmail);
 }
 
-/** Full edit / assign vehicle — fleet management (not PR list-only approvers). */
-export function canFullyManageVehicleRequests(userRole: string): boolean {
-  return (
-    userRole === "fleet_lead" ||
-    userRole === "manager" ||
-    userRole === "admin" ||
-    userRole === "superadmin"
-  );
-}
-
-/**
- * Role-only allocation check (no HR lookup): fleet_lead or superadmin.
- *
- * Kept for callers that have no organization context. Allocation routes
- * should use {@link canAllocateFleetVehicleForOrg}, which also honours the
- * HR-canonical `fm:vehicle_allocator` grant.
- */
-export function canAllocateFleetVehicle(userRole: string): boolean {
-  const role = (userRole || "").toLowerCase();
-  return role === "fleet_lead" || role === "superadmin";
-}
-
 /**
  * Allocate / reserve a fleet vehicle for a mission or vehicle request.
  *
- * Per the cross-toolset approval consolidation (2026-07-03):
- *   - fleet_lead (the canonical grantee) and superadmin pass on role alone.
- *   - Otherwise the HR-canonical `fm:vehicle_allocator` grant is checked,
- *     scoped to the country of the organization being allocated in (same
- *     pattern as `fm:mission_approver` in {@link canApproveMissionRequests}).
- *   - No legacy-table fallback: allocation was never granted through
- *     vehicle_check_override_approvers.
- *   - Manager/admin are NOT added here; allocation stays a fleet duty unless
- *     HR grants it explicitly.
+ * Fleet lead is a per-organization capability ({@link isFleetLeadForOrg}):
+ * superadmin (global), a fleet-lead scope row, a legacy `fleet_lead` role in the
+ * user's own organization, or the HR-canonical `fm:vehicle_allocator` grant for
+ * the organization's country. Manager/admin alone do NOT allocate.
  */
 export async function canAllocateFleetVehicleForOrg(
   db: Database,
@@ -146,10 +124,24 @@ export async function canAllocateFleetVehicleForOrg(
   userEmail: string,
   userRole: string
 ): Promise<boolean> {
-  if (canAllocateFleetVehicle(userRole)) return true;
-  if (!userEmail) return false;
-  const country = countryFromOrganization(db, organizationId);
-  return hasHrFmApprovalRole(userEmail, "vehicle_allocator", country);
+  return isFleetLeadForOrg(db, organizationId, userEmail, userRole);
+}
+
+/**
+ * Outside-50-km mechanical-inspection override when reserving a vehicle:
+ * fleet lead for the org (as above) OR a mission approver for the org
+ * (manager/admin role, or HR fm:mission_approver for that country).
+ * Superadmin is global. A literal `fleet_lead` role gets it only through the
+ * fleet-lead side, i.e. in its own organization.
+ */
+export async function canSkipLocalityInspectionForOrg(
+  db: Database,
+  organizationId: string,
+  userEmail: string,
+  userRole: string
+): Promise<boolean> {
+  if (await isFleetLeadForOrg(db, organizationId, userEmail, userRole)) return true;
+  return canApproveMissionRequests(db, organizationId, userEmail, userRole);
 }
 
 /**
@@ -184,7 +176,11 @@ export async function canArbitrateMissionCapacity(
   return isPrCountryMissionApprover(db, organizationId, userEmail);
 }
 
-/** Break an overlapping vehicle reservation (double-book) with audit reason. */
+/**
+ * Break an overlapping vehicle reservation (double-book) with audit reason.
+ * Role-only: a fleet-lead scope does not confer it and the literal `fleet_lead`
+ * role cannot, so a manager who is also fleet lead keeps it via the manager role.
+ */
 export function canOverrideReservationOverlap(userRole: string): boolean {
   return userRole === "manager" || userRole === "admin" || userRole === "superadmin";
 }

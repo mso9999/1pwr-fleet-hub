@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import {
-  canApproveMissionRequests,
-  canFullyManageVehicleRequests,
-} from "@/lib/vehicle-check-approvers";
+import { canApproveMissionRequests } from "@/lib/vehicle-check-approvers";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
@@ -93,8 +91,8 @@ export async function PATCH(
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  const canFull = canFullyManageVehicleRequests(user.role);
   const orgId = String((existing as Record<string, unknown>).organization_id || "");
+  const canFull = isFleetManagementForOrg(db, orgId, user.email, user.role);
   const canMission = await canApproveMissionRequests(db, orgId, user.email, user.role);
   const isRequestor = String((existing as Record<string, unknown>).requested_by_id || "") === user.id;
   const onlyRr = allowedKeys.length === 1 && allowedKeys[0] === "rrStatus";
@@ -248,7 +246,7 @@ export async function DELETE(
   }
   const row = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!canFullyManageVehicleRequests(user.role) && user.role !== "superadmin") {
+  if (!isFleetManagementForOrg(db, String(row.organization_id || ""), user.email, user.role)) {
     return NextResponse.json({ error: "Only fleet management may delete vehicle requests." }, { status: 403 });
   }
 

@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
-  canAllocateFleetVehicle,
   canAllocateFleetVehicleForOrg,
   canOverrideReservationOverlap,
+  canSkipLocalityInspectionForOrg,
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import {
@@ -130,9 +130,9 @@ export async function POST(
   if (destinationCode) {
     const gate = localityGateRequired(db, orgId, vehicleId, destinationCode);
     if (gate.required && !gate.inspectionOnFile) {
-      // Inspection-gate override stays with fleet_lead/superadmin (role-only):
-      // an HR vehicle_allocator grant does not carry mechanical authority.
-      const overrideOk = canAllocateFleetVehicle(user.role) && overrideReason.length >= 8;
+      const overrideOk =
+        overrideReason.length >= 8 &&
+        (await canSkipLocalityInspectionForOrg(db, orgId, user.email, user.role));
       if (!overrideOk) {
         return NextResponse.json(
           {
