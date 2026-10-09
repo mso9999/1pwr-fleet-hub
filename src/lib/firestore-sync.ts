@@ -18,6 +18,7 @@ import {
 import { getDb } from "./db";
 import { getFleetAdminApp } from "./firebase-admin-init";
 import { isPrSpendStatus } from "./fleet-performance";
+import { canonicalSiteOrgIds, selectCanonicalSiteDocsForOrg } from "./site-orgs";
 
 let adminFirestore: Firestore | null = null;
 
@@ -75,12 +76,18 @@ export async function syncReferenceListFromPr(
     return { success: false, upserted: 0, deactivated: 0, error: "Firestore not available" };
   }
 
+  // Sites: the canonical catalog may file an FM org's sites under several org
+  // ids (Zambia: `1pwr_zambia` and `kuwala`). Departments keep exact-org reads.
+  const sourceOrgIds = refType === "site" ? canonicalSiteOrgIds(organizationId) : [organizationId];
+  const orgOp = sourceOrgIds.length > 1 ? "in" : "==";
+  const orgValue = sourceOrgIds.length > 1 ? sourceOrgIds : organizationId;
+
   try {
     let snapshot: QuerySnapshot;
     try {
       snapshot = await firestore
         .collection(collectionName)
-        .where("organizationId", "==", organizationId)
+        .where("organizationId", orgOp, orgValue)
         .where("active", "!=", false)
         .limit(500)
         .get();
@@ -92,7 +99,7 @@ export async function syncReferenceListFromPr(
       try {
         snapshot = await firestore
           .collection(collectionName)
-          .where("organizationId", "==", organizationId)
+          .where("organizationId", orgOp, orgValue)
           .limit(500)
           .get();
       } catch (orgErr) {
@@ -110,17 +117,24 @@ export async function syncReferenceListFromPr(
     let deactivated = 0;
     const firestoreCodes = new Set<string>();
 
-    const txn = db.transaction(() => {
-      for (const doc of snapshot.docs) {
-        const data = doc.data();
-        if (data.active === false) continue;
+    // Only mirror the target org's rows (plus its catalog aliases for sites).
+    // The catalog is multi-org and the fallback read is not org-filtered —
+    // without this, every country's sites were mirrored into every org
+    // (last-write-wins per shared code, e.g. Benin's "Siège social" overwrote
+    // the Lesotho HQ label). One doc per code; the FM org's own doc wins.
+    const allDocs = snapshot.docs.map((d) => ({ id: d.id, data: d.data() as Record<string, unknown> }));
+    const docs =
+      refType === "site"
+        ? selectCanonicalSiteDocsForOrg(allDocs, organizationId)
+        : allDocs.filter((d) => {
+            if (d.data.active === false) return false;
+            const docOrg = String(d.data.organizationId || "").trim();
+            return !docOrg || docOrg === organizationId;
+          });
 
-        // Only mirror the target org's rows. The catalog is multi-org and the
-        // read above is not org-filtered — without this, every country's sites
-        // were mirrored into every org (last-write-wins per shared code, e.g.
-        // Benin's "Siège social" overwrote the Lesotho HQ label).
-        const docOrg = String(data.organizationId || "").trim();
-        if (docOrg && docOrg !== organizationId) continue;
+    const txn = db.transaction(() => {
+      for (const doc of docs) {
+        const data = doc.data as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
         const code = String(data.code || doc.id).trim();
         if (!code) continue;
@@ -146,6 +160,12 @@ export async function syncReferenceListFromPr(
           firestoreId: doc.id,
           source: "pr_firestore",
           collection: collectionName,
+          ...(refType === "site" && data.organizationId
+            ? { catalogOrganizationId: String(data.organizationId) }
+            : {}),
+          ...(refType === "site" && data.coordinateSource
+            ? { coordinateSource: String(data.coordinateSource) }
+            : {}),
         });
 
         if (existing) {

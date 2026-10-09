@@ -25,6 +25,7 @@
     "test:vr-duplicates": "tsx scripts/test-vehicle-request-duplicates.ts",
     "test:hr-fleet-role": "tsx scripts/test-hr-fleet-role.ts",
     "test:hr-vehicle-allocator": "tsx scripts/test-hr-vehicle-allocator.ts",
+    "test:zm-site-sync": "tsx scripts/test-zm-site-sync.ts",
     "test:stale-wos": "tsx scripts/test-stale-wos.ts",
     "test:mission-integration": "tsx scripts/test-mission-integration.ts",
     "test:mission-trip-drafts": "tsx scripts/test-mission-trip-drafts.ts",

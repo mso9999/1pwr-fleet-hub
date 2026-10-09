@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { deactivateOrphanAliasOrgSites } from "./orphan-site-cleanup";
 
 const DB_DIR = process.env.DB_PATH
   ? path.dirname(process.env.DB_PATH)
@@ -1204,6 +1205,19 @@ function initializeSchema(db: Database.Database): void {
     ["migrateWorkOrdersPhase3", () => migrateWorkOrdersPhase3(db)],
     ["migrateWorkOrderLaborPhase3", () => migrateWorkOrderLaborPhase3(db)],
     ["seedDefaultData", () => seedDefaultData(db)],
+    // Idempotent: deactivates (never deletes) site rows filed under catalog-only
+    // org ids such as `kuwala`, which no FM org can display. See orphan-site-cleanup.ts.
+    [
+      "deactivateOrphanAliasOrgSites",
+      () => {
+        const r = deactivateOrphanAliasOrgSites(db, { apply: true });
+        if (r.deactivated > 0) {
+          console.info(
+            `[db] Deactivated ${r.deactivated} orphan site row(s) under ${r.orgIds.join(", ")}`
+          );
+        }
+      },
+    ],
   ];
 
   for (const [name, fn] of steps) {

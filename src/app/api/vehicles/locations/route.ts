@@ -6,6 +6,8 @@ import {
   recordGpsSnapshots,
   resolveAllVehicleHistory,
 } from "@/lib/gps-history";
+import { usesLesothoLegacySiteCoords } from "@/lib/site-orgs";
+import { getRouteOrigin } from "@/lib/vehicle-request-fuel";
 
 const SINOTRACK_SERVERS = ["https://245.sinotrack.com", "https://242.sinotrack.com"];
 const SINOTRACK_PASSWORD = "123456";
@@ -146,7 +148,26 @@ function loadSiteCoordinates(
     if (coords) fromDb[code] = coords;
   }
 
+  // The legacy table is Lesotho-only; never pin other countries' maps on it.
+  if (!usesLesothoLegacySiteCoords(db, organizationId)) return fromDb;
   return { ...LEGACY_SITE_COORDINATES, ...fromDb };
+}
+
+/** Where to draw a vehicle with no GPS and no known site: org HQ, route origin, any site. */
+function fallbackOrgCoordinates(
+  db: ReturnType<typeof getDb>,
+  organizationId: string,
+  siteCoordinates: Record<string, { lat: number; lng: number }>
+): { lat: number; lng: number } {
+  if (siteCoordinates["HQ"]) return siteCoordinates["HQ"];
+  // getRouteOrigin falls back to Maseru when an org has no origin set, so for
+  // non-Lesotho orgs prefer one of the org's own sites over that default.
+  const first = Object.values(siteCoordinates)[0];
+  if (!usesLesothoLegacySiteCoords(db, organizationId) && first) return first;
+  const origin = getRouteOrigin(db, organizationId);
+  if (origin) return origin;
+  if (first) return first;
+  return LEGACY_SITE_COORDINATES["HQ"];
 }
 
 interface VehicleRow {
@@ -187,6 +208,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const db = getDb();
   const siteCoordinates = loadSiteCoordinates(db, orgId);
+  const orgFallbackCoords = fallbackOrgCoordinates(db, orgId, siteCoordinates);
   let vehicleSql = `SELECT id, code, make, model, license_plate, current_location, status,
             tracker_imei, tracker_status, tracker_provider
      FROM vehicles
@@ -251,7 +273,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const result = vehicles.map((v) => {
     const siteKey = v.current_location?.toUpperCase() || "HQ";
-    const coords = siteCoordinates[siteKey] || siteCoordinates["HQ"] || LEGACY_SITE_COORDINATES["HQ"];
+    const coords = siteCoordinates[siteKey] || orgFallbackCoords;
     const jitter = () => (Math.random() - 0.5) * 0.003;
 
     const gps = v.tracker_imei ? gpsMap.get(v.tracker_imei) : undefined;
