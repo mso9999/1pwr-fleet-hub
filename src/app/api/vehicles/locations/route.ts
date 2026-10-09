@@ -160,9 +160,12 @@ function fallbackOrgCoordinates(
   siteCoordinates: Record<string, { lat: number; lng: number }>
 ): { lat: number; lng: number } {
   if (siteCoordinates["HQ"]) return siteCoordinates["HQ"];
+  // getRouteOrigin falls back to Maseru when an org has no origin set, so for
+  // non-Lesotho orgs prefer one of the org's own sites over that default.
+  const first = Object.values(siteCoordinates)[0];
+  if (!usesLesothoLegacySiteCoords(db, organizationId) && first) return first;
   const origin = getRouteOrigin(db, organizationId);
   if (origin) return origin;
-  const first = Object.values(siteCoordinates)[0];
   if (first) return first;
   return LEGACY_SITE_COORDINATES["HQ"];
 }
