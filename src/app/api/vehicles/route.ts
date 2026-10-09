@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { defaultCurrencyForOrg } from "@/lib/org-currency";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.notes || "",
     body.purchasePrice || 0,
     body.purchaseDate || "",
-    body.purchaseCurrency || "LSL",
+    body.purchaseCurrency || defaultCurrencyForOrg(db, targetOrg),
     body.residualValue || 0,
     body.insuranceMonthly || 0,
     body.fuelType || "",
