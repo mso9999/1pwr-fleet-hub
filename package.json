@@ -34,7 +34,8 @@
     "test:stragglers-public-transport": "tsx scripts/test-stragglers-and-public-transport.ts",
     "notify:pending-missions": "tsx scripts/notify-pending-mission-approvals.ts",
     "test:deployment-employee-matching": "tsx scripts/test-deployment-employee-matching.ts",
-    "test:inspection-override": "tsx scripts/test-inspection-override.ts"
+    "test:inspection-override": "tsx scripts/test-inspection-override.ts",
+    "test:org-currency": "tsx scripts/test-org-currency.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",
