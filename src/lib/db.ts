@@ -815,6 +815,7 @@ function ensurePhase1Schema(db: Database.Database): void {
   safeMigrate(db, "backfillMissionDepartureLocation", backfillMissionDepartureLocation);
   safeMigrate(db, "migrateFleetMechanics", migrateFleetMechanics);
   safeMigrate(db, "migrateRecordMutationLog", migrateRecordMutationLog);
+  safeMigrate(db, "migrateFleetLeadScopes", migrateFleetLeadScopes);
   safeMigrate(db, "migrateOrganizationsRouteOrigin", migrateOrganizationsRouteOrigin);
   safeMigrate(db, "migrateOrganizationsFuelDefaults", migrateOrganizationsFuelDefaults);
   safeMigrate(db, "migrateMissionFuelBudget", migrateMissionFuelBudget);
@@ -1195,6 +1196,7 @@ function initializeSchema(db: Database.Database): void {
     ["migrateWorkOrderFailureFields", () => migrateWorkOrderFailureFields(db)],
     ["migrateFleetMechanics", () => migrateFleetMechanics(db)],
     ["migrateRecordMutationLog", () => migrateRecordMutationLog(db)],
+    ["migrateFleetLeadScopes", () => migrateFleetLeadScopes(db)],
     ["migrateVehicleStatusEnforcement", () => migrateVehicleStatusEnforcement(db)],
     ["migrateTripsPhase1", () => migrateTripsPhase1(db)],
     ["migrateTripOdometerReadings", () => migrateTripOdometerReadings(db)],
@@ -1664,6 +1666,23 @@ function migrateRecordMutationLog(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_record_mutation_log_entity ON record_mutation_log(entity_type, entity_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_record_mutation_log_org ON record_mutation_log(organization_id, created_at DESC);
+  `);
+}
+
+/**
+ * Per-country fleet-lead capability, separate from users.role so one person can be a
+ * manager (mission approver) AND the fleet lead for exactly their own country.
+ */
+function migrateFleetLeadScopes(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_fleet_lead_scopes (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      organization_id TEXT NOT NULL,
+      granted_by TEXT NOT NULL DEFAULT '',
+      granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, organization_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_fleet_lead_scopes_org ON user_fleet_lead_scopes(organization_id);
   `);
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { canApprovePvrClaim, pvrVehicleAvailabilityOverrideError } from "@/lib/pvr-approval-rules";
@@ -47,6 +48,12 @@ export async function PATCH(
     | Record<string, unknown>
     | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (
+    user.role === "fleet_lead" &&
+    !isFleetManagementForOrg(db, String(existing.organization_id || ""), user)
+  ) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
   const beforeSnap = pvrAuditRow(existing);
 
   const allowed: Record<string, string> = {

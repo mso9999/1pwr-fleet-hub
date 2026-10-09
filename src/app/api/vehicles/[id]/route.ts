@@ -10,6 +10,7 @@ import {
   type VehicleStatus,
 } from "@/types";
 import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { pushVehicleRowToPr as pushVehicleToPr } from "@/lib/pr-vehicle-sync";
 import { v4 as uuidv4 } from "uuid";
@@ -157,7 +158,10 @@ export async function PATCH(
           { status: 401 }
         );
       }
-      if (!canSignOffVehicleStatus(user.role || "")) {
+      const canSignOff =
+        (canSignOffVehicleStatus(user.role || "") && user.role !== "fleet_lead") ||
+        isFleetManagementForOrg(db, String(existing.organization_id || ""), user);
+      if (!canSignOff) {
         return NextResponse.json(
           {
             error:

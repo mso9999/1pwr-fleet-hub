@@ -7,7 +7,8 @@ import {
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { notifyMissionApproversOfSubmission } from "@/lib/mission-approval-notify";
-import { canActOnMissionFuel, canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
+import { canEditPrivateDraft, canViewPrivateDraft } from "@/lib/fleet-roles";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import {
   normalizeRouteStops,
   normalizeTripShape,
@@ -376,7 +377,8 @@ export async function PATCH(
   }
 
   if (action === "set_fuel_disposition") {
-    if (!canActOnMissionFuel({ role: user.role, isCreator: String(row.created_by_id || "") === user.id })) {
+    // canActOnMissionFuel, with fleet_lead limited to its own organization.
+    if (String(row.created_by_id || "") !== user.id && !isFleetManagementForOrg(db, orgId, user)) {
       return NextResponse.json(
         { error: "Only the mission creator or fleet management can change how fuel is funded." },
         { status: 403 }

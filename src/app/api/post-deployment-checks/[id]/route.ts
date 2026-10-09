@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getVerifiedFleetUser, isFleetManagementRole } from "@/lib/server-auth";
+import { getVerifiedFleetUser } from "@/lib/server-auth";
+import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 
@@ -41,13 +42,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
-  if (!user || (!isFleetManagementRole(user.role) && user.role !== "superadmin")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: user ? 403 : 401 });
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { id } = await params;
   const db = getDb();
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
+  if (!isFleetManagementForOrg(db, org, user)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
 
   const row = db
     .prepare("SELECT * FROM post_deployment_checks WHERE id = ? AND organization_id = ?")

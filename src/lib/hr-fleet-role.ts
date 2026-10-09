@@ -75,6 +75,10 @@ export function planHrFleetRoleUpdates(
     if (PROTECTED_LOCAL_ROLES.has(current)) continue;
     const next = fleetRoleFromHrPosition(employee.title, employee.department);
     if (!next || next === current) continue;
+    // A manager who is also fleet lead keeps role manager (mission approval);
+    // the fleet-lead capability comes from user_fleet_lead_scopes, which this
+    // sync never touches.
+    if (current === "manager" && next === "fleet_lead") continue;
     changes.push({ email, from: user.role, to: next });
   }
   return changes;
