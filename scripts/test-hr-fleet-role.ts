@@ -26,6 +26,7 @@ const changes = planHrFleetRoleUpdates(
     { email: "amy@1pwrafrica.com", role: "admin" },
     { email: "eduardo@1pwrafrica.com", role: "manager" },
     { email: "molefe@1pwrafrica.com", role: "USER" },
+    { email: "zm.lead@1pwrafrica.com", role: "manager" },
   ],
   [
     { email: "kelebone@1pwrafrica.com", title: "Fleet Lead", department: "Fleet" },
@@ -35,6 +36,8 @@ const changes = planHrFleetRoleUpdates(
     { email: "mso@1pwrafrica.com", title: "Fleet Lead", department: "Fleet" },
     { email: "amy@1pwrafrica.com", title: null, department: null },
     { email: "eduardo@1pwrafrica.com", title: "Country Manager", department: "Admin" },
+    // Manager + fleet lead (scope row) is not demoted to fleet_lead by the sync.
+    { email: "zm.lead@1pwrafrica.com", title: "Fleet Lead", department: "Fleet" },
   ],
 );
 

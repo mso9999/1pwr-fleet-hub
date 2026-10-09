@@ -49,7 +49,7 @@ function grant(role: string, country: string | null): HrToolsetApproval {
 
 async function main(): Promise<void> {
   const { getDb } = await import("../src/lib/db");
-  const { canAllocateFleetVehicle, canAllocateFleetVehicleForOrg, canApproveMissionRequests } = await import(
+  const { canAllocateFleetVehicleForOrg, canApproveMissionRequests } = await import(
     "../src/lib/vehicle-check-approvers"
   );
   const { clearHrApprovalCache, setHrApprovalCacheForTest } = await import("../src/lib/hr-approval-roles");
@@ -78,16 +78,16 @@ async function main(): Promise<void> {
     ]),
   );
 
-  // Role-only helper is unchanged.
-  assert.equal(canAllocateFleetVehicle("fleet_lead"), true);
-  assert.equal(canAllocateFleetVehicle("superadmin"), true);
-  assert.equal(canAllocateFleetVehicle("Fleet_Lead"), true);
-  assert.equal(canAllocateFleetVehicle("manager"), false);
-  assert.equal(canAllocateFleetVehicle("user"), false);
-
-  // Role fast path still works with no HR grant.
+  // Role fast path still works with no HR grant: superadmin anywhere, fleet_lead
+  // only in its own organization (the role-only canAllocateFleetVehicle was removed).
+  db.prepare(
+    "INSERT INTO users (id, email, name, role, organization_id) VALUES ('u-plain', 'plain@example.com', 'Plain', 'fleet_lead', 'test_zm')",
+  ).run();
   assert.equal(await canAllocateFleetVehicleForOrg(db, "test_zm", "plain@example.com", "fleet_lead"), true);
+  assert.equal(await canAllocateFleetVehicleForOrg(db, "test_zm", "plain@example.com", "Fleet_Lead"), true);
+  assert.equal(await canAllocateFleetVehicleForOrg(db, "test_ls", "plain@example.com", "fleet_lead"), false);
   assert.equal(await canAllocateFleetVehicleForOrg(db, "test_zm", "plain@example.com", "superadmin"), true);
+  assert.equal(await canAllocateFleetVehicleForOrg(db, "test_ls", "plain@example.com", "superadmin"), true);
 
   // Country-scoped HR grant: only in matching-country orgs.
   assert.equal(await canAllocateFleetVehicleForOrg(db, "test_zm", "zm.allocator@example.com", "user"), true);
