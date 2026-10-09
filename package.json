@@ -19,6 +19,7 @@
     "test:transmission-scope": "tsx scripts/test-transmission-scope.ts",
     "test:wo-labor-gate": "tsx scripts/test-wo-labor-gate.ts",
     "test:fleet-performance": "tsx scripts/test-fleet-performance.ts",
+    "test:wa-approval-routing": "tsx scripts/test-wa-approval-routing.ts",
     "test:mission-next-owner": "tsx scripts/test-mission-next-owner.ts",
     "test:stale-approvals": "tsx scripts/test-stale-approvals.ts",
     "test:stale-allocation": "tsx scripts/test-stale-allocation.ts",
