@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { vehicleCostScopeSql } from "@/lib/secondment-cost-attribution";
 
 function csvEscape(val: unknown): string {
   if (val == null) return "";
@@ -205,6 +206,8 @@ export function GET(request: NextRequest): NextResponse {
     csv = rowsToCsv(headers, rows);
     filename = `inspections-${org}.csv`;
   } else if (type === "tco") {
+    // Seconded vehicles follow FM_SECONDMENT_COST_ATTRIBUTION (default: the using org).
+    const costScope = vehicleCostScopeSql(org, "v");
     const rows = db.prepare(`
       SELECT v.code, v.make, v.model, v.year, v.fuel_type, v.transmission, v.asset_class, v.status,
              v.purchase_price, v.total_mileage_km, v.date_in_service, v.eol_score, v.eol_status,
@@ -213,8 +216,8 @@ export function GET(request: NextRequest): NextResponse {
              COALESCE(SUM(CASE WHEN wo.downtime_end IS NOT NULL
                THEN ROUND(julianday(wo.downtime_end) - julianday(wo.downtime_start), 1) ELSE 0 END), 0) as total_downtime_days
       FROM vehicles v LEFT JOIN work_orders wo ON wo.vehicle_id = v.id
-      WHERE v.organization_id = ? GROUP BY v.id ORDER BY total_repair_cost DESC
-    `).all(org) as Record<string, unknown>[];
+      WHERE ${costScope.sql} GROUP BY v.id ORDER BY total_repair_cost DESC
+    `).all(...costScope.params) as Record<string, unknown>[];
     csv = rowsToCsv(["code","make","model","year","fuel_type","transmission","asset_class","status","purchase_price","total_mileage_km","date_in_service","eol_score","eol_status","total_repair_cost","work_order_count","total_downtime_days"], rows);
     filename = `tco-${org}.csv`;
   } else if (type === "vehicle-checks") {

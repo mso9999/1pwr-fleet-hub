@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { vehicleCostScopeSql } from "@/lib/secondment-cost-attribution";
 
 /**
  * GET /api/analytics/performance?groupBy=make|model|fuel_type|transmission|year|asset_class
@@ -14,6 +15,8 @@ export function GET(request: NextRequest): NextResponse {
 
   const validGroups = ["make", "model", "fuel_type", "transmission", "year", "asset_class"];
   const groupCol = validGroups.includes(groupBy) ? `v.${groupBy}` : "v.make";
+  // Seconded vehicles follow FM_SECONDMENT_COST_ATTRIBUTION (default: the using org).
+  const costScope = vehicleCostScopeSql(org, "v");
 
   const rows = db.prepare(`
     SELECT
@@ -40,11 +43,11 @@ export function GET(request: NextRequest): NextResponse {
       SELECT vehicle_id, SUM(total_cost) as vehicle_repair_cost
       FROM work_orders GROUP BY vehicle_id
     ) wo_agg ON wo_agg.vehicle_id = v.id
-    WHERE v.organization_id = ? AND ${groupCol} IS NOT NULL AND ${groupCol} != ''
+    WHERE ${costScope.sql} AND ${groupCol} IS NOT NULL AND ${groupCol} != ''
     GROUP BY ${groupCol}
     HAVING vehicle_count >= 1
     ORDER BY total_repair_cost / NULLIF(COUNT(DISTINCT v.id), 0) ASC
-  `).all(org) as Array<Record<string, unknown>>;
+  `).all(...costScope.params) as Array<Record<string, unknown>>;
 
   const results = rows.map((r) => {
     const vehicleCount = (r.vehicle_count as number) || 1;
