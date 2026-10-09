@@ -557,9 +557,12 @@ function TransportModeChangePanel({ mission, canApprove, onChanged }: { mission:
 function FleetMissionReserveRow({
   mission: m,
   onReserved,
+  canSkipInspection,
 }: {
   mission: PlannedMissionRow;
   onReserved: () => void;
+  /** Server allows the outside-50-km inspection skip for fleet_lead / superadmin only (reserve-vehicle route). */
+  canSkipInspection: boolean;
 }) {
   const [candidates, setCandidates] = useState<
     Array<{
@@ -710,8 +713,10 @@ function FleetMissionReserveRow({
             if (sel.localityRequired && !sel.mechanicalInspectionOnFile) {
               return (
                 <p className="mt-1 text-[11px] text-amber-800">
-                  {sel.localityReason ||
-                    `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). A passing detailed mechanical inspection newer than this vehicle's last deployment is required, or enter an override reason below.`}
+                  {canSkipInspection
+                    ? sel.localityReason ||
+                      `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). A passing detailed mechanical inspection newer than this vehicle's last deployment is required, or enter an override reason below.`
+                    : `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). Record a passing inspection first (Inspections → + New inspection → Detailed mechanical), then allocate. Only a fleet lead can skip this inspection.`}
                 </p>
               );
             }
@@ -725,19 +730,37 @@ function FleetMissionReserveRow({
             return null;
           })()}
         </div>
-        <Button type="button" size="sm" disabled={!vehicleId || saving} onClick={() => void reserve()} className="touch-manipulation">
+        <Button
+          type="button"
+          size="sm"
+          disabled={
+            !vehicleId ||
+            saving ||
+            (!canSkipInspection &&
+              (() => {
+                const sel = candidates.find((c) => c.id === vehicleId);
+                return !!(sel?.localityRequired && !sel.mechanicalInspectionOnFile);
+              })())
+          }
+          onClick={() => void reserve()}
+          className="touch-manipulation"
+        >
           {saving ? "Saving…" : "Allocate"}
         </Button>
       </div>
       <div>
         <label className="text-xs font-medium text-zinc-600">
-          Override reason (managers / PR approvers, 8+ characters)
+          Override reason (8+ characters)
         </label>
         <input
           type="text"
           value={overrideReason}
           onChange={(e) => setOverrideReason(e.target.value)}
-          placeholder="Required when: overlapping reservation, registration disc past mission end, or an outside-50-km allocation lacks a post-deployment mechanical inspection"
+          placeholder={
+            canSkipInspection
+              ? "Required when: overlapping reservation, registration disc past mission end, or an outside-50-km allocation lacks a post-deployment mechanical inspection"
+              : "Required when: overlapping reservation or registration disc past mission end (managers / PR approvers). Skipping the inspection needs a fleet lead."
+          }
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
       </div>
@@ -1431,6 +1454,7 @@ export default function VehicleRequestsPage() {
                       </div>
                       <FleetMissionReserveRow
                         mission={m}
+                        canSkipInspection={user?.role === "fleet_lead" || user?.role === "superadmin"}
                         onReserved={() => {
                           void loadData();
                           void refetchApprovedMissionsFleet();
