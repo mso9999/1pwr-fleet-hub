@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
+  canAllocateFleetVehicleForOrg,
   canApproveMissionRequests,
   canReserveMissionVehicleForOrg,
   canOverrideDriverApproval,
@@ -16,6 +17,7 @@ import { isFleetManagementForOrg } from "@/lib/fleet-lead-scope";
  * Fleet lead for the org (fleet-lead scope, own-org fleet_lead role, HR fm:vehicle_allocator
  * for the country, superadmin) or a manager of the org: vehicle allocation (canAllocateVehicle).
  * canSkipInspection: outside-50-km inspection override for this org (same cohort).
+ * isFleetLead: fleet lead for the org without the manager clause (checkout hold).
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
@@ -28,6 +30,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const canFullEdit = isFleetManagementForOrg(db, org, user);
   const canAllocateVehicle = await canReserveMissionVehicleForOrg(db, org, user);
   const canSkipInspection = await canOverrideInspectionGate(db, org, user);
+  const isFleetLead = await canAllocateFleetVehicleForOrg(db, org, user.email, user.role);
   const canArbitrateCapacity = await canArbitrateMissionCapacity(db, org, user.email, user.role);
   const canOverrideDriver = canApprove || (await canOverrideDriverApproval(db, org, user));
   return NextResponse.json({
@@ -35,6 +38,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     canFullEdit,
     canAllocateVehicle,
     canSkipInspection,
+    isFleetLead,
     canArbitrateCapacity,
     canOverrideDriver,
   });

@@ -135,6 +135,7 @@ export function TripCheckoutForm({
     loadoutSummary: "",
   });
   const [canMissionManage, setCanMissionManage] = useState(false);
+  const [serverFleetLead, setServerFleetLead] = useState<boolean | null>(null);
 
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -208,8 +209,11 @@ export function TripCheckoutForm({
         if (!cancelled) setCanMissionManage(false);
         return;
       }
-      const j = (await res.json()) as { canFullEdit?: boolean };
-      if (!cancelled) setCanMissionManage(!!j.canFullEdit);
+      const j = (await res.json()) as { canFullEdit?: boolean; isFleetLead?: boolean };
+      if (!cancelled) {
+        setCanMissionManage(!!j.canFullEdit);
+        setServerFleetLead(typeof j.isFleetLead === "boolean" ? j.isFleetLead : null);
+      }
     })();
     return () => {
       cancelled = true;
@@ -319,7 +323,8 @@ export function TripCheckoutForm({
     setStops(stops.filter((_, i) => i !== idx));
   }
 
-  const canFleetHold = user?.role === "fleet_lead" || user?.role === "superadmin";
+  // Server flag (country-scoped fleet lead, e.g. a manager with a fleet-lead scope); role until it loads.
+  const canFleetHold = serverFleetLead ?? (user?.role === "fleet_lead" || user?.role === "superadmin");
   const vehicleOperationalBlocked =
     readiness?.gates?.some((g) => g.id === "vehicle_operational" && g.status !== "satisfied") ?? false;
 

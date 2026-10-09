@@ -196,6 +196,9 @@ async function main(): Promise<void> {
   const me = read("src/app/api/me/mission-request-can-approve/route.ts");
   assert.match(me, /canSkipInspection = await canOverrideInspectionGate\(db, org, user\)/);
   assert.match(me, /canFullEdit = isFleetManagementForOrg\(db, org, user\)/);
+  assert.match(me, /isFleetLead = await canAllocateFleetVehicleForOrg\(db, org, user\.email, user\.role\)/);
+  const checkout = read("src/app/trips/checkout-form.tsx");
+  assert.match(checkout, /const canFleetHold = serverFleetLead \?\?/, "checkout hold uses the server fleet-lead flag");
   const reserveRoute = read("src/app/api/missions/[id]/reserve-vehicle/route.ts");
   assert.match(reserveRoute, /canOverrideInspectionGate\(db, orgId, user\)/);
   assert.doesNotMatch(reserveRoute, /canAllocateFleetVehicle\(user\.role\)/);
