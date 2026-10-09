@@ -6,6 +6,13 @@ on:
       - main
   workflow_dispatch:
 
+# Two pushes close together used to run `npm ci` + `next build` in /var/www/fleet-hub at the
+# same time; both failed (9 Oct 2026, .next/lock + missing next modules) and left no BUILD_ID.
+# Serialise deploys; a newer queued run replaces an older queued one, a running one finishes.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to Production
