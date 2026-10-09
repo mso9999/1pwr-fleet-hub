@@ -11,7 +11,9 @@ export async function GET(
   const user = await getVerifiedFleetUser(request);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const ctx = getVehicleCheckContext(getDb(), { organizationId: user.organizationId, missionId: id });
+  // Org selected in the UI (sidebar), like other ?org= read endpoints; falls back to the user's home org.
+  const org = new URL(request.url).searchParams.get("org") || user.organizationId;
+  const ctx = getVehicleCheckContext(getDb(), { organizationId: org, missionId: id });
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(ctx);
 }

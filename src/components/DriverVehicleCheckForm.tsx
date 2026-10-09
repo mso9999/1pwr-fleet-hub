@@ -511,8 +511,8 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     (async () => {
       try {
         const url = missionId
-          ? `/api/missions/${encodeURIComponent(missionId)}/vehicle-check-context`
-          : `/api/trips/${encodeURIComponent(tripId)}/vehicle-check-context`;
+          ? `/api/missions/${encodeURIComponent(missionId)}/vehicle-check-context?org=${encodeURIComponent(organizationId)}`
+          : `/api/trips/${encodeURIComponent(tripId)}/vehicle-check-context?org=${encodeURIComponent(organizationId)}`;
         const res = await fetch(url, { headers: await jsonHeadersWithBearer() });
         if (!res.ok || cancelled) return;
         const c = (await res.json()) as MissionContext;
@@ -557,7 +557,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     return () => {
       cancelled = true;
     };
-  }, [ctxRequest]);
+  }, [ctxRequest, organizationId]);
 
   // Once the eligible list loads, select the entry belonging to the mission we prefilled from.
   useEffect(() => {
