@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle } from "@/lib/vehicle-check-approvers";
+import { canAllocateFleetVehicleForOrg } from "@/lib/vehicle-check-approvers";
 import {
   FUTURE_MISSION_RESERVABLE_STATUSES,
   isMissionDepartureToday,
@@ -20,10 +20,6 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!canAllocateFleetVehicle(user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { id: missionId } = await params;
   const db = getDb();
   const m = db.prepare("SELECT * FROM missions WHERE id = ?").get(missionId) as Record<string, unknown> | undefined;
@@ -32,6 +28,9 @@ export async function GET(
   }
 
   const orgId = String(m.organization_id ?? "");
+  if (!(await canAllocateFleetVehicleForOrg(db, orgId, user.email, user.role))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const dep = String(m.departure_date || "").slice(0, 10);
   const reqClass = String(m.required_vehicle_class || "").trim();
   const today = isMissionDepartureToday(dep);
