@@ -615,6 +615,11 @@ function FleetMissionReserveRow({
 
   async function reserve(): Promise<void> {
     if (!vehicleId) return;
+    const reason = overrideReason.trim();
+    if (reason.length > 0 && reason.length < 8) {
+      setErr("Override reason must be at least 8 characters. Lengthen it or clear the box, then allocate again.");
+      return;
+    }
     setSaving(true);
     setErr("");
     const res = await fetch(`/api/missions/${m.id}/reserve-vehicle`, {
@@ -622,7 +627,7 @@ function FleetMissionReserveRow({
       headers: await jsonHeadersWithBearer(),
       body: JSON.stringify({
         vehicleId,
-        ...(overrideReason.trim().length >= 8 ? { overrideReason: overrideReason.trim() } : {}),
+        ...(reason.length >= 8 ? { overrideReason: reason } : {}),
       }),
     });
     setSaving(false);
@@ -633,7 +638,7 @@ function FleetMissionReserveRow({
       return;
     }
     const j = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
-    setErr(j.error || "Could not reserve vehicle.");
+    setErr(j.error ? `Not allocated: ${j.error}` : `Could not reserve vehicle (HTTP ${res.status}).`);
   }
 
   if (assigned) {
@@ -750,21 +755,37 @@ function FleetMissionReserveRow({
       </div>
       <div>
         <label className="text-xs font-medium text-zinc-600">
-          Override reason (8+ characters)
+          Override reason (8+ characters, logged)
         </label>
+        <p className="text-[11px] text-zinc-500">
+          Skipping the outside-50-km inspection: fleet lead / superadmin. Overlapping reservation: manager / admin.
+          Registration disc past mission end: PR approver / manager.
+        </p>
         <input
           type="text"
           value={overrideReason}
-          onChange={(e) => setOverrideReason(e.target.value)}
+          onChange={(e) => {
+            setOverrideReason(e.target.value);
+            if (err) setErr("");
+          }}
           placeholder={
             canSkipInspection
               ? "Required when: overlapping reservation, registration disc past mission end, or an outside-50-km allocation lacks a post-deployment mechanical inspection"
-              : "Required when: overlapping reservation or registration disc past mission end (managers / PR approvers). Skipping the inspection needs a fleet lead."
+              : "Required when: overlapping reservation or registration disc past mission end. Skipping the inspection needs a fleet lead."
           }
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
+        {overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
+          <p className="mt-0.5 text-[11px] text-amber-800">
+            {8 - overrideReason.trim().length} more character(s) needed; a shorter reason is not accepted.
+          </p>
+        )}
       </div>
-      {err && <p className="text-xs text-red-700">{err}</p>}
+      {err && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {err}
+        </p>
+      )}
     </div>
   );
 }
