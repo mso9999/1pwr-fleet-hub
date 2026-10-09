@@ -1679,6 +1679,12 @@ function migrateOrganizationsRouteOrigin(db: Database.Database): void {
     `UPDATE organizations SET route_origin_lat = -29.315, route_origin_lng = 27.487
      WHERE route_origin_lat IS NULL AND id = '1pwr_lesotho'`
   ).run();
+  // Zambia: Lusaka HQ ("LUN HQ", canonical site LSK), pin supplied by Matt Orosz
+  // 2026-10-09. Only fills an unset origin, so an admin-edited value wins.
+  db.prepare(
+    `UPDATE organizations SET route_origin_lat = -15.4152423, route_origin_lng = 28.3511183
+     WHERE route_origin_lat IS NULL AND route_origin_lng IS NULL AND id = '1pwr_zambia'`
+  ).run();
 }
 
 /** Org fuel budget defaults (Excel safety factor + optional default pump price). */

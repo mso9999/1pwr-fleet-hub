@@ -50,6 +50,12 @@ async function main(): Promise<void> {
   assert.equal(usesLesothoLegacySiteCoords(db, "1pwr_benin"), false);
   assert.equal(usesLesothoLegacySiteCoords(db, "kuwala"), false);
 
+  // Route origins: Zambia starts at Lusaka HQ (LSK), Lesotho unchanged.
+  const { getRouteOrigin } = await import("../src/lib/vehicle-request-fuel");
+  assert.deepEqual(getRouteOrigin(db, "1pwr_zambia"), { lat: -15.4152423, lng: 28.3511183 });
+  assert.deepEqual(getSiteCoordsByCode(db, "1pwr_zambia", "HQ"), { lat: -15.4152423, lng: 28.3511183 });
+  assert.deepEqual(getRouteOrigin(db, "1pwr_lesotho"), { lat: -29.315, lng: 27.487 });
+
   // Legacy Lesotho coordinates are not used for Zambia (MAK is a Lesotho code).
   db.prepare(
     `INSERT INTO reference_data (id, organization_id, type, code, label, sort_order, active, meta)
