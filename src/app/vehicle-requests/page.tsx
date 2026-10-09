@@ -35,6 +35,7 @@ import { FuelBudgetPanel, type FuelStopDraft } from "@/components/FuelBudgetPane
 import { MissionRouteEditor, type MissionRouteValue } from "@/components/MissionRouteEditor";
 import { MissionRouteMap } from "@/components/MissionRouteMap";
 import type { FuelDisposition } from "@/lib/fuel-calculator";
+import { reserveVehicleBody } from "@/lib/reserve-vehicle-body";
 
 /** Mirrors `OpenMissionRequest` from `@/lib/vehicle-request-duplicates` (server-only module). */
 interface OpenMissionRequestRow {
@@ -581,6 +582,7 @@ function FleetMissionReserveRow({
   const [overrideReason, setOverrideReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [canOverrideInspection, setCanOverrideInspection] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -595,8 +597,13 @@ function FleetMissionReserveRow({
       const res = await fetch(`/api/missions/${m.id}/reserve-candidates`, {
         headers: await jsonHeadersWithBearer(),
       });
-      const j = (await res.json().catch(() => ({}))) as { candidates?: typeof candidates; error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        candidates?: typeof candidates;
+        error?: string;
+        canOverrideInspection?: boolean;
+      };
       if (!cancelled) {
+        setCanOverrideInspection(!!j.canOverrideInspection);
         setCandidates(res.ok && Array.isArray(j.candidates) ? j.candidates : []);
         if (!res.ok) setErr(j.error || "Could not load vehicles.");
         setLoading(false);
@@ -612,15 +619,17 @@ function FleetMissionReserveRow({
 
   async function reserve(): Promise<void> {
     if (!vehicleId) return;
+    const reason = overrideReason.trim();
+    if (reason.length > 0 && reason.length < 8) {
+      setErr("Override reason must be at least 8 characters. Lengthen it or clear the box, then allocate again.");
+      return;
+    }
     setSaving(true);
     setErr("");
     const res = await fetch(`/api/missions/${m.id}/reserve-vehicle`, {
       method: "POST",
       headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({
-        vehicleId,
-        ...(overrideReason.trim().length >= 8 ? { overrideReason: overrideReason.trim() } : {}),
-      }),
+      body: JSON.stringify(reserveVehicleBody(vehicleId, reason)),
     });
     setSaving(false);
     if (res.ok) {
@@ -630,7 +639,7 @@ function FleetMissionReserveRow({
       return;
     }
     const j = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
-    setErr(j.error || "Could not reserve vehicle.");
+    setErr(j.error ? `Not allocated: ${j.error}` : `Could not reserve vehicle (HTTP ${res.status}).`);
   }
 
   if (assigned) {
@@ -710,8 +719,9 @@ function FleetMissionReserveRow({
             if (sel.localityRequired && !sel.mechanicalInspectionOnFile) {
               return (
                 <p className="mt-1 text-[11px] text-amber-800">
-                  {sel.localityReason ||
-                    `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). A passing detailed mechanical inspection newer than this vehicle's last deployment is required, or enter an override reason below.`}
+                  {canOverrideInspection
+                    ? `${sel.localityReason || `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). A passing detailed mechanical inspection newer than this vehicle's last deployment is required.`} You can override: enter a reason (8+ characters) below, then Allocate.`
+                    : `Destination is ${Math.round(sel.localityDistanceKm ?? 0)} km from HQ (outside 50 km). Record a passing inspection first (Inspections → + New inspection → Detailed mechanical), then allocate. Only a manager / fleet lead of this organization, an HR vehicle allocator, or superadmin can override.`}
                 </p>
               );
             }
@@ -731,17 +741,33 @@ function FleetMissionReserveRow({
       </div>
       <div>
         <label className="text-xs font-medium text-zinc-600">
-          Override reason (managers / PR approvers, 8+ characters)
+          Override reason (8+ characters, logged)
         </label>
+        <p className="text-[11px] text-zinc-500">
+          Skipping the outside-50-km inspection: manager / fleet lead of this organization, HR vehicle allocator, or superadmin.
+          Overlapping reservation: manager / admin. Registration disc past mission end: PR approver / manager.
+        </p>
         <input
           type="text"
           value={overrideReason}
-          onChange={(e) => setOverrideReason(e.target.value)}
+          onChange={(e) => {
+            setOverrideReason(e.target.value);
+            if (err) setErr("");
+          }}
           placeholder="Required when: overlapping reservation, registration disc past mission end, or an outside-50-km allocation lacks a post-deployment mechanical inspection"
           className="mt-0.5 h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm"
         />
+        {overrideReason.trim().length > 0 && overrideReason.trim().length < 8 && (
+          <p className="mt-0.5 text-[11px] text-amber-800">
+            {8 - overrideReason.trim().length} more character(s) needed; a shorter reason is not accepted.
+          </p>
+        )}
       </div>
-      {err && <p className="text-xs text-red-700">{err}</p>}
+      {err && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {err}
+        </p>
+      )}
     </div>
   );
 }

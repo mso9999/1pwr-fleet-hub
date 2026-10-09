@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
   canApproveMissionRequests,
-  canAllocateFleetVehicleForOrg,
+  canReserveMissionVehicleForOrg,
   canArbitrateMissionCapacity,
   canFullyManageVehicleRequests,
 } from "@/lib/vehicle-check-approvers";
@@ -22,7 +22,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const db = getDb();
   const canApprove = await canApproveMissionRequests(db, org, user.email, user.role);
   const canFullEdit = canFullyManageVehicleRequests(user.role);
-  const canAllocateVehicle = await canAllocateFleetVehicleForOrg(db, org, user.email, user.role);
+  const canAllocateVehicle = await canReserveMissionVehicleForOrg(db, org, user);
   const canArbitrateCapacity = await canArbitrateMissionCapacity(db, org, user.email, user.role);
   return NextResponse.json({ canApprove, canFullEdit, canAllocateVehicle, canArbitrateCapacity });
 }

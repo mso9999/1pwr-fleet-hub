@@ -152,6 +152,48 @@ export async function canAllocateFleetVehicleForOrg(
   return hasHrFmApprovalRole(userEmail, "vehicle_allocator", country);
 }
 
+/** Minimal caller shape for org-scoped mission allocation / override checks. */
+export type FleetCaller = { email: string; role: string; organizationId?: string | null };
+
+/**
+ * Reserve a vehicle on a MISSION (reserve-candidates / reserve-vehicle).
+ *
+ * Everyone who passes {@link canAllocateFleetVehicleForOrg}, plus a `manager`
+ * whose home organization is the mission's org. Managers need this so they
+ * can use the outside-50-km inspection override (hotfix 2026-10-09).
+ */
+export async function canReserveMissionVehicleForOrg(
+  db: Database,
+  organizationId: string,
+  user: FleetCaller
+): Promise<boolean> {
+  if (await canAllocateFleetVehicleForOrg(db, organizationId, user.email, user.role)) return true;
+  const role = (user.role || "").toLowerCase();
+  return role === "manager" && !!organizationId && user.organizationId === organizationId;
+}
+
+/**
+ * Who may skip the outside-50-km mechanical-inspection gate on reserve-vehicle
+ * (with an 8+ character reason, enforced by the route):
+ *   - superadmin (global)
+ *   - manager or fleet_lead whose home organization is the mission's org
+ *   - HR-canonical `fm:vehicle_allocator` for the org's country (or global grant)
+ */
+export async function canOverrideInspectionGate(
+  db: Database,
+  organizationId: string,
+  user: FleetCaller
+): Promise<boolean> {
+  const role = (user.role || "").toLowerCase();
+  if (role === "superadmin") return true;
+  if ((role === "manager" || role === "fleet_lead") && !!organizationId && user.organizationId === organizationId) {
+    return true;
+  }
+  if (!user.email) return false;
+  const country = countryFromOrganization(db, organizationId);
+  return hasHrFmApprovalRole(user.email, "vehicle_allocator", country);
+}
+
 /**
  * Capacity / defer / cancel arbitration when too many approved missions
  * compete for vehicles.

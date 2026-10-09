@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
 import {
-  canAllocateFleetVehicle,
-  canAllocateFleetVehicleForOrg,
+  canOverrideInspectionGate,
+  canReserveMissionVehicleForOrg,
   canOverrideReservationOverlap,
 } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
@@ -57,9 +57,9 @@ export async function POST(
   }
 
   const orgId = String(mission.organization_id ?? "");
-  if (!(await canAllocateFleetVehicleForOrg(db, orgId, user.email, user.role))) {
+  if (!(await canReserveMissionVehicleForOrg(db, orgId, user))) {
     return NextResponse.json(
-      { error: "Only the fleet team lead, an HR vehicle allocator for this country, or superadmin may reserve a vehicle on a mission." },
+      { error: "Only the fleet team lead, a manager of this organization, an HR vehicle allocator for this country, or superadmin may reserve a vehicle on a mission." },
       { status: 403 }
     );
   }
@@ -130,13 +130,19 @@ export async function POST(
   if (destinationCode) {
     const gate = localityGateRequired(db, orgId, vehicleId, destinationCode);
     if (gate.required && !gate.inspectionOnFile) {
-      // Inspection-gate override stays with fleet_lead/superadmin (role-only):
-      // an HR vehicle_allocator grant does not carry mechanical authority.
-      const overrideOk = canAllocateFleetVehicle(user.role) && overrideReason.length >= 8;
+      // Inspection-gate override: manager / fleet_lead (mission org), HR
+      // fm:vehicle_allocator (mission country) or superadmin, with 8+ char reason.
+      const mayOverride = await canOverrideInspectionGate(db, orgId, user);
+      const overrideOk = mayOverride && overrideReason.length >= 8;
       if (!overrideOk) {
+        const why = !mayOverride
+          ? " Your role cannot override this check (manager / fleet lead of this organization, HR vehicle allocator for this country, or superadmin)."
+          : overrideReason.length === 0
+            ? " Enter an override reason (8+ characters) to allocate anyway."
+            : " The override reason must be at least 8 characters.";
         return NextResponse.json(
           {
-            error: gate.reason,
+            error: `${gate.reason}${why}`,
             reason: "needs_mechanical_inspection",
             distanceKm: gate.distanceKm,
             localityRadiusKm: LOCALITY_RADIUS_KM,
