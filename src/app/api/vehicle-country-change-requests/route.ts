@@ -15,6 +15,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let query = `
     SELECT r.*,
            v.code AS vehicle_code,
+           v.secondment_request_id AS vehicle_secondment_request_id,
            fo.name AS from_org_name,
            to_org.name AS to_org_name
     FROM vehicle_country_change_requests r

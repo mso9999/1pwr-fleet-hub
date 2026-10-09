@@ -11,31 +11,8 @@ import {
 } from "@/types";
 import { canSignOffVehicleStatus } from "@/lib/fleet-roles";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
-import { syncVehicleToPrFirestore, type FmVehicleRow } from "@/lib/pr-vehicle-sync";
+import { pushVehicleRowToPr as pushVehicleToPr } from "@/lib/pr-vehicle-sync";
 import { v4 as uuidv4 } from "uuid";
-
-function rowToFmVehicle(row: Record<string, unknown>): FmVehicleRow {
-  return {
-    id: String(row.id),
-    organization_id: String(row.organization_id ?? "1pwr_lesotho"),
-    code: String(row.code ?? ""),
-    make: row.make != null ? String(row.make) : "",
-    model: row.model != null ? String(row.model) : "",
-    year: typeof row.year === "number" ? row.year : null,
-    license_plate: row.license_plate != null ? String(row.license_plate) : "",
-    vin: row.vin != null ? String(row.vin) : "",
-    engine_number: row.engine_number != null ? String(row.engine_number) : "",
-    status: row.status != null ? String(row.status) : "operational",
-    pr_firestore_id: row.pr_firestore_id != null ? String(row.pr_firestore_id) : "",
-  };
-}
-
-async function pushVehicleToPr(row: Record<string, unknown>, deactivate = false): Promise<void> {
-  const result = await syncVehicleToPrFirestore(rowToFmVehicle(row), { deactivate });
-  if (!result.success) {
-    console.warn("[vehicles] PR Firestore sync failed:", result.error);
-  }
-}
 
 function vehicleAuditSubset(r: Record<string, unknown>): Record<string, unknown> {
   return {
