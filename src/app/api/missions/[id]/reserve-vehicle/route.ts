@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle, canOverrideReservationOverlap } from "@/lib/vehicle-check-approvers";
+import {
+  canAllocateFleetVehicle,
+  canAllocateFleetVehicleForOrg,
+  canOverrideReservationOverlap,
+} from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import {
   findActiveReservationConflicts,
@@ -36,13 +40,6 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!canAllocateFleetVehicle(user.role)) {
-    return NextResponse.json(
-      { error: "Only the fleet team lead (or superadmin) may reserve a vehicle on a mission." },
-      { status: 403 }
-    );
-  }
-
   const body = await request.json();
   const vehicleId = String(body.vehicleId || "").trim();
   if (!vehicleId) {
@@ -60,6 +57,12 @@ export async function POST(
   }
 
   const orgId = String(mission.organization_id ?? "");
+  if (!(await canAllocateFleetVehicleForOrg(db, orgId, user.email, user.role))) {
+    return NextResponse.json(
+      { error: "Only the fleet team lead, an HR vehicle allocator for this country, or superadmin may reserve a vehicle on a mission." },
+      { status: 403 }
+    );
+  }
   if (String(mission.approval_status || "").toLowerCase() !== "approved") {
     return NextResponse.json({ error: "Mission must be approved before reserving a vehicle." }, { status: 400 });
   }
@@ -127,6 +130,8 @@ export async function POST(
   if (destinationCode) {
     const gate = localityGateRequired(db, orgId, vehicleId, destinationCode);
     if (gate.required && !gate.inspectionOnFile) {
+      // Inspection-gate override stays with fleet_lead/superadmin (role-only):
+      // an HR vehicle_allocator grant does not carry mechanical authority.
       const overrideOk = canAllocateFleetVehicle(user.role) && overrideReason.length >= 8;
       if (!overrideOk) {
         return NextResponse.json(

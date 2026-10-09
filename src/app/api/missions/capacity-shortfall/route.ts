@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle, canArbitrateMissionCapacity } from "@/lib/vehicle-check-approvers";
+import { canAllocateFleetVehicleForOrg, canArbitrateMissionCapacity } from "@/lib/vehicle-check-approvers";
 import { departureDateKey, listOpenShortfalls, openShortfall } from "@/lib/capacity-shortfall";
 import { actorFrom, recordMutation } from "@/lib/record-mutation-log";
 
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const db = getDb();
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
   const canRead =
-    canAllocateFleetVehicle(user.role) ||
+    (await canAllocateFleetVehicleForOrg(db, org, user.email, user.role)) ||
     (await canArbitrateMissionCapacity(db, org, user.email, user.role));
   if (!canRead) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json({ shortfalls: listOpenShortfalls(db, org) });
@@ -34,14 +34,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canAllocateFleetVehicle(user.role)) {
+  const body = (await request.json()) as { org?: string; departureDate?: string; action?: string; reason?: string };
+  const org = String(body.org || "1pwr_lesotho");
+  if (!(await canAllocateFleetVehicleForOrg(getDb(), org, user.email, user.role))) {
     return NextResponse.json(
-      { error: "Only the fleet lead can report that no vehicle is left to allocate." },
+      { error: "Only the fleet lead (or an HR vehicle allocator) can report that no vehicle is left to allocate." },
       { status: 403 }
     );
   }
-  const body = (await request.json()) as { org?: string; departureDate?: string; action?: string; reason?: string };
-  const org = String(body.org || "1pwr_lesotho");
   const date = departureDateKey(body.departureDate);
   if (!date) return NextResponse.json({ error: "Provide a departure date." }, { status: 400 });
   const action = String(body.action || "").toLowerCase();

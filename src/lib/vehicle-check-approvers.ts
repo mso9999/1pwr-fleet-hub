@@ -116,17 +116,40 @@ export function canFullyManageVehicleRequests(userRole: string): boolean {
 }
 
 /**
- * Allocate a vehicle to a vehicle request (pool assignment).
+ * Role-only allocation check (no HR lookup): fleet_lead or superadmin.
  *
- * Per the consolidation: HR-canonical `fm:vehicle_allocator` is the
- * canonical grant, with fleet_lead as its primary grantee (set in HR by
- * the backfill command). Since fleet_lead is the canonical grantee and
- * the HR role check is equivalent to the local role check, we keep this
- * sync and role-based for now — Phase 6 will switch this to the HR
- * canonical path once the legacy fallback is removed.
+ * Kept for callers that have no organization context. Allocation routes
+ * should use {@link canAllocateFleetVehicleForOrg}, which also honours the
+ * HR-canonical `fm:vehicle_allocator` grant.
  */
 export function canAllocateFleetVehicle(userRole: string): boolean {
-  return userRole === "fleet_lead" || userRole === "superadmin";
+  const role = (userRole || "").toLowerCase();
+  return role === "fleet_lead" || role === "superadmin";
+}
+
+/**
+ * Allocate / reserve a fleet vehicle for a mission or vehicle request.
+ *
+ * Per the cross-toolset approval consolidation (2026-07-03):
+ *   - fleet_lead (the canonical grantee) and superadmin pass on role alone.
+ *   - Otherwise the HR-canonical `fm:vehicle_allocator` grant is checked,
+ *     scoped to the country of the organization being allocated in (same
+ *     pattern as `fm:mission_approver` in {@link canApproveMissionRequests}).
+ *   - No legacy-table fallback: allocation was never granted through
+ *     vehicle_check_override_approvers.
+ *   - Manager/admin are NOT added here; allocation stays a fleet duty unless
+ *     HR grants it explicitly.
+ */
+export async function canAllocateFleetVehicleForOrg(
+  db: Database,
+  organizationId: string,
+  userEmail: string,
+  userRole: string
+): Promise<boolean> {
+  if (canAllocateFleetVehicle(userRole)) return true;
+  if (!userEmail) return false;
+  const country = countryFromOrganization(db, organizationId);
+  return hasHrFmApprovalRole(userEmail, "vehicle_allocator", country);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle } from "@/lib/vehicle-check-approvers";
+import { canAllocateFleetVehicleForOrg } from "@/lib/vehicle-check-approvers";
 import { recordMutation, actorFrom } from "@/lib/record-mutation-log";
 import { MISSION_LIFECYCLE_CHECKOUT_HOLD } from "@/lib/mission-checkout";
 
@@ -18,13 +18,6 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!canAllocateFleetVehicle(user.role)) {
-    return NextResponse.json(
-      { error: "Only fleet team lead (or superadmin) may place a mission on checkout hold." },
-      { status: 403 }
-    );
-  }
-
   const { id: missionId } = await params;
   const body = await request.json().catch(() => ({}));
   const reason = String((body as { reason?: string }).reason || "").trim();
@@ -42,6 +35,12 @@ export async function POST(
   }
 
   const orgId = String(m.organization_id ?? "");
+  if (!(await canAllocateFleetVehicleForOrg(db, orgId, user.email, user.role))) {
+    return NextResponse.json(
+      { error: "Only fleet team lead, an HR vehicle allocator for this country, or superadmin may place a mission on checkout hold." },
+      { status: 403 }
+    );
+  }
   if (String(m.approval_status || "").toLowerCase() !== "approved") {
     return NextResponse.json({ error: "Only approved missions can be put on checkout hold." }, { status: 400 });
   }

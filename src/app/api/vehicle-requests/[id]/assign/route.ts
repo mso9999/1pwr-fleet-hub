@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
-import { canAllocateFleetVehicle, canOverrideReservationOverlap } from "@/lib/vehicle-check-approvers";
+import { canAllocateFleetVehicleForOrg, canOverrideReservationOverlap } from "@/lib/vehicle-check-approvers";
 import { recalculateVehicleRequestFuel } from "@/lib/vehicle-request-fuel";
 import { VR_SELECT_FIELDS, VR_FROM_JOIN } from "@/lib/vehicle-request-queries";
 import {
@@ -33,17 +33,19 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!canAllocateFleetVehicle(user.role)) {
-    return NextResponse.json(
-      { error: "Only the fleet team lead (or superadmin) may allocate vehicles to requests." },
-      { status: 403 }
-    );
-  }
   const approverId = user.id;
   const approverName = user.name || user.email;
 
   const existing = db.prepare("SELECT * FROM vehicle_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (
+    !(await canAllocateFleetVehicleForOrg(db, String(existing.organization_id || ""), user.email, user.role))
+  ) {
+    return NextResponse.json(
+      { error: "Only the fleet team lead, an HR vehicle allocator for this country, or superadmin may allocate vehicles to requests." },
+      { status: 403 }
+    );
+  }
 
   if (!body.vehicleId) {
     return NextResponse.json({ error: "vehicleId is required" }, { status: 400 });
