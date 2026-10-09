@@ -409,7 +409,7 @@ function AddVehicleForm({
             <option value="automatic">Automatic</option>
             <option value="manual">Manual</option>
           </Select>
-          <Input name="homeLocation" label="Home Location" placeholder="HQ" defaultValue="HQ" />
+          <Input name="homeLocation" label="Home Location" placeholder="Blank = this country's HQ site" />
           <Select name="status" label="Status" defaultValue="operational">
             {Object.values(VEHICLE_STATUS).map((s) => (
               <option key={s} value={s}>{s}</option>
