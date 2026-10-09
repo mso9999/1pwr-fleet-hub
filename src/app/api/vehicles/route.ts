@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveVehicleSite } from "@/lib/org-hq-site";
 import { defaultCurrencyForOrg } from "@/lib/org-currency";
 import { getDb } from "@/lib/db";
 import { getVerifiedFleetUser } from "@/lib/server-auth";
@@ -116,8 +117,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body.vin || "",
     body.engineNumber || "",
     body.assetClass || "4wd",
-    body.homeLocation || "HQ",
-    body.currentLocation || body.homeLocation || "HQ",
+    resolveVehicleSite(db, targetOrg, body.homeLocation),
+    resolveVehicleSite(db, targetOrg, body.currentLocation || body.homeLocation),
     body.status || "operational",
     body.photoUrl || "",
     body.dateInService || "",
