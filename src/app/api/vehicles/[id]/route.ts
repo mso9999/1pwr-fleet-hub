@@ -183,7 +183,7 @@ export async function PATCH(
       }
       const canSignOff =
         (canSignOffVehicleStatus(user.role || "") && user.role !== "fleet_lead") ||
-        isFleetManagementForOrg(db, String(existing.organization_id || ""), user.email, user.role || "");
+        isFleetManagementForOrg(db, String(existing.organization_id || ""), user);
       if (!canSignOff) {
         return NextResponse.json(
           {

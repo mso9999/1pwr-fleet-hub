@@ -194,7 +194,11 @@ function fleetLeads(db: Database.Database): FleetLead[] {
     db
       .prepare(
         `SELECT lower(trim(email)) AS email, IFNULL(organization_id, '') AS organization_id
-         FROM users WHERE lower(role) = 'fleet_lead' AND email LIKE '%@%'`,
+         FROM users WHERE lower(role) = 'fleet_lead' AND email LIKE '%@%'
+         UNION
+         SELECT lower(trim(u.email)), s.organization_id
+         FROM user_fleet_lead_scopes s JOIN users u ON u.id = s.user_id
+         WHERE u.email LIKE '%@%'`,
       )
       .all() as Array<{ email: string; organization_id: string }>
   ).map((row) => ({ email: row.email, organizationId: row.organization_id }));

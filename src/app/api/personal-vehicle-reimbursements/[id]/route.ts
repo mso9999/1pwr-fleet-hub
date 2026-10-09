@@ -50,7 +50,7 @@ export async function PATCH(
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (
     user.role === "fleet_lead" &&
-    !isFleetManagementForOrg(db, String(existing.organization_id || ""), user.email, user.role)
+    !isFleetManagementForOrg(db, String(existing.organization_id || ""), user)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }

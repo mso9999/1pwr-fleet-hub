@@ -33,7 +33,7 @@ export async function POST(
 
   if (status === "pending_fleet") {
     const fromOrg = String(row.from_organization_id || "");
-    if (kind !== "data_correction" || !isFleetManagementForOrg(db, fromOrg, user.email, user.role)) {
+    if (kind !== "data_correction" || !isFleetManagementForOrg(db, fromOrg, user)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   } else if (!isExecutiveRole(user.role)) {

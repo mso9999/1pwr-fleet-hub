@@ -49,7 +49,7 @@ export async function DELETE(
   const { id } = await params;
   const db = getDb();
   const org = request.nextUrl.searchParams.get("org") || "1pwr_lesotho";
-  if (!isFleetManagementForOrg(db, org, user.email, user.role)) {
+  if (!isFleetManagementForOrg(db, org, user)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

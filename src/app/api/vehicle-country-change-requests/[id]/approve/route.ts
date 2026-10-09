@@ -75,7 +75,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid state" }, { status: 400 });
     }
     const fromOrg = String(row.from_organization_id || vehicleBefore?.organization_id || "");
-    if (!isFleetManagementForOrg(db, fromOrg, user.email, user.role)) {
+    if (!isFleetManagementForOrg(db, fromOrg, user)) {
       return NextResponse.json({ error: "Fleet lead, manager, or admin role required" }, { status: 403 });
     }
     const runFleet = db.transaction(() => {

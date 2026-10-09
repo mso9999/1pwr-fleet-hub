@@ -18,7 +18,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
   const db = getDb();
-  if (user.role !== "finance" && !isFleetManagementForOrg(db, id, user.email, user.role)) {
+  if (user.role !== "finance" && !isFleetManagementForOrg(db, id, user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const before = db

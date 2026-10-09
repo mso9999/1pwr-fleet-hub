@@ -11,7 +11,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const user = await getVerifiedFleetUser(request);
   const org = new URL(request.url).searchParams.get("org") || "1pwr_lesotho";
   const db = getDb();
-  if (!user || !isFleetManagementForOrg(db, org, user.email, user.role)) {
+  if (!user || !isFleetManagementForOrg(db, org, user)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const rows = db
@@ -43,7 +43,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "approvers array required" }, { status: 400 });
   }
   const db = getDb();
-  if (!isFleetManagementForOrg(db, organizationId, user.email, user.role)) {
+  if (!isFleetManagementForOrg(db, organizationId, user)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const prevCount = (
