@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VehicleCheckApproversAdmin } from "@/components/VehicleCheckApproversAdmin";
 import { PvrRatesAdmin } from "@/components/PvrRatesAdmin";
+import { FleetLeadScopesAdmin } from "@/components/FleetLeadScopesAdmin";
 import { SiteCoordsPicker } from "@/components/SiteCoordsPicker";
 import { getDefaultMapViewForOrganization } from "@/lib/org-map-view";
 import { bearerAuthHeaders, jsonHeadersWithBearer } from "@/lib/client-bearer";
@@ -86,6 +87,7 @@ export default function AdminPage() {
     ["fleet_lead", "manager", "admin", "finance", "superadmin"].includes(user.role);
   const canManageMechanicsRegister =
     user && canManageFleetMechanics(user.role, user.department);
+  const canManageFleetLeads = user?.role === "admin" || user?.role === "superadmin";
   const [items, setItems] = useState<RefItem[]>([]);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [selectedType, setSelectedType] = useState("site");
@@ -481,6 +483,8 @@ export default function AdminPage() {
       )}
 
       <VehicleCheckApproversAdmin organizationId={organizationId} />
+
+      {canManageFleetLeads && <FleetLeadScopesAdmin organizationId={organizationId} />}
 
       {canEditPvrRates && <PvrRatesAdmin organizationId={organizationId} />}
 
