@@ -37,6 +37,11 @@ Vehicle item shape: `fmVehicleId, organizationId, fleetCode, make, model, year, 
 
 - Additive field changes only; AM caches vehicle fields.
 - FM pushes a vehicle mirror to PR's `referenceData_vehicles` (FM is the author).
+- Secondment (2026-10, additive): `organizationId` is always the OWNER. A vehicle lent to another
+  country carries `secondedToOrganizationId` (+ `secondedToOrganization {id,name}` in PR,
+  `operatingOrganizationId` in the integrations API), `secondmentStart`, `secondmentExpectedReturn`
+  (null = open-ended); all null when not seconded. `GET /api/integrations/v1/vehicles?org=X` returns
+  vehicles owned by X or seconded to X; add `scope=owner` for owned-only.
 - New integration endpoints: register here + in the master ownership map.
 
 ## Nexus SSO (centralized auth)

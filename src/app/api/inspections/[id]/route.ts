@@ -5,6 +5,7 @@ import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { parseBodyMarks, type BodyMark } from "@/lib/inspection-body-diagram";
 import { failEvidenceMessage } from "@/lib/inspection-validation";
+import { vehicleVisibleToOrgSql } from "@/lib/vehicle-org-scope";
 
 type ParsedRow = {
   category: string;
@@ -118,9 +119,10 @@ export async function PATCH(
   }
 
   const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId : (existing.vehicle_id as string);
+  const vscope = vehicleVisibleToOrgSql(org);
   const vcheck = db
-    .prepare("SELECT id FROM vehicles WHERE id = ? AND organization_id = ?")
-    .get(vehicleId, org);
+    .prepare(`SELECT id FROM vehicles WHERE id = ? AND ${vscope.sql}`)
+    .get(vehicleId, ...vscope.params);
   if (!vcheck) {
     return NextResponse.json({ error: "Vehicle not found for this organization" }, { status: 400 });
   }

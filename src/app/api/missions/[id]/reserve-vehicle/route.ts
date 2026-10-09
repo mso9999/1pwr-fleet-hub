@@ -24,6 +24,8 @@ import {
   syncAllocatedVehicleToPlannedTrip,
 } from "@/lib/mission-checkout";
 import { recomputeMissionFuel } from "@/lib/fuel-estimate";
+import { vehicleAllocationOrgError } from "@/lib/vehicle-org-scope";
+import { orgCountryCode } from "@/lib/vehicle-secondment";
 
 /**
  * POST /api/missions/[id]/reserve-vehicle
@@ -90,8 +92,9 @@ export async function POST(
   if (!vehicle) {
     return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
   }
-  if (String(vehicle.organization_id) !== orgId) {
-    return NextResponse.json({ error: "Vehicle belongs to a different organization." }, { status: 400 });
+  const orgErr = vehicleAllocationOrgError(vehicle, orgId, orgCountryCode(db, vehicle.seconded_to_org as string | null));
+  if (orgErr) {
+    return NextResponse.json({ error: orgErr, reason: "vehicle_org_mismatch" }, { status: 400 });
   }
 
   const dep = String(mission.departure_date || "").slice(0, 10);
