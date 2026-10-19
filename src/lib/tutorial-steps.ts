@@ -408,8 +408,8 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Management approver",
     title: "3. Approve the mission",
     body:
-      "Users with mission approval permission see pending missions here. Approve when the plan is valid; reject with a clear reason if not. Drivers and fleet only proceed once the mission is approved.",
-    suggestion: "This card appears only when there are pending missions and your role can approve.",
+      "Users with mission approval permission see pending missions in the Pending my approval tile. Tap it to open the list (newest first). Approve when the plan is valid; reject with a clear reason if not. Drivers and fleet only proceed once the mission is approved.",
+    suggestion: "This tile appears only when your role can approve missions.",
   },
   {
     id: "fd-fleet-reserve",
@@ -418,7 +418,7 @@ const FIELD_DEPLOYMENT_STEPS: TutorialStep[] = [
     role: "Fleet manager / lead",
     title: "4. Allocate a vehicle",
     body:
-      "After the requestor creates the planned trip, the green card Fleet lead: allocate vehicles lists matching vehicles under Select vehicle. Tap a row so it highlights, then press Allocate. A trip leaving today lists only operational vehicles of the required class. A later date can also list deployed and in-maintenance vehicles. If the row says Mechanical inspection required (more than 50 km from HQ and no passing inspection on file), the fleet lead types a reason of at least 8 characters in the box under Allocate, then presses Allocate. An overlapping booking needs a manager or admin reason. A registration disc that expires before the mission ends needs a mission approver or manager, not the fleet lead.",
+      "After the requestor creates the planned trip, the mission appears in the Allocate vehicles tile. Open it and tap a mission to list matching vehicles under Select vehicle. Tap a row so it highlights, then press Allocate. A trip leaving today lists only operational vehicles of the required class. A later date can also list deployed and in-maintenance vehicles. If the row says Mechanical inspection required (more than 50 km from HQ and no passing inspection on file), the fleet lead types a reason of at least 8 characters in the box under Allocate, then presses Allocate. An overlapping booking needs a manager or admin reason. A registration disc that expires before the mission ends needs a mission approver or manager, not the fleet lead.",
     suggestion: "The list is already open. There is no separate Select vehicle button beside Allocate.",
   },
   {
@@ -874,7 +874,7 @@ const MISSION_APPROVAL_STEPS: TutorialStep[] = [
     role: "Mission approver",
     title: "1. Your approval queue",
     body:
-      "Missions waiting for a decision appear here — visible only to accounts holding the mission-approver grant. New submissions also arrive by email, but this queue is the system of record: if it is pending here, it is not approved, no matter what was agreed in chat.",
+      "Missions waiting for a decision are in the Pending my approval tile (tap it to open the queue) — visible only to accounts holding the mission-approver grant. New submissions also arrive by email, but this queue is the system of record: if it is pending here, it is not approved, no matter what was agreed in chat.",
     suggestion:
       "A practice mission (“Tutorial sandbox — practice approval”) has been added to this queue for the tour. It is deleted when you finish or exit.",
   },
@@ -885,7 +885,7 @@ const MISSION_APPROVAL_STEPS: TutorialStep[] = [
     role: "Mission approver",
     title: "2. Review the plan",
     body:
-      "Open a mission with ▼ View details. Check the departure and return dates against today, the planned route, crew size, required vehicle class, and transport mode. The mission record is the source of truth — fleet reservation, driver checklists, and trip checkout all build on what you approve here.",
+      "Tap a mission card (Details ▼) to expand it. Check the departure and return dates against today, the planned route, crew size, required vehicle class, and transport mode. The mission record is the source of truth — fleet reservation, driver checklists, and trip checkout all build on what you approve here.",
     suggestion: "Expand the sandbox mission now and look through its details.",
   },
   {
