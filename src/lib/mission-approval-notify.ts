@@ -18,10 +18,11 @@ import { countryFromOrganization } from "@/lib/hr-approval-roles";
 import { sendMail } from "@/lib/mailer";
 import { recordMutation } from "@/lib/record-mutation-log";
 import { resolveApprovalGroupJid } from "@/lib/wa-approval-routing";
+import { formatMissionRouteSummary } from "@/lib/mission-route-summary";
 
 const SYSTEM_ACTOR = { id: "system", name: "Fleet Hub", role: "", department: "" };
 
-export type ApprovalNotifyTrigger = "create" | "submit" | "resubmit" | "backfill";
+export type ApprovalNotifyTrigger = "create" | "submit" | "resubmit" | "updated" | "backfill";
 
 export interface WhatsAppNotifyResult {
   ok: boolean;
@@ -189,19 +190,25 @@ export async function notifyMissionApproversOfSubmission(
 
   const baseUrl = (process.env.FLEET_PUBLIC_BASE_URL || "https://fm.1pwrafrica.com").replace(/\/$/, "");
   const reviewUrl = `${baseUrl}/vehicle-requests?mission=${encodeURIComponent(missionId)}`;
-  const stops = (
-    db
-      .prepare("SELECT location FROM mission_stops WHERE mission_id = ? ORDER BY stop_order")
-      .all(missionId) as Array<{ location: string }>
-  ).map((s) => String(s.location));
-  const route = [mission.departure_location || "HQ", ...stops, mission.destination]
-    .filter(Boolean)
-    .join(" → ");
+  const stopRows = db
+    .prepare("SELECT location, stop_order FROM mission_stops WHERE mission_id = ? ORDER BY stop_order")
+    .all(missionId) as Array<{ location: string; stop_order: number }>;
+  const route = formatMissionRouteSummary({
+    departureLocation: mission.departure_location,
+    destination: mission.destination,
+    stops: stopRows,
+  });
   const title = mission.title.trim() || `Mission to ${mission.destination}`;
 
+  const triggerNote =
+    trigger === "resubmit"
+      ? " (resubmitted after revision)"
+      : trigger === "updated"
+        ? " (updated by requestor while pending)"
+        : "";
   const subject = `[Fleet Hub] Approval needed: ${title} — departs ${mission.departure_date}`;
   const lines = [
-    `A mission was submitted for approval${trigger === "resubmit" ? " (resubmitted after revision)" : ""}.`,
+    `A mission was submitted for approval${triggerNote}.`,
     ``,
     `Mission:      ${title}`,
     `Route:        ${route}`,
@@ -217,7 +224,7 @@ export async function notifyMissionApproversOfSubmission(
   const text = lines.join("\n");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `
-    <p>A mission was submitted for approval${trigger === "resubmit" ? " (resubmitted after revision)" : ""}.</p>
+    <p>A mission was submitted for approval${triggerNote}.</p>
     <table cellpadding="4" style="border-collapse:collapse">
       <tr><td><b>Mission</b></td><td>${esc(title)}</td></tr>
       <tr><td><b>Route</b></td><td>${esc(route)}</td></tr>
@@ -236,7 +243,7 @@ export async function notifyMissionApproversOfSubmission(
   const result = await sendMail({ to: recipients, subject, text, html });
 
   const waLines = [
-    `*Fleet Hub — mission approval needed*${trigger === "resubmit" ? " (resubmitted)" : ""}`,
+    `*Fleet Hub — mission approval needed*${trigger === "resubmit" ? " (resubmitted)" : trigger === "updated" ? " (updated)" : ""}`,
     `*Mission:* ${title}`,
     `*Route:* ${route}`,
     `*Departs:* ${mission.departure_date} → ${mission.return_date || "—"}`,

@@ -18,6 +18,7 @@ import {
 import { recomputeMissionFuel } from "@/lib/fuel-estimate";
 import { departureDateKey, openShortfall } from "@/lib/capacity-shortfall";
 import { normalizeFuelDisposition } from "@/lib/fuel-calculator";
+import { findSimilarActiveMissions } from "@/lib/mission-duplicates";
 
 const MATERIAL_FIELD_PAIRS: ReadonlyArray<[keyof Record<string, unknown>, string]> = [
   ["departure_date", "departureDate"],
@@ -286,6 +287,47 @@ export async function PATCH(
     return NextResponse.json(updated);
   }
 
+  if (action === "withdraw" || action === "cancel") {
+    const isCreator = String(row.created_by_id || "") === user.id;
+    const currentApproval = String(row.approval_status || "").toLowerCase();
+    if (!isCreator && user.role !== "superadmin") {
+      return NextResponse.json(
+        { error: "Only the mission requestor may withdraw this mission." },
+        { status: 403 }
+      );
+    }
+    if (currentApproval !== "pending" && currentApproval !== "revision_requested") {
+      return NextResponse.json(
+        { error: "Only missions awaiting approval can be withdrawn." },
+        { status: 400 }
+      );
+    }
+    if (String(row.trip_id || "").trim()) {
+      return NextResponse.json(
+        { error: "This mission already has an operational trip and cannot be withdrawn." },
+        { status: 409 }
+      );
+    }
+    const reason = String(body.withdrawReason || body.reason || "").trim().slice(0, 500);
+    const beforeSnap = missionAuditSubset(row);
+    db.prepare(
+      `UPDATE missions SET approval_status = 'cancelled', lifecycle_status = 'withdrawn',
+       rejection_reason = ?, updated_at = ? WHERE id = ?`
+    ).run(reason || "Withdrawn by requestor", now, id);
+    const updated = db.prepare("SELECT * FROM missions WHERE id = ?").get(id) as Record<string, unknown>;
+    recordMutation(db, {
+      entityType: "mission",
+      entityId: id,
+      organizationId: orgId,
+      action: "update",
+      actor: actorFrom(user),
+      before: beforeSnap,
+      after: missionAuditSubset(updated),
+      reason: "requestor_withdraw",
+    });
+    return NextResponse.json(updated);
+  }
+
   if (action === "resubmit") {
     const isCreator = String(row.created_by_id || "") === user.id;
     const currentApproval = String(row.approval_status || "").toLowerCase();
@@ -408,18 +450,58 @@ export async function PATCH(
     isCreator,
   });
   const currentApproval = String(row.approval_status || "").toLowerCase();
-  if (currentApproval !== "draft") {
+  const editableApproval =
+    currentApproval === "draft" ||
+    currentApproval === "pending" ||
+    currentApproval === "revision_requested";
+  if (!editableApproval) {
     return NextResponse.json(
-      { error: "Only draft missions can be edited. Submit a draft first, then follow approval actions." },
+      {
+        error:
+          "This mission can no longer be edited here. Approved missions need fleet/management actions; withdrawn or rejected missions are read-only.",
+      },
       { status: 400 }
     );
   }
-  const wasApproved = String(row.approval_status || "").toLowerCase() === "approved";
+  const canEditFields =
+    currentApproval === "draft"
+      ? canDraftEdit
+      : (currentApproval === "pending" || currentApproval === "revision_requested") &&
+        (isCreator || user.role === "superadmin");
 
-  if (!canDraftEdit) {
+  if (!canEditFields) {
     return NextResponse.json({ error: "Not allowed to edit this mission." }, { status: 403 });
   }
+  if (String(row.trip_id || "").trim() && currentApproval !== "draft") {
+    return NextResponse.json(
+      { error: "This mission already has an operational trip and cannot be changed." },
+      { status: 409 }
+    );
+  }
   const material = materialMissionFieldsChanged(row, body as Record<string, unknown>);
+  if (currentApproval === "pending" && material) {
+    const nextDest = String(body.destination ?? row.destination ?? "").trim();
+    const nextDep = String(body.departureDate ?? row.departure_date ?? "").trim();
+    const nextRet = String(body.returnDate ?? row.return_date ?? "").trim();
+    const similar = findSimilarActiveMissions(db, {
+      organizationId: orgId,
+      createdById: String(row.created_by_id || ""),
+      destination: nextDest,
+      departureDate: nextDep,
+      returnDate: nextRet,
+      excludeMissionId: id,
+    });
+    if (similar.length > 0) {
+      return NextResponse.json(
+        {
+          code: "similar_mission_exists",
+          error: "Another active mission you filed already matches this destination and dates.",
+          missions: similar,
+        },
+        { status: 409 }
+      );
+    }
+  }
   const incomingStops = body.stops !== undefined ? normalizeRouteStops(body.stops) : null;
   const existingStopShape = existingStops.map((s) => ({
     location: String(s.location || "").trim(),
@@ -562,11 +644,6 @@ export async function PATCH(
     return NextResponse.json({ error: routeValidationError }, { status: 400 });
   }
 
-  if (wasApproved && (material || stopPlanChanged)) {
-    fields.push("approval_status = ?", "approved_at = NULL", "approved_by_id = ?", "approved_by_name = ?");
-    values.push("pending", "", "");
-  }
-
   fields.push("updated_at = ?");
   values.push(now);
   values.push(id);
@@ -607,15 +684,10 @@ export async function PATCH(
   });
   tx();
 
-  if (wasApproved && (material || stopPlanChanged)) {
-    recordMutation(db, {
-      entityType: "mission",
-      entityId: id,
-      organizationId: orgId,
-      action: "mission_reopened_approval",
-      actor: actorFrom(user),
-      after: { materialFields: true, stopPlanChanged },
-    });
+  const pendingMaterialChange =
+    currentApproval === "pending" && (material || stopPlanChanged);
+  if (pendingMaterialChange) {
+    await notifyMissionApproversOfSubmission(db, id, "updated");
   }
 
   const routeOrClassChanged =

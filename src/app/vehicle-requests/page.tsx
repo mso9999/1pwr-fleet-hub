@@ -38,6 +38,8 @@ import { PendingMissionApprovalActions } from "@/components/PendingMissionApprov
 import { PendingMissionDetailsBoundary } from "@/components/PendingMissionDetailsBoundary";
 import type { FuelDisposition } from "@/lib/fuel-calculator";
 import { reserveVehicleBody } from "@/lib/reserve-vehicle-body";
+import { buildStoredMissionStops } from "@/lib/trip-route";
+import { formatMissionRouteSummary } from "@/lib/mission-route-summary";
 
 /** Mirrors `OpenMissionRequest` from `@/lib/vehicle-request-duplicates` (server-only module). */
 interface OpenMissionRequestRow {
@@ -234,13 +236,12 @@ function missionRoutePoints(m: PlannedMissionRow): Array<{ label: string; siteCo
 }
 
 function missionRouteSummary(m: PlannedMissionRow): string {
-  const stops = Array.isArray(m.stops) ? m.stops : [];
-  const ordered = [...stops].sort((a, b) => (a.stop_order || 0) - (b.stop_order || 0));
-  const points = ordered.map((s) => String(s.location || "").trim()).filter(Boolean);
-  const origin = missionOriginLabel(m);
-  const dest = String(m.destination || "").trim();
-  if (points.length > 0) return [origin, ...points].join(" -> ");
-  return dest ? `${origin} -> ${dest}` : origin;
+  return formatMissionRouteSummary({
+    departureLocation: m.departure_location,
+    destination: m.destination,
+    stops: m.stops,
+    separator: " -> ",
+  });
 }
 
 interface RefRow {
@@ -315,7 +316,9 @@ function missionApprovalStage(statusRaw: string | undefined): {
   if (s === "draft") return { label: "Draft", tone: "secondary" };
   if (s === "approved") return { label: "Approved", tone: "success" };
   if (s === "rejected") return { label: "Rejected", tone: "destructive" };
-  if (s === "revision_requested") return { label: "Revision requested", tone: "warning" };
+  if (s === "revision_requested") return { label: "Revise requested", tone: "warning" };
+  if (s === "cancelled") return { label: "Withdrawn", tone: "secondary" };
+  if (s === "pending") return { label: "Pending approval", tone: "warning" };
   return { label: "Pending approval", tone: "secondary" };
 }
 
@@ -2484,9 +2487,8 @@ function RequestForm({
   const [missionMessage, setMissionMessage] = useState<string | null>(null);
   const [sites, setSites] = useState<RefRow[]>([]);
   const [departments, setDepartments] = useState<RefRow[]>([]);
+  const [myMissions, setMyMissions] = useState<PlannedMissionRow[]>([]);
   const [approvedMissions, setApprovedMissions] = useState<PlannedMissionRow[]>([]);
-  const [revisionRequestedMissions, setRevisionRequestedMissions] = useState<PlannedMissionRow[]>([]);
-  const [draftMissions, setDraftMissions] = useState<PlannedMissionRow[]>([]);
   const [editingMissionDraftId, setEditingMissionDraftId] = useState<string | null>(null);
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [selectedMissionId, setSelectedMissionId] = useState("");
@@ -2517,35 +2519,32 @@ function RequestForm({
     setMissionsLoading(true);
     void (async () => {
       const headers = await jsonHeadersWithBearer();
-      Promise.all([
-        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=approved`, { headers }).then((r) =>
-          r.json()
-        ),
-        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=revision_requested`, { headers }).then(
-          (r) => r.json()
-        ),
-        fetch(`/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=draft`, { headers }).then(
-          (r) => r.json()
-        ),
-      ])
-      .then(([approvedRaw, revisionRaw, draftRaw]) => {
-        const approved = Array.isArray(approvedRaw) ? (approvedRaw as PlannedMissionRow[]) : [];
-        const revisions = Array.isArray(revisionRaw) ? (revisionRaw as PlannedMissionRow[]) : [];
-        const drafts = Array.isArray(draftRaw) ? (draftRaw as PlannedMissionRow[]) : [];
-        setApprovedMissions(approved);
-        setRevisionRequestedMissions(
-          revisions.filter((m) => String(m.created_by_id || "").trim() === userId)
+      try {
+        const res = await fetch(
+          `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=all&createdByMe=true`,
+          { headers }
         );
-        setDraftMissions(drafts);
-      })
-      .catch(() => {
+        const raw = res.ok ? ((await res.json()) as PlannedMissionRow[]) : [];
+        const rows = Array.isArray(raw) ? raw : [];
+        rows.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setMyMissions(rows);
+        setApprovedMissions(
+          rows.filter((m) => String(m.approval_status || "").toLowerCase() === "approved")
+        );
+      } catch {
+        setMyMissions([]);
         setApprovedMissions([]);
-        setRevisionRequestedMissions([]);
-        setDraftMissions([]);
-      })
-      .finally(() => setMissionsLoading(false));
+      } finally {
+        setMissionsLoading(false);
+      }
     })();
-  }, [organizationId, userId]);
+  }, [organizationId]);
+
+  const draftMissions = myMissions.filter((m) => String(m.approval_status || "").toLowerCase() === "draft");
+  const myActiveMissionRequests = myMissions.filter((m) => {
+    const s = String(m.approval_status || "").toLowerCase();
+    return s !== "draft";
+  });
 
   useEffect(() => {
     Promise.all([
@@ -2738,6 +2737,30 @@ function RequestForm({
     setMissionVehicleClass(String(m.required_vehicle_class || ""));
   }
 
+  async function withdrawMyMission(missionId: string): Promise<void> {
+    const ok = window.confirm(
+      "Withdraw this mission request?\n\nIt stays on record as withdrawn and leaves the approver queue. You can file a new mission later if plans change."
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action: "withdraw" }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      setMissionFormError(err.error || "Could not withdraw mission.");
+      return;
+    }
+    setMissionMessage("Mission withdrawn. It no longer waits for management approval.");
+    if (editingMissionDraftId === missionId) {
+      setEditingMissionDraftId(null);
+      missionFormRef.current?.reset();
+      setRoutePlan(emptyRoutePlan());
+    }
+    loadApprovedMissions();
+  }
+
   async function resubmitMissionForApproval(missionId: string): Promise<void> {
     const ok = window.confirm(
       "Resubmit this mission for management approval now? Make sure required changes are complete."
@@ -2831,30 +2854,20 @@ function RequestForm({
       setMissionFormError("Add at least one stop between the origin and the destination, or mark the trip as a round trip.");
       return;
     }
-    const destStop = {
-      location: destination,
-      loadOut: "",
-      loadIn: "",
-      notes: "",
-      lat: routePlan.destination.lat,
-      lng: routePlan.destination.lng,
-    };
-    const returnStop = {
-      location: originLabel,
-      loadOut: "",
-      loadIn: "",
-      notes: "Return leg",
-      lat: routePlan.origin.lat,
-      lng: routePlan.origin.lng,
-    };
-    const finalStops =
-      tripShape === "one_way"
-        ? routePlan.destination.lat != null
-          ? [destStop]
-          : []
-        : tripShape === "round_trip"
-          ? [...waypointStops, destStop, returnStop]
-          : [...waypointStops, destStop];
+    const finalStops = buildStoredMissionStops({
+      tripShape,
+      originLabel,
+      destination,
+      waypoints: waypointStops.map((s) => ({
+        ...s,
+        lat: s.lat ?? null,
+        lng: s.lng ?? null,
+      })),
+      destinationLat: routePlan.destination.lat,
+      destinationLng: routePlan.destination.lng,
+      originLat: routePlan.origin.lat,
+      originLng: routePlan.origin.lng,
+    });
     setMissionSubmitting(true);
     try {
       const payload = {
@@ -2886,13 +2899,30 @@ function RequestForm({
       };
       const headers = await jsonHeadersWithBearer();
       let res: Response;
+      const editingRow = editingMissionDraftId
+        ? myMissions.find((m) => m.id === editingMissionDraftId)
+        : undefined;
+      const editingApproval = String(editingRow?.approval_status || "draft").toLowerCase();
+
+      async function postNewMission(acknowledgeSimilar: boolean): Promise<Response> {
+        return fetch("/api/missions", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...payload,
+            action: saveAsDraft ? "saveDraft" : "submit",
+            ...(acknowledgeSimilar ? { acknowledgeSimilarMission: true } : {}),
+          }),
+        });
+      }
+
       if (editingMissionDraftId) {
         res = await fetch(`/api/missions/${editingMissionDraftId}`, {
           method: "PATCH",
           headers,
           body: JSON.stringify(payload),
         });
-        if (res.ok && !saveAsDraft) {
+        if (res.ok && editingApproval === "draft" && !saveAsDraft) {
           res = await fetch(`/api/missions/${editingMissionDraftId}`, {
             method: "PATCH",
             headers,
@@ -2900,20 +2930,44 @@ function RequestForm({
           });
         }
       } else {
-        res = await fetch("/api/missions", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            ...payload,
-            action: saveAsDraft ? "saveDraft" : "submit",
-          }),
-        });
+        res = await postNewMission(false);
+        if (res.status === 409) {
+          const dup = (await res.json().catch(() => ({}))) as {
+            code?: string;
+            missions?: PlannedMissionRow[];
+            error?: string;
+          };
+          if (dup.code === "similar_mission_exists" && Array.isArray(dup.missions) && dup.missions.length > 0) {
+            const existing = dup.missions[0];
+            const openExisting = window.confirm(
+              `${dup.error || "Similar mission already on file."}\n\nOpen “${(existing.title || existing.destination).slice(0, 80)}” to edit or withdraw it instead of filing another copy?`
+            );
+            if (openExisting) {
+              const full = await fetch(`/api/missions/${existing.id}`, { headers });
+              if (full.ok) {
+                const row = (await full.json()) as PlannedMissionRow;
+                loadMissionDraftIntoForm(row);
+                setMissionFormError("");
+                setMissionMessage("Loaded your existing mission — update it and save, or withdraw it if it is no longer needed.");
+              }
+              return;
+            }
+            if (!window.confirm("Submit a new mission anyway? (Use only if this is genuinely a separate trip.)")) {
+              return;
+            }
+            res = await postNewMission(true);
+          }
+        }
       }
       if (res.ok) {
+        const savedPending =
+          editingApproval === "pending" || editingApproval === "revision_requested";
         setMissionMessage(
           saveAsDraft
             ? "Mission draft saved. Only you and admins can edit it until submission; IS&T may view it for diagnosis."
-            : "Mission submitted for management approval (profile and vehicle class are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
+            : savedPending
+              ? "Mission updated. Approvers were notified if you changed dates, route, or other plan details."
+              : "Mission submitted for management approval (profile and vehicle class are stored on the mission). After approval, approved drivers may submit a logistics request below so the row appears in the pool queue; fleet reserves a specific vehicle on the mission."
         );
         form.reset();
         setMissionVehicleClass("");
@@ -2922,8 +2976,16 @@ function RequestForm({
         setEditingMissionDraftId(null);
         loadApprovedMissions();
       } else {
-        const err = await res.json().catch(() => ({}));
-        setMissionFormError((err as { error?: string }).error || "Could not create mission.");
+        const err = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+          missions?: PlannedMissionRow[];
+        };
+        if (err.code === "similar_mission_exists" && editingMissionDraftId) {
+          setMissionFormError(err.error || "Another active mission matches these dates and destination.");
+        } else {
+          setMissionFormError(err.error || "Could not create mission.");
+        }
       }
     } finally {
       setMissionSubmitting(false);
@@ -3212,6 +3274,88 @@ function RequestForm({
                 {missionMessage}
               </div>
             )}
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-3 space-y-2" data-testid="my-mission-requests">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-medium text-zinc-900">My mission requests</div>
+                {missionsLoading && <span className="text-xs text-zinc-500">Loading…</span>}
+              </div>
+              <p className="text-xs text-zinc-600">
+                Submitted missions stay here with their approval status — you do not need to re-file if management has not decided yet.
+              </p>
+              {myActiveMissionRequests.length === 0 && !missionsLoading ? (
+                <p className="text-xs text-zinc-500 py-1">No submitted missions yet. Use the form below to create one.</p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {myActiveMissionRequests.map((m) => {
+                    const stage = missionApprovalStage(m.approval_status);
+                    const approval = String(m.approval_status || "").toLowerCase();
+                    return (
+                      <div
+                        key={m.id}
+                        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-medium text-zinc-900 truncate">
+                              {(m.title?.trim() || m.destination).slice(0, 120)}
+                            </div>
+                            <div className="text-xs text-zinc-600 mt-0.5">
+                              {missionRouteSummary(m)} · {m.departure_date}
+                              {m.return_date ? ` → ${m.return_date}` : ""}
+                            </div>
+                            {m.created_at && (
+                              <div className="text-[11px] text-zinc-500 mt-0.5">
+                                Filed {new Date(m.created_at).toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                          <Badge variant={stage.tone}>{stage.label}</Badge>
+                        </div>
+                        {approval === "revision_requested" && m.rejection_reason && (
+                          <p className="mt-1 text-xs text-amber-900 whitespace-pre-wrap">
+                            <span className="font-medium">Feedback: </span>
+                            {m.rejection_reason}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(approval === "pending" || approval === "revision_requested") && (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => loadMissionDraftIntoForm(m)}
+                              >
+                                {editingMissionDraftId === m.id ? "Editing in form" : "Edit"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="text-red-700 border-red-200"
+                                onClick={() => void withdrawMyMission(m.id)}
+                              >
+                                Withdraw
+                              </Button>
+                            </>
+                          )}
+                          {approval === "revision_requested" && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-amber-700 hover:bg-amber-800 text-white"
+                              onClick={() => void resubmitMissionForApproval(m.id)}
+                            >
+                              Resubmit
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {draftMissions.length > 0 && (
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 space-y-2">
                 <div className="text-sm font-medium text-blue-900">Mission drafts</div>
@@ -3241,48 +3385,6 @@ function RequestForm({
                           onClick={() => void submitDraftMissionNow(m.id)}
                         >
                           Submit
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {revisionRequestedMissions.length > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
-                <div className="text-sm font-medium text-amber-900">
-                  Revisions requested on your mission submissions
-                </div>
-                <p className="text-xs text-amber-800">
-                  Management sent these back for updates. Apply requested edits, then click
-                  <strong> Resubmit</strong>.
-                </p>
-                <div className="space-y-2">
-                  {revisionRequestedMissions.map((m) => (
-                    <div key={m.id} className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm">
-                      <div className="font-medium text-zinc-900">
-                        {(m.title?.trim() || m.destination).slice(0, 120)}
-                      </div>
-                      <div className="text-xs text-zinc-600">
-                        {m.destination} · {m.departure_date}
-                        {m.return_date ? ` → ${m.return_date}` : ""}
-                      </div>
-                      <div className="mt-1 text-xs text-amber-900 whitespace-pre-wrap">
-                        <span className="font-medium">Revision feedback: </span>
-                        {m.rejection_reason || "See approver comments."}
-                      </div>
-                      <div className="mt-2">
-                        <MissionApprovalTimeline mission={m} />
-                      </div>
-                      <div className="mt-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="border-amber-300 text-amber-900"
-                          onClick={() => void resubmitMissionForApproval(m.id)}
-                        >
-                          Resubmit
                         </Button>
                       </div>
                     </div>

@@ -17,6 +17,7 @@ import {
 } from "@/lib/trip-route";
 import { buildMissionFuelSnapshot, type MissionFuelSnapshot } from "@/lib/fuel-estimate";
 import { normalizeFuelDisposition } from "@/lib/fuel-calculator";
+import { findSimilarActiveMissions } from "@/lib/mission-duplicates";
 
 export const runtime = "nodejs";
 
@@ -100,6 +101,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const status = request.nextUrl.searchParams.get("status") ?? "planned";
   const approvalStatus = request.nextUrl.searchParams.get("approvalStatus");
   const tripCheckoutEligible = request.nextUrl.searchParams.get("tripCheckoutEligible") === "true";
+  const createdByMe = request.nextUrl.searchParams.get("createdByMe") === "true";
 
   let sql = `
     SELECT m.id, m.organization_id, m.title, m.destination, m.departure_location, m.departure_date, m.return_date, m.mission_type,
@@ -136,6 +138,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (approvalStatus && approvalStatus !== "all") {
     sql += " AND lower(m.approval_status) = lower(?)";
     params.push(approvalStatus);
+  }
+
+  if (createdByMe) {
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    sql += " AND m.created_by_id = ?";
+    params.push(user.id);
   }
 
   if (tripCheckoutEligible) {
@@ -292,6 +302,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       lng: typeof s.lng === "number" ? s.lng : null,
     })
   );
+
+  if (initialApprovalStatus === "pending" && !body.acknowledgeSimilarMission) {
+    const similar = findSimilarActiveMissions(db, {
+      organizationId,
+      createdById: user.id,
+      destination,
+      departureDate: String(body.departureDate || ""),
+      returnDate: String(body.returnDate || ""),
+    });
+    if (similar.length > 0) {
+      return NextResponse.json(
+        {
+          code: "similar_mission_exists",
+          error:
+            "You already have a pending or approved mission with the same destination and overlapping dates. Edit or withdraw that mission instead of filing another copy.",
+          missions: similar,
+        },
+        { status: 409 }
+      );
+    }
+  }
 
   const fuel = await buildMissionFuelSnapshot(db, {
     organizationId,

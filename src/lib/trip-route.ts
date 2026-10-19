@@ -59,6 +59,53 @@ export function validateRoutePlan(args: {
   return null;
 }
 
+export type RouteStopWithCoords = RouteStopNormalized & {
+  lat?: number | null;
+  lng?: number | null;
+};
+
+/**
+ * Stops persisted on mission_stops — destination lives on missions.destination;
+ * round trips store intermediate + return leg only (no duplicate dest row).
+ */
+export function buildStoredMissionStops(args: {
+  tripShape: TripShape;
+  originLabel: string;
+  destination: string;
+  waypoints: RouteStopWithCoords[];
+  destinationLat?: number | null;
+  destinationLng?: number | null;
+  originLat?: number | null;
+  originLng?: number | null;
+}): RouteStopWithCoords[] {
+  const origin = args.originLabel.trim() || "HQ";
+  const destination = args.destination.trim();
+  const returnStop: RouteStopWithCoords = {
+    location: origin,
+    loadOut: "",
+    loadIn: "",
+    notes: "Return leg",
+    lat: args.originLat ?? null,
+    lng: args.originLng ?? null,
+  };
+  const destStop: RouteStopWithCoords = {
+    location: destination,
+    loadOut: "",
+    loadIn: "",
+    notes: "",
+    lat: args.destinationLat ?? null,
+    lng: args.destinationLng ?? null,
+  };
+
+  if (args.tripShape === TRIP_SHAPES.ONE_WAY) {
+    return args.waypoints.filter((s) => String(s.location || "").trim());
+  }
+  if (args.tripShape === TRIP_SHAPES.ROUND_TRIP) {
+    return [...args.waypoints, returnStop];
+  }
+  return [...args.waypoints, destStop];
+}
+
 export function routeStopsEqual(a: RouteStopNormalized[], b: RouteStopNormalized[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
