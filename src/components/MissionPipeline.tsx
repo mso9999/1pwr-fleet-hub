@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { formatMissionSubmittedAt, formatMissionSubmittedShort } from "@/lib/mission-submitted-time";
 
 /**
  * Mission lifecycle timeline + pipeline stepper.
@@ -141,7 +142,12 @@ export function MissionPipelineStepper({ mission }: { mission: MissionPipelineDa
             }`}
           >
             <span className="font-medium">{label}</span>
-            {reached && ts && <span className="opacity-70">{fmt(ts)}</span>}
+            {reached && ts && (
+              <span className="opacity-70">
+                {/* Submitted shows HH:MM (CAT) so near-identical requests can be told apart. */}
+                {s.key === "submitted" ? formatMissionSubmittedShort(ts) || fmt(ts) : fmt(ts)}
+              </span>
+            )}
           </span>
         );
         return (
@@ -236,7 +242,7 @@ export function MissionLifecycleTimeline({ mission }: { mission: MissionPipeline
         {events.map((e, i) => (
           <li key={i} className="flex flex-wrap items-baseline gap-x-2">
             <span className="font-medium text-zinc-600 min-w-[7rem]">{e.label}:</span>
-            <span>{e.at ? fmtTime(e.at) : "—"}</span>
+            <span>{e.at ? (e.label === "Created" || e.label === "Resubmitted" ? formatMissionSubmittedAt(e.at) || fmtTime(e.at) : fmtTime(e.at)) : "—"}</span>
             {e.actor && <span className="text-zinc-500">by {e.actor}</span>}
             {e.detail && <span className="text-zinc-500">· {e.detail}</span>}
           </li>

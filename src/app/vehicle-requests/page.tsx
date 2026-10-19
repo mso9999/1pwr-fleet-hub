@@ -40,6 +40,12 @@ import type { FuelDisposition } from "@/lib/fuel-calculator";
 import { reserveVehicleBody } from "@/lib/reserve-vehicle-body";
 import { buildStoredMissionStops } from "@/lib/trip-route";
 import { formatMissionRouteSummary } from "@/lib/mission-route-summary";
+import {
+  countSimilarPendingMissions,
+  formatMissionSubmittedAt,
+  possibleDuplicateHint,
+  sortMissionsNewestFirst,
+} from "@/lib/mission-submitted-time";
 
 /** Mirrors `OpenMissionRequest` from `@/lib/vehicle-request-duplicates` (server-only module). */
 interface OpenMissionRequestRow {
@@ -324,7 +330,7 @@ function missionApprovalStage(statusRaw: string | undefined): {
 
 function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): React.ReactElement {
   const stage = missionApprovalStage(mission.approval_status);
-  const created = mission.created_at ? new Date(mission.created_at).toLocaleString() : "";
+  const created = formatMissionSubmittedAt(mission.created_at);
   const reviewed = mission.approved_at ? new Date(mission.approved_at).toLocaleString() : "";
   const maybeResubmitted =
     String(mission.approval_status || "").toLowerCase() === "pending" &&
@@ -346,7 +352,7 @@ function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): R
         {maybeResubmitted && (
           <div>
             <span className="font-medium text-zinc-600">Resubmitted:</span>{" "}
-            {mission.updated_at ? new Date(mission.updated_at).toLocaleString() : "—"}
+            {formatMissionSubmittedAt(mission.updated_at) || "—"}
           </div>
         )}
         {reviewed && (
@@ -850,13 +856,19 @@ export default function VehicleRequestsPage() {
     );
     if (!res.ok) return [];
     const j = (await res.json()) as PlannedMissionRow[];
-    const rows = Array.isArray(j) ? j : [];
+    // API orders by departure_date; approvers need the newest submission first.
+    const rows = sortMissionsNewestFirst(Array.isArray(j) ? j : []);
     setPendingMissions(rows);
     setExpandedPendingMissionId((prev) =>
       prev && !rows.some((m) => m.id === prev) ? null : prev
     );
     return rows;
   }, [canApproveMission, organizationId]);
+
+  const pendingDuplicateCounts = useMemo(
+    () => countSimilarPendingMissions(pendingMissions),
+    [pendingMissions]
+  );
 
   const loadData = useCallback(() => {
     setIsLoading(true);
@@ -1624,6 +1636,20 @@ export default function VehicleRequestsPage() {
                       <div className="text-xs text-zinc-600 mt-1">
                         <span className="font-medium">Route:</span> {missionRouteSummary(m)}
                       </div>
+                      <div className="text-xs text-zinc-600 mt-0.5" data-testid="pending-mission-submitted-at">
+                        <span className="font-medium">Submitted:</span>{" "}
+                        {formatMissionSubmittedAt(m.created_at) || "—"}
+                        {m.created_by_name ? ` by ${m.created_by_name}` : ""}
+                      </div>
+                      {(pendingDuplicateCounts.get(m.id) ?? 0) > 0 && (
+                        <div
+                          className="mt-1 inline-flex items-center rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+                          data-testid="pending-mission-duplicate-hint"
+                          title="Same requester, origin and destination with overlapping dates. Compare submission times before approving."
+                        >
+                          {possibleDuplicateHint(pendingDuplicateCounts.get(m.id) ?? 0)}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1 shrink-0">
                       <Badge variant="secondary">{tripShapeLabel(m.trip_shape)}</Badge>
@@ -1705,7 +1731,7 @@ export default function VehicleRequestsPage() {
                       <div>
                         <dt className="text-zinc-500 uppercase tracking-wide">Created</dt>
                         <dd className="text-zinc-900 mt-0.5">
-                          {m.created_at ? new Date(m.created_at).toLocaleString() : "—"}
+                          {formatMissionSubmittedAt(m.created_at) || "—"}
                         </dd>
                       </div>
                       <div>
@@ -2526,8 +2552,7 @@ function RequestForm({
         );
         const raw = res.ok ? ((await res.json()) as PlannedMissionRow[]) : [];
         const rows = Array.isArray(raw) ? raw : [];
-        rows.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-        setMyMissions(rows);
+        setMyMissions(sortMissionsNewestFirst(rows));
         setApprovedMissions(
           rows.filter((m) => String(m.approval_status || "").toLowerCase() === "approved")
         );
@@ -2545,6 +2570,7 @@ function RequestForm({
     const s = String(m.approval_status || "").toLowerCase();
     return s !== "draft";
   });
+  const myDuplicateCounts = useMemo(() => countSimilarPendingMissions(myMissions), [myMissions]);
 
   useEffect(() => {
     Promise.all([
@@ -3304,8 +3330,17 @@ function RequestForm({
                               {m.return_date ? ` → ${m.return_date}` : ""}
                             </div>
                             {m.created_at && (
-                              <div className="text-[11px] text-zinc-500 mt-0.5">
-                                Filed {new Date(m.created_at).toLocaleString()}
+                              <div className="text-[11px] text-zinc-500 mt-0.5" data-testid="my-mission-submitted-at">
+                                Submitted {formatMissionSubmittedAt(m.created_at) || "—"}
+                              </div>
+                            )}
+                            {(myDuplicateCounts.get(m.id) ?? 0) > 0 && (
+                              <div
+                                className="mt-1 inline-flex items-center rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+                                data-testid="my-mission-duplicate-hint"
+                                title="You have another pending request to the same place on overlapping dates. Withdraw the extra one(s) so approvers know which is current."
+                              >
+                                {possibleDuplicateHint(myDuplicateCounts.get(m.id) ?? 0)}
                               </div>
                             )}
                           </div>

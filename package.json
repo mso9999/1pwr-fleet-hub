@@ -46,7 +46,8 @@
     "test:mission-route-summary": "tsx scripts/test-mission-route-summary.ts",
     "test:mission-duplicates": "tsx scripts/test-mission-duplicates.ts",
     "test:mission-requester-actions": "tsx scripts/test-mission-requester-actions.ts",
-    "test:mission-stops-storage": "tsx scripts/test-mission-stops-storage.ts"
+    "test:mission-stops-storage": "tsx scripts/test-mission-stops-storage.ts",
+    "test:mission-submitted-time": "tsx scripts/test-mission-submitted-time.ts"
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",
