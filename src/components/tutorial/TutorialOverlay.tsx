@@ -82,11 +82,10 @@ export function TutorialOverlay(): React.ReactElement | null {
   const isLast = stepIndex >= totalSteps - 1;
 
   const node = (
-    <div className="fixed inset-0 z-[200] pointer-events-auto" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px]" />
+    <div className="fixed inset-0 z-[200] pointer-events-none" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
       {rect && (
         <div
-          className="fixed z-[201] rounded-lg border-2 border-blue-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none ring-2 ring-blue-300/40"
+          className="fixed z-[201] rounded-lg border-2 border-blue-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] pointer-events-none ring-2 ring-blue-300/40 backdrop-blur-[1px]"
           style={{
             top: rect.top,
             left: rect.left,

@@ -34,6 +34,8 @@ import {
 import { FuelBudgetPanel, type FuelStopDraft } from "@/components/FuelBudgetPanel";
 import { MissionRouteEditor, type MissionRouteValue } from "@/components/MissionRouteEditor";
 import { MissionRouteMap } from "@/components/MissionRouteMap";
+import { PendingMissionApprovalActions } from "@/components/PendingMissionApprovalActions";
+import { PendingMissionDetailsBoundary } from "@/components/PendingMissionDetailsBoundary";
 import type { FuelDisposition } from "@/lib/fuel-calculator";
 import { reserveVehicleBody } from "@/lib/reserve-vehicle-body";
 
@@ -836,6 +838,23 @@ export default function VehicleRequestsPage() {
     setApprovedMissionsFleet(Array.isArray(j) ? j : []);
   }, [organizationId]);
 
+  const refetchPendingMissions = useCallback(async (): Promise<PlannedMissionRow[]> => {
+    if (!canApproveMission) return [];
+    const headers = await jsonHeadersWithBearer();
+    const res = await fetch(
+      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
+      { headers }
+    );
+    if (!res.ok) return [];
+    const j = (await res.json()) as PlannedMissionRow[];
+    const rows = Array.isArray(j) ? j : [];
+    setPendingMissions(rows);
+    setExpandedPendingMissionId((prev) =>
+      prev && !rows.some((m) => m.id === prev) ? null : prev
+    );
+    return rows;
+  }, [canApproveMission, organizationId]);
+
   const loadData = useCallback(() => {
     setIsLoading(true);
     setLoadError(null);
@@ -989,12 +1008,7 @@ export default function VehicleRequestsPage() {
       }),
     });
     if (!res.ok) return;
-    const r2 = await fetch(
-      `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
-      { headers }
-    );
-    const j = (await r2.json()) as PlannedMissionRow[];
-    setPendingMissions(Array.isArray(j) ? j : []);
+    await refetchPendingMissions();
     if ((action === "approve" || action === "revise") && expandedPendingMissionId === missionId) {
       setExpandedPendingMissionId(null);
     }
@@ -1079,27 +1093,8 @@ export default function VehicleRequestsPage() {
       setExpandedPendingMissionId(null);
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      const headers = await jsonHeadersWithBearer();
-      const res = await fetch(
-        `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
-        { headers }
-      );
-      if (!res.ok) return;
-      const j = (await res.json()) as PlannedMissionRow[];
-      if (!cancelled) {
-        const rows = Array.isArray(j) ? j : [];
-        setPendingMissions(rows);
-        if (expandedPendingMissionId && !rows.some((m) => m.id === expandedPendingMissionId)) {
-          setExpandedPendingMissionId(null);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [organizationId, canApproveMission, expandedPendingMissionId]);
+    void refetchPendingMissions();
+  }, [canApproveMission, organizationId, refetchPendingMissions]);
 
   useEffect(() => {
     void refetchApprovedMissionsFleet();
@@ -1626,9 +1621,6 @@ export default function VehicleRequestsPage() {
                       <div className="text-xs text-zinc-600 mt-1">
                         <span className="font-medium">Route:</span> {missionRouteSummary(m)}
                       </div>
-                      <div className="mt-1.5">
-                        <MissionPipelineStepper mission={m} />
-                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1 shrink-0">
                       <Badge variant="secondary">{tripShapeLabel(m.trip_shape)}</Badge>
@@ -1664,7 +1656,19 @@ export default function VehicleRequestsPage() {
                     </div>
                   </div>
                 </button>
+                <div className="mt-1.5">
+                  <MissionPipelineStepper mission={m} />
+                </div>
+                <PendingMissionApprovalActions
+                  className="mt-2 flex flex-wrap gap-2 border-t border-amber-100 pt-2"
+                  missionId={m.id}
+                  missionLabel={m.title || m.destination || m.id}
+                  onApprove={(id) => patchMissionApproval(id, "approve")}
+                  onRevise={(id) => patchMissionApproval(id, "revise")}
+                  onReject={(id) => patchMissionApproval(id, "reject")}
+                />
                 {expandedPendingMissionId === m.id && (
+                  <PendingMissionDetailsBoundary missionTitle={m.title || m.destination || m.id}>
                   <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
                     <MissionRouteMap
                       organizationId={organizationId}
@@ -1677,17 +1681,8 @@ export default function VehicleRequestsPage() {
                       <MissionManifestLinker
                         mission={m}
                         onChanged={() => {
-                          void (async () => {
-                            const headers = await jsonHeadersWithBearer();
-                            const res = await fetch(
-                              `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
-                              { headers }
-                            );
-                            if (!res.ok) return;
-                            const j = (await res.json()) as PlannedMissionRow[];
-                            setPendingMissions(Array.isArray(j) ? j : []);
-                            void refetchApprovedMissionsFleet();
-                          })();
+                          void refetchPendingMissions();
+                          void refetchApprovedMissionsFleet();
                         }}
                       />
                     )}
@@ -1695,17 +1690,8 @@ export default function VehicleRequestsPage() {
                       mission={m}
                       canApprove={canApproveMission}
                       onChanged={() => {
-                        void (async () => {
-                          const headers = await jsonHeadersWithBearer();
-                          const res = await fetch(
-                            `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=pending`,
-                            { headers }
-                          );
-                          if (!res.ok) return;
-                          const j = (await res.json()) as PlannedMissionRow[];
-                          setPendingMissions(Array.isArray(j) ? j : []);
-                          void refetchApprovedMissionsFleet();
-                        })();
+                        void refetchPendingMissions();
+                        void refetchApprovedMissionsFleet();
                       }}
                     />
                     <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
@@ -1754,35 +1740,8 @@ export default function VehicleRequestsPage() {
                         <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{m.notes || "—"}</dd>
                       </div>
                     </dl>
-                    <div className="flex gap-2 shrink-0">
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                        onClick={() => void patchMissionApproval(m.id, "approve")}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-amber-800 border-amber-300"
-                        onClick={() => void patchMissionApproval(m.id, "revise")}
-                      >
-                        Revise &amp; resubmit
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-red-700 border-red-200"
-                        onClick={() => void patchMissionApproval(m.id, "reject")}
-                      >
-                        Reject
-                      </Button>
-                    </div>
                   </div>
+                  </PendingMissionDetailsBoundary>
                 )}
               </div>
             ))}
