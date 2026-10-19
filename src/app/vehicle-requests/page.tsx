@@ -40,6 +40,21 @@ import type { FuelDisposition } from "@/lib/fuel-calculator";
 import { reserveVehicleBody } from "@/lib/reserve-vehicle-body";
 import { buildStoredMissionStops } from "@/lib/trip-route";
 import { formatMissionRouteSummary } from "@/lib/mission-route-summary";
+import {
+  countSimilarPendingMissions,
+  formatMissionSubmittedAt,
+  possibleDuplicateHint,
+  sortMissionsNewestFirst,
+} from "@/lib/mission-submitted-time";
+import { RequestTile, RequestsGroupModal, type RequestTileTone } from "@/components/RequestTiles";
+import {
+  buildMissionTileGroups,
+  deepLinkMissionIdFromParams,
+  missionCardDomId,
+  tileForMission,
+  tilePendingCount,
+  type RequestTileKey,
+} from "@/lib/request-tiles";
 
 /** Mirrors `OpenMissionRequest` from `@/lib/vehicle-request-duplicates` (server-only module). */
 interface OpenMissionRequestRow {
@@ -324,7 +339,7 @@ function missionApprovalStage(statusRaw: string | undefined): {
 
 function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): React.ReactElement {
   const stage = missionApprovalStage(mission.approval_status);
-  const created = mission.created_at ? new Date(mission.created_at).toLocaleString() : "";
+  const created = formatMissionSubmittedAt(mission.created_at);
   const reviewed = mission.approved_at ? new Date(mission.approved_at).toLocaleString() : "";
   const maybeResubmitted =
     String(mission.approval_status || "").toLowerCase() === "pending" &&
@@ -346,7 +361,7 @@ function MissionApprovalTimeline({ mission }: { mission: PlannedMissionRow }): R
         {maybeResubmitted && (
           <div>
             <span className="font-medium text-zinc-600">Resubmitted:</span>{" "}
-            {mission.updated_at ? new Date(mission.updated_at).toLocaleString() : "—"}
+            {formatMissionSubmittedAt(mission.updated_at) || "—"}
           </div>
         )}
         {reviewed && (
@@ -785,6 +800,132 @@ function FleetMissionReserveRow({
   );
 }
 
+function missionCardTitle(m: PlannedMissionRow): string {
+  return (m.title?.trim() || m.destination || m.id).slice(0, 120);
+}
+
+function MissionShapeBadges({ mission: m }: { mission: PlannedMissionRow }): React.ReactElement {
+  const crew = typeof m.crew_size === "number" && m.crew_size > 0 ? m.crew_size : null;
+  return (
+    <>
+      <Badge variant="secondary" className="text-[10px]">{tripShapeLabel(m.trip_shape)}</Badge>
+      {m.required_vehicle_class && (
+        <Badge variant="secondary" className="text-[10px]">
+          {ASSET_CLASS_LABELS[m.required_vehicle_class as AssetClass] ?? m.required_vehicle_class}
+        </Badge>
+      )}
+      {crew != null && <Badge variant="secondary" className="text-[10px]">{crew} pax</Badge>}
+    </>
+  );
+}
+
+/**
+ * Collapsed-by-default mission card used inside the tile modals. The header
+ * always shows title, route/dates, the submission date + HH:MM (CAT) and the
+ * possible-duplicate hint; `actions` (e.g. Approve/Revise/Reject) stay visible
+ * when collapsed; `children` render only when expanded.
+ */
+function MissionRequestCard({
+  mission: m,
+  tileKey,
+  expanded,
+  onToggle,
+  duplicateCount = 0,
+  submittedTestId = "mission-submitted-at",
+  duplicateTestId = "mission-duplicate-hint",
+  duplicateTitle = "Same requester, origin and destination with overlapping dates. Compare submission times before approving.",
+  badges,
+  note,
+  actions,
+  children,
+}: {
+  mission: PlannedMissionRow;
+  tileKey: RequestTileKey;
+  expanded: boolean;
+  onToggle: () => void;
+  duplicateCount?: number;
+  submittedTestId?: string;
+  duplicateTestId?: string;
+  duplicateTitle?: string;
+  badges?: React.ReactNode;
+  note?: string;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      id={missionCardDomId(tileKey, m.id)}
+      data-testid="mission-request-card"
+      data-mission-id={m.id}
+      data-expanded={expanded ? "true" : "false"}
+      className={cn(
+        "scroll-mt-2 rounded-lg border bg-white text-sm shadow-sm",
+        expanded ? "border-zinc-400" : "border-zinc-200"
+      )}
+    >
+      <button
+        type="button"
+        className="w-full px-3 py-2.5 text-left touch-manipulation"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 font-medium text-zinc-900 break-words">{missionCardTitle(m)}</div>
+          <span className="shrink-0 pt-0.5 text-[11px] text-zinc-400" aria-hidden>
+            {expanded ? "Hide ▲" : "Details ▼"}
+          </span>
+        </div>
+        {badges && <div className="mt-1 flex flex-wrap gap-1">{badges}</div>}
+        <div className="mt-1 text-xs text-zinc-600">
+          {missionOriginLabel(m)} → {m.destination || "—"} · {m.departure_date || "—"}
+          {m.return_date ? ` → ${m.return_date}` : ""}
+        </div>
+        <div className="mt-0.5 text-xs text-zinc-500" data-testid={submittedTestId}>
+          Submitted <span className="font-medium text-zinc-700">{formatMissionSubmittedAt(m.created_at) || "—"}</span>
+          {m.created_by_name ? ` · ${m.created_by_name}` : ""}
+        </div>
+        {duplicateCount > 0 && (
+          <div
+            className="mt-1 inline-flex items-center rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+            data-testid={duplicateTestId}
+            title={duplicateTitle}
+          >
+            {possibleDuplicateHint(duplicateCount)}
+          </div>
+        )}
+        {note && <div className="mt-1 text-[11px] text-amber-800">{note}</div>}
+      </button>
+      {actions && <div className="border-t border-zinc-100 px-3 py-2">{actions}</div>}
+      {expanded && children && <div className="space-y-3 border-t border-zinc-100 px-3 py-3">{children}</div>}
+    </div>
+  );
+}
+
+function MissionDetailsList({ mission: m }: { mission: PlannedMissionRow }): React.ReactElement {
+  const row = (label: string, value: React.ReactNode, wide = false) => (
+    <div className={wide ? "sm:col-span-2" : undefined}>
+      <dt className="text-zinc-500 uppercase tracking-wide">{label}</dt>
+      <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap break-words">{value || "—"}</dd>
+    </div>
+  );
+  return (
+    <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
+      {row("Created by", m.created_by_name)}
+      {row("Created", formatMissionSubmittedAt(m.created_at))}
+      {row("Mission type", m.mission_type)}
+      {row("Trip shape", tripShapeLabel(m.trip_shape))}
+      {row("Origin", missionOriginLabel(m))}
+      {row("Destination", m.destination)}
+      {row("Passengers", m.passengers)}
+      {row("Mission ID", <span className="font-mono">{m.id.slice(0, 8)}</span>)}
+      {row("Planned route", missionRouteSummary(m), true)}
+      {row("Fuel budget", missionFuelSummary(m), true)}
+      {row("Loadout / equipment", m.loadout_summary, true)}
+      {row("Notes", m.notes, true)}
+    </dl>
+  );
+}
+
 export default function VehicleRequestsPage() {
   const { organizationId, user } = useAuth();
   const { active, trackId, stepIndex } = useTutorial();
@@ -809,16 +950,14 @@ export default function VehicleRequestsPage() {
   const [arbitrationRows, setArbitrationRows] = useState<PlannedMissionRow[]>([]);
   const [shortfalls, setShortfalls] = useState<CapacityShortfall[]>([]);
   const [pendingMissions, setPendingMissions] = useState<PlannedMissionRow[]>([]);
-  const [expandedPendingMissionId, setExpandedPendingMissionId] = useState<string | null>(null);
-  const [waitingTripOpen, setWaitingTripOpen] = useState(true);
-  // Approved-missions list: list/tiles toggle + filter/sort + click-to-expand maps
-  const [missionViewMode, setMissionViewMode] = useState<"list" | "tiles">(() => {
-    if (typeof window === "undefined") return "list";
-    return (window.localStorage.getItem("missionViewMode") as "list" | "tiles") || "list";
-  });
-  const [missionFilter, setMissionFilter] = useState("");
-  const [missionSort, setMissionSort] = useState<"departure" | "created" | "destination">("departure");
-  const [expandedApprovedMissionId, setExpandedApprovedMissionId] = useState<string | null>(null);
+  // Tile grid + modals (2026-10-19). One expanded card at a time inside the open modal.
+  const [expandedMissionId, setExpandedMissionId] = useState<string | null>(null);
+  const [openTile, setOpenTile] = useState<RequestTileKey | null>(null);
+  const [modalFilter, setModalFilter] = useState("");
+  const [myMissions, setMyMissions] = useState<PlannedMissionRow[]>([]);
+  const [closedMissions, setClosedMissions] = useState<PlannedMissionRow[]>([]);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  const [editMissionRequest, setEditMissionRequest] = useState<{ id: string; nonce: number } | null>(null);
 
   const roleLooksFleet =
     !!user &&
@@ -850,13 +989,122 @@ export default function VehicleRequestsPage() {
     );
     if (!res.ok) return [];
     const j = (await res.json()) as PlannedMissionRow[];
-    const rows = Array.isArray(j) ? j : [];
+    // API orders by departure_date; approvers need the newest submission first.
+    const rows = sortMissionsNewestFirst(Array.isArray(j) ? j : []);
     setPendingMissions(rows);
-    setExpandedPendingMissionId((prev) =>
-      prev && !rows.some((m) => m.id === prev) ? null : prev
-    );
+    setPendingLoaded(true);
     return rows;
   }, [canApproveMission, organizationId]);
+
+  const pendingDuplicateCounts = useMemo(
+    () => countSimilarPendingMissions(pendingMissions),
+    [pendingMissions]
+  );
+
+  /** The signed-in user's own missions (any approval state) for the "My requests" tile. */
+  const loadMyMissions = useCallback(async (): Promise<void> => {
+    if (!user?.id) {
+      setMyMissions([]);
+      return;
+    }
+    try {
+      const headers = await jsonHeadersWithBearer();
+      const res = await fetch(
+        `/api/missions?org=${encodeURIComponent(organizationId)}&status=planned&approvalStatus=all&createdByMe=true`,
+        { headers }
+      );
+      if (!res.ok) return;
+      const raw = (await res.json()) as PlannedMissionRow[];
+      const rows = Array.isArray(raw) ? raw : [];
+      setMyMissions(sortMissionsNewestFirst(rows));
+    } catch {
+      /* keep the last good list */
+    }
+  }, [organizationId, user?.id]);
+
+  /** Org-wide rejected / withdrawn missions for approvers ("Rejected / withdrawn" tile). */
+  const refetchClosedMissions = useCallback(async (): Promise<void> => {
+    if (!canApproveMission) {
+      setClosedMissions([]);
+      return;
+    }
+    try {
+      const headers = await jsonHeadersWithBearer();
+      const lists = await Promise.all(
+        ["rejected", "cancelled"].map(async (a) => {
+          const res = await fetch(
+            `/api/missions?org=${encodeURIComponent(organizationId)}&status=all&approvalStatus=${a}`,
+            { headers }
+          );
+          if (!res.ok) return [] as PlannedMissionRow[];
+          const j = (await res.json()) as PlannedMissionRow[];
+          return Array.isArray(j) ? j : [];
+        })
+      );
+      setClosedMissions(lists.flat());
+    } catch {
+      /* keep the last good list */
+    }
+  }, [canApproveMission, organizationId]);
+
+  useEffect(() => {
+    void loadMyMissions();
+  }, [loadMyMissions]);
+
+  useEffect(() => {
+    void refetchClosedMissions();
+  }, [refetchClosedMissions]);
+
+  async function withdrawMyMission(missionId: string): Promise<void> {
+    const ok = window.confirm(
+      "Withdraw this mission request?\n\nIt stays on record as withdrawn and leaves the approver queue. You can file a new mission later if plans change."
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action: "withdraw" }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(err.error || "Could not withdraw mission.");
+      return;
+    }
+    setRequestNotice("Mission withdrawn. It no longer waits for management approval.");
+    setExpandedMissionId((prev) => (prev === missionId ? null : prev));
+    void loadMyMissions();
+    void refetchPendingMissions();
+    void refetchClosedMissions();
+  }
+
+  async function resubmitMyMission(missionId: string): Promise<void> {
+    const ok = window.confirm(
+      "Resubmit this mission for management approval now? Make sure required changes are complete."
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/missions/${missionId}`, {
+      method: "PATCH",
+      headers: await jsonHeadersWithBearer(),
+      body: JSON.stringify({ action: "resubmit" }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(err.error || "Could not resubmit mission.");
+      return;
+    }
+    setRequestNotice("Mission resubmitted for management approval.");
+    void loadMyMissions();
+    void refetchPendingMissions();
+  }
+
+  /** Edit opens the mission form with this request loaded (the form owns the editing UI). */
+  function editMyMission(missionId: string): void {
+    setOpenTile(null);
+    setExpandedMissionId(null);
+    setView("requests");
+    setShowForm(true);
+    setEditMissionRequest((prev) => ({ id: missionId, nonce: (prev?.nonce ?? 0) + 1 }));
+  }
 
   const loadData = useCallback(() => {
     setIsLoading(true);
@@ -1010,14 +1258,17 @@ export default function VehicleRequestsPage() {
         ...(action === "revise" ? { revisionReason: reason.trim() } : {}),
       }),
     });
-    if (!res.ok) return;
-    await refetchPendingMissions();
-    if ((action === "approve" || action === "revise") && expandedPendingMissionId === missionId) {
-      setExpandedPendingMissionId(null);
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      window.alert(j.error || "Could not update the mission. Refresh and try again.");
+      return;
     }
+    await refetchPendingMissions();
+    setExpandedMissionId((prev) => (prev === missionId ? null : prev));
     void loadData();
     void refetchApprovedMissionsFleet();
-    if (action === "approve") setWaitingTripOpen(true);
+    void refetchClosedMissions();
+    void loadMyMissions();
   }
 
   const statusCounts = STATUS_FILTERS.map((p) => ({
@@ -1032,9 +1283,8 @@ export default function VehicleRequestsPage() {
       : listStatusFilter === "__other__"
         ? requests.filter((r) => !KNOWN_STATUS.has(r.status))
         : requests.filter((r) => r.status === listStatusFilter);
-  const sortedListRequests = [...filteredListRequests].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  // Newest first; created_at may be a zone-less SQLite timestamp (parsed as UTC).
+  const sortedListRequests = sortMissionsNewestFirst(filteredListRequests);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -1076,24 +1326,11 @@ export default function VehicleRequestsPage() {
     };
   }, [organizationId]);
 
-  const deepLinkMissionId = searchParams.get("mission");
-  const deepLinkAppliedRef = useRef(false);
-  useEffect(() => {
-    if (!deepLinkMissionId || deepLinkAppliedRef.current) return;
-    if (!pendingMissions.some((m) => m.id === deepLinkMissionId)) return;
-    deepLinkAppliedRef.current = true;
-    setExpandedPendingMissionId(deepLinkMissionId);
-    requestAnimationFrame(() => {
-      document
-        .getElementById(`pending-mission-${deepLinkMissionId}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [deepLinkMissionId, pendingMissions]);
 
   useEffect(() => {
     if (!canApproveMission) {
       setPendingMissions([]);
-      setExpandedPendingMissionId(null);
+      setPendingLoaded(true);
       return;
     }
     void refetchPendingMissions();
@@ -1153,8 +1390,680 @@ export default function VehicleRequestsPage() {
 
   const pendingCount = (Array.isArray(requests) ? requests : []).filter((r) => r.status === "requested").length;
 
+  // ---- Tile grid (2026-10-19 redesign): one tile per request group, each opens a modal ----
+  const activeApproved = approvedMissionsFleet.filter(
+    (m) => !m.lifecycle_status || m.lifecycle_status === "active"
+  );
+  const missionGroups = useMemo(
+    () =>
+      buildMissionTileGroups({
+        pendingForApprover: pendingMissions,
+        mine: myMissions,
+        approvedOrg: approvedMissionsFleet,
+        closedOrg: closedMissions,
+        canApprove: canApproveMission,
+      }),
+    [pendingMissions, myMissions, approvedMissionsFleet, closedMissions, canApproveMission]
+  );
+  const myDuplicateCounts = useMemo(() => countSimilarPendingMissions(myMissions), [myMissions]);
+  const showArbitrationTile = !!missionPerms?.canArbitrateCapacity && shortfalls.length > 0;
+
+  type TileDef = {
+    key: RequestTileKey;
+    label: string;
+    hint: string;
+    tone: RequestTileTone;
+    count: number;
+    pending: number;
+    pendingLabel?: string;
+    dataTutorial?: string;
+    subtitle?: React.ReactNode;
+  };
+  const missionTile = (
+    key: Exclude<RequestTileKey, "arbitration" | "vehicle_requests">,
+    rest: Omit<TileDef, "key" | "count" | "pending">
+  ): TileDef => ({
+    key,
+    count: missionGroups[key].length,
+    pending: tilePendingCount(key, missionGroups[key]),
+    ...rest,
+  });
+  const tileDefs: TileDef[] = [
+    ...(canApproveMission
+      ? [
+          missionTile("pending_approval", {
+            label: "Pending my approval",
+            hint: "Approve, revise or reject",
+            tone: "amber",
+            pendingLabel: "awaiting your approval",
+            dataTutorial: "tutorial-vr-pending-approval",
+            subtitle:
+              "Newest first. Unapproved after 20 days: warning email; after 30 days: rejected automatically. Drivers can only request a vehicle after approval.",
+          }),
+        ]
+      : []),
+    missionTile("my_requests", {
+      label: "My requests",
+      hint: "Your open missions",
+      tone: "sky",
+      pendingLabel: "awaiting a decision",
+      subtitle: "Missions you submitted that are still open. No need to re-file while management has not decided.",
+    }),
+    missionTile("awaiting_trip", {
+      label: "Approved, awaiting trip",
+      hint: "Requestor creates the trip",
+      tone: "emerald",
+      dataTutorial: "tutorial-vr-create-trip",
+      subtitle: `The requestor or designated driver creates the planned trip on Trips. Missions with no trip ${NO_TRIP_EXPIRE_AFTER_DAYS} days after approval are cleared; the requestor is reminded 7, 3 and 1 day before.`,
+    }),
+    missionTile("awaiting_vehicle", {
+      label: canAllocateVehicle ? "Allocate vehicles" : "Awaiting vehicle",
+      hint: "Trip exists, no vehicle yet",
+      tone: "emerald",
+      pendingLabel: "to allocate",
+      dataTutorial: "tutorial-vr-fleet-reserve",
+      subtitle:
+        "These missions have a planned trip. Fleet picks a pool vehicle matching the dates and class. If nothing is left for a date, report it and management decides which mission defers.",
+    }),
+    missionTile("active", {
+      label: "Active (vehicle allocated)",
+      hint: "Trip and vehicle in place",
+      tone: "zinc",
+      subtitle: "Approved missions with a trip and an allocated vehicle.",
+    }),
+    ...(showArbitrationTile
+      ? [
+          {
+            key: "arbitration" as const,
+            label: "Capacity arbitration",
+            hint: "No vehicle left on a date",
+            tone: "violet" as const,
+            count: shortfalls.length,
+            pending: shortfalls.length,
+            pendingLabel: "dates to decide",
+            dataTutorial: "tutorial-vr-arbitration",
+            subtitle: "Fleet reported no vehicle left to allocate. Defer or cancel the missions that cannot go.",
+          },
+        ]
+      : []),
+    {
+      key: "vehicle_requests",
+      label: "Driver logistics requests",
+      hint: "Pool queue rows",
+      tone: "zinc",
+      count: requests.length,
+      pending: pendingCount,
+      pendingLabel: "pending approval",
+      subtitle: "Driver requests linked to approved missions. Tap one for details and actions.",
+    },
+    missionTile("expired", {
+      label: "Expired / deferred",
+      hint: "Cleared, deferred or cancelled",
+      tone: "zinc",
+      subtitle: "Approved missions no longer active (no trip in time, deferred, or cancelled for capacity).",
+    }),
+    missionTile("rejected_withdrawn", {
+      label: "Rejected / withdrawn",
+      hint: "Closed without a trip",
+      tone: "red",
+      subtitle: canApproveMission ? "Rejected or withdrawn missions in this organization." : "Your rejected or withdrawn missions.",
+    }),
+  ];
+  const openTileDef = openTile ? tileDefs.find((t) => t.key === openTile) ?? null : null;
+
+  function openTileModal(key: RequestTileKey, expandMissionId?: string | null): void {
+    setOpenTile(key);
+    setExpandedMissionId(expandMissionId ?? null);
+    setModalFilter("");
+  }
+  const closeTileModal = useCallback(() => {
+    setOpenTile(null);
+    setExpandedMissionId(null);
+  }, []);
+
+  function toggleExpanded(id: string): void {
+    setExpandedMissionId((prev) => (prev === id ? null : id));
+  }
+
+  function filterMissions(rows: PlannedMissionRow[]): PlannedMissionRow[] {
+    const q = modalFilter.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((m) =>
+      [m.title, m.destination, m.departure_location, m.created_by_name, m.id]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }
+
+  function renderModalFilter(total: number): React.ReactNode {
+    if (total < 6) return null;
+    return (
+      <input
+        type="search"
+        value={modalFilter}
+        onChange={(e) => setModalFilter(e.target.value)}
+        placeholder="Filter by destination, title or requestor…"
+        aria-label="Filter requests"
+        className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+      />
+    );
+  }
+
+  function renderEmpty(text: string): React.ReactNode {
+    return <p className="py-8 text-center text-sm text-zinc-500">{text}</p>;
+  }
+
+  function renderMissionList(
+    key: Exclude<RequestTileKey, "arbitration" | "vehicle_requests">,
+    renderCard: (m: PlannedMissionRow) => React.ReactNode,
+    emptyText: string
+  ): React.ReactNode {
+    const all = missionGroups[key];
+    const rows = filterMissions(all);
+    return (
+      <>
+        {renderModalFilter(all.length)}
+        {rows.length === 0
+          ? renderEmpty(modalFilter ? `Nothing matches “${modalFilter}”.` : emptyText)
+          : rows.map((m) => <div key={m.id}>{renderCard(m)}</div>)}
+      </>
+    );
+  }
+
+  function renderTileBody(key: RequestTileKey): React.ReactNode {
+    switch (key) {
+      case "pending_approval":
+        return renderMissionList(
+          "pending_approval",
+          (m) => (
+            <MissionRequestCard
+              mission={m}
+              tileKey="pending_approval"
+              expanded={expandedMissionId === m.id}
+              onToggle={() => toggleExpanded(m.id)}
+              duplicateCount={pendingDuplicateCounts.get(m.id) ?? 0}
+              submittedTestId="pending-mission-submitted-at"
+              duplicateTestId="pending-mission-duplicate-hint"
+              badges={<MissionShapeBadges mission={m} />}
+              actions={
+                <PendingMissionApprovalActions
+                  className="flex flex-wrap gap-2"
+                  missionId={m.id}
+                  missionLabel={m.title || m.destination || m.id}
+                  onApprove={(id) => patchMissionApproval(id, "approve")}
+                  onRevise={(id) => patchMissionApproval(id, "revise")}
+                  onReject={(id) => patchMissionApproval(id, "reject")}
+                />
+              }
+            >
+              <PendingMissionDetailsBoundary missionTitle={m.title || m.destination || m.id}>
+                <div className="space-y-3">
+                  <MissionPipelineStepper mission={m} />
+                  <MissionRouteMap
+                    organizationId={organizationId}
+                    tripShape={m.trip_shape || "one_way"}
+                    height={200}
+                    points={missionRoutePoints(m)}
+                  />
+                  <MissionLifecycleTimeline mission={m} />
+                  {!!m.assets_being_moved && (
+                    <MissionManifestLinker
+                      mission={m}
+                      onChanged={() => {
+                        void refetchPendingMissions();
+                        void refetchApprovedMissionsFleet();
+                      }}
+                    />
+                  )}
+                  <TransportModeChangePanel
+                    mission={m}
+                    canApprove={canApproveMission}
+                    onChanged={() => {
+                      void refetchPendingMissions();
+                      void refetchApprovedMissionsFleet();
+                    }}
+                  />
+                  <MissionDetailsList mission={m} />
+                </div>
+              </PendingMissionDetailsBoundary>
+            </MissionRequestCard>
+          ),
+          "Nothing is waiting for your approval."
+        );
+      case "my_requests":
+        return (
+          <div className="space-y-2" data-testid="my-mission-requests">
+            {renderMissionList(
+              "my_requests",
+              (m) => {
+                const stage = missionApprovalStage(m.approval_status);
+                const approval = String(m.approval_status || "").toLowerCase();
+                const open = approval === "pending" || approval === "revision_requested";
+                return (
+                  <MissionRequestCard
+                    mission={m}
+                    tileKey="my_requests"
+                    expanded={expandedMissionId === m.id}
+                    onToggle={() => toggleExpanded(m.id)}
+                    duplicateCount={myDuplicateCounts.get(m.id) ?? 0}
+                    submittedTestId="my-mission-submitted-at"
+                    duplicateTestId="my-mission-duplicate-hint"
+                    duplicateTitle="You have another pending request to the same place on overlapping dates. Withdraw the extra one(s) so approvers know which is current."
+                    badges={<Badge variant={stage.tone}>{stage.label}</Badge>}
+                    actions={
+                      open || approval === "approved" ? (
+                        <div className="flex flex-wrap gap-2">
+                          {open && (
+                            <>
+                              <Button type="button" size="sm" variant="outline" onClick={() => editMyMission(m.id)}>
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="text-red-700 border-red-200"
+                                onClick={() => void withdrawMyMission(m.id)}
+                              >
+                                Withdraw
+                              </Button>
+                            </>
+                          )}
+                          {approval === "revision_requested" && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-amber-700 hover:bg-amber-800 text-white"
+                              onClick={() => void resubmitMyMission(m.id)}
+                            >
+                              Resubmit
+                            </Button>
+                          )}
+                          {approval === "approved" && (
+                            <Link href="/trips" className="inline-flex h-8 items-center rounded-lg border border-emerald-300 px-3 text-xs font-medium text-emerald-800">
+                              Create the trip on Trips →
+                            </Link>
+                          )}
+                        </div>
+                      ) : null
+                    }
+                  >
+                    {approval === "revision_requested" && m.rejection_reason && (
+                      <p className="text-xs text-amber-900 whitespace-pre-wrap">
+                        <span className="font-medium">Feedback: </span>
+                        {m.rejection_reason}
+                      </p>
+                    )}
+                    <MissionPipelineStepper mission={m} />
+                    <MissionDetailsList mission={m} />
+                  </MissionRequestCard>
+                );
+              },
+              "You have no open mission requests. Use + New mission to file one."
+            )}
+          </div>
+        );
+      case "awaiting_trip":
+        return renderMissionList(
+          "awaiting_trip",
+          (m) => {
+            const clear = noTripClearDate(m);
+            return (
+              <MissionRequestCard
+                mission={m}
+                tileKey="awaiting_trip"
+                expanded={expandedMissionId === m.id}
+                onToggle={() => toggleExpanded(m.id)}
+                badges={<MissionShapeBadges mission={m} />}
+                note={
+                  clear
+                    ? String(clear) > new Date().toISOString().slice(0, 10)
+                      ? `Cleared on ${clear} if no trip is created by then.`
+                      : "Overdue: cleared by the daily check after a final notice to the requestor."
+                    : undefined
+                }
+              >
+                <MissionNextOwnerBanner mission={m} />
+                <MissionRouteMap
+                  organizationId={organizationId}
+                  tripShape={m.trip_shape || "one_way"}
+                  height={180}
+                  points={missionRoutePoints(m)}
+                />
+                <MissionDetailsList mission={m} />
+              </MissionRequestCard>
+            );
+          },
+          "No approved missions are waiting for a trip."
+        );
+      case "awaiting_vehicle": {
+        const all = missionGroups.awaiting_vehicle;
+        const rows = filterMissions(all);
+        const dates = [...new Set(rows.map((m) => String(m.departure_date || "").slice(0, 10)))].sort().reverse();
+        return (
+          <>
+            {renderModalFilter(all.length)}
+            {rows.length === 0 && renderEmpty("No missions are waiting for a vehicle.")}
+            {dates.map((date) => {
+              const flagged = shortfalls.find((s) => s.departure_date === date);
+              return (
+                <div key={date} className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <p className="text-xs font-medium text-zinc-600">Departing {date}</p>
+                    {canAllocateVehicle &&
+                      (flagged ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-violet-800">
+                            Shortage reported{flagged.flagged_by_name ? ` by ${flagged.flagged_by_name}` : ""}
+                          </span>
+                          <Button type="button" size="sm" variant="outline" onClick={() => void reportCapacityShortfall(date, "clear")}>
+                            Withdraw report
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-violet-900 border-violet-200"
+                          onClick={() => void reportCapacityShortfall(date, "flag")}
+                        >
+                          No vehicle left for this date
+                        </Button>
+                      ))}
+                  </div>
+                  {rows
+                    .filter((m) => String(m.departure_date || "").slice(0, 10) === date)
+                    .map((m) => (
+                      <MissionRequestCard
+                        key={m.id}
+                        mission={m}
+                        tileKey="awaiting_vehicle"
+                        expanded={expandedMissionId === m.id}
+                        onToggle={() => toggleExpanded(m.id)}
+                        badges={<MissionShapeBadges mission={m} />}
+                      >
+                        <div className="text-xs text-zinc-600">
+                          <span className="font-medium">Route:</span> {missionRouteSummary(m)}
+                        </div>
+                        <div className="text-xs text-zinc-600">
+                          <span className="font-medium">Fuel:</span> {missionFuelSummary(m)}
+                          <span className="text-zinc-400"> (recalculated for the reserved vehicle)</span>
+                        </div>
+                        {canAllocateVehicle ? (
+                          <FleetMissionReserveRow
+                            mission={m}
+                            onReserved={() => {
+                              void loadData();
+                              void refetchApprovedMissionsFleet();
+                            }}
+                          />
+                        ) : (
+                          <MissionNextOwnerBanner mission={m} />
+                        )}
+                      </MissionRequestCard>
+                    ))}
+                </div>
+              );
+            })}
+          </>
+        );
+      }
+      case "active":
+        return renderMissionList(
+          "active",
+          (m) => (
+            <MissionRequestCard
+              mission={m}
+              tileKey="active"
+              expanded={expandedMissionId === m.id}
+              onToggle={() => toggleExpanded(m.id)}
+              badges={
+                <>
+                  {m.assigned_vehicle_code && <Badge variant="success">{m.assigned_vehicle_code}</Badge>}
+                  <MissionShapeBadges mission={m} />
+                </>
+              }
+            >
+              <MissionNextOwnerBanner mission={m} />
+              <MissionPipelineStepper mission={m} />
+              <MissionDetailsList mission={m} />
+            </MissionRequestCard>
+          ),
+          "No active missions."
+        );
+      case "expired":
+        return renderMissionList(
+          "expired",
+          (m) => (
+            <MissionRequestCard
+              mission={m}
+              tileKey="expired"
+              expanded={expandedMissionId === m.id}
+              onToggle={() => toggleExpanded(m.id)}
+              badges={<Badge variant="secondary">{String(m.lifecycle_status || "").replace(/_/g, " ")}</Badge>}
+            >
+              <MissionDetailsList mission={m} />
+            </MissionRequestCard>
+          ),
+          "No expired or deferred missions."
+        );
+      case "rejected_withdrawn":
+        return renderMissionList(
+          "rejected_withdrawn",
+          (m) => {
+            const withdrawn = String(m.lifecycle_status || "").toLowerCase() === "withdrawn";
+            return (
+              <MissionRequestCard
+                mission={m}
+                tileKey="rejected_withdrawn"
+                expanded={expandedMissionId === m.id}
+                onToggle={() => toggleExpanded(m.id)}
+                badges={
+                  <Badge variant={withdrawn ? "secondary" : "destructive"}>
+                    {withdrawn ? "Withdrawn" : String(m.approval_status || "rejected").replace(/_/g, " ")}
+                  </Badge>
+                }
+              >
+                {m.rejection_reason && (
+                  <p className="text-xs text-zinc-700 whitespace-pre-wrap">
+                    <span className="font-medium">Reason: </span>
+                    {m.rejection_reason}
+                  </p>
+                )}
+                <MissionDetailsList mission={m} />
+              </MissionRequestCard>
+            );
+          },
+          "No rejected or withdrawn missions."
+        );
+      case "arbitration":
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-zinc-600 block mb-1">Departure date fleet reported</label>
+              <select
+                value={arbitrationDateActive}
+                onChange={(e) => setArbitrationDate(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-200 px-2 text-sm bg-white sm:w-auto"
+              >
+                {shortfalls.map((s) => (
+                  <option key={s.departure_date} value={s.departure_date}>
+                    {s.departure_date}
+                    {s.flagged_by_name ? ` — ${s.flagged_by_name}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {!shortfalls.some((s) => s.departure_date === arbitrationDateActive) ? (
+              <p className="text-sm text-zinc-600">Fleet has not reported a vehicle shortage for this date.</p>
+            ) : arbitrationRows.length === 0 ? (
+              <p className="text-sm text-zinc-600">No approved missions on this date.</p>
+            ) : (
+              <ul className="space-y-2">
+                {arbitrationRows.map((m) => {
+                  const arbActive = !m.lifecycle_status || m.lifecycle_status === "active";
+                  return (
+                    <li key={m.id} className="space-y-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 72)}</span>
+                        {!arbActive && (
+                          <Badge variant="warning" className="ml-2 text-[10px] align-middle">
+                            {String(m.lifecycle_status).replace(/_/g, " ")}
+                          </Badge>
+                        )}
+                        <div className="text-xs text-zinc-500">
+                          {m.departure_date}
+                          {m.assigned_vehicle_code ? ` · ${m.assigned_vehicle_code}` : " · no vehicle"} · Submitted{" "}
+                          {formatMissionSubmittedAt(m.created_at) || "—"}
+                        </div>
+                        <div className="text-xs text-zinc-600 mt-1">
+                          {tripShapeLabel(m.trip_shape)} · {missionRouteSummary(m)}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {arbActive ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="text-amber-900 border-amber-200"
+                              onClick={() => void patchMissionArbitration(m.id, "defer")}
+                            >
+                              Defer
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="text-red-800 border-red-200"
+                              onClick={() => void patchMissionArbitration(m.id, "cancel_capacity")}
+                            >
+                              Cancel (capacity)
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => void patchMissionArbitration(m.id, "reactivate")}
+                          >
+                            Reactivate
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      case "vehicle_requests":
+        return (
+          <>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+              <button
+                type="button"
+                onClick={() => setListStatusFilter(null)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium touch-manipulation",
+                  listStatusFilter === null ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-600"
+                )}
+              >
+                All ({requests.length})
+              </button>
+              {statusCounts.map(({ status, label, count }) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setListStatusFilter((prev) => (prev === status ? null : status))}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium touch-manipulation",
+                    listStatusFilter === status ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-600"
+                  )}
+                >
+                  {label} ({count})
+                </button>
+              ))}
+              {otherCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setListStatusFilter((prev) => (prev === "__other__" ? null : "__other__"))}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium touch-manipulation",
+                    listStatusFilter === "__other__"
+                      ? "border-amber-700 bg-amber-700 text-white"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  )}
+                >
+                  Other ({otherCount})
+                </button>
+              )}
+            </div>
+            {sortedListRequests.length === 0
+              ? renderEmpty(requests.length === 0 ? "No vehicle requests yet." : "No requests in this filter.")
+              : sortedListRequests.map((req) => (
+                  <button
+                    key={req.id}
+                    type="button"
+                    onClick={() => setDetailRequest(req)}
+                    data-testid="vehicle-request-card"
+                    className="block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-zinc-50 touch-manipulation"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 font-medium text-zinc-900 break-words">{req.purpose || "—"}</span>
+                      <Badge
+                        variant={(STATUS_COLORS[req.status] || "secondary") as "warning" | "success" | "destructive" | "secondary"}
+                        className="shrink-0 text-[11px]"
+                      >
+                        {req.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-600">
+                      {req.requested_by_name || "—"} · {req.destination || "—"} · Depart {req.departure_date || "—"}
+                      {req.assigned_vehicle_code ? ` · ${req.assigned_vehicle_code}` : ""}
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-500">
+                      Submitted {formatMissionSubmittedAt(req.created_at) || "—"}
+                      {req.mission_title?.trim() || req.mission_destination?.trim()
+                        ? ` · Mission: ${req.mission_title?.trim() || req.mission_destination}`
+                        : ""}
+                    </div>
+                  </button>
+                ))}
+          </>
+        );
+      default:
+        return null;
+    }
+  }
+
+  // Deep links (?mission= from approval notifications, ?highlight= from /fleet-reservations):
+  // open the tile that holds the mission, expand its card and scroll to it.
+  const deepLinkMissionId = deepLinkMissionIdFromParams(searchParams);
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!deepLinkMissionId || deepLinkAppliedRef.current) return;
+    // Wait for the approver queue so a pending mission opens "Pending my approval", not "My requests".
+    if (canApproveMission && !pendingLoaded) return;
+    const key = tileForMission(deepLinkMissionId, missionGroups);
+    if (!key) return;
+    deepLinkAppliedRef.current = true;
+    setOpenTile(key);
+    setExpandedMissionId(deepLinkMissionId);
+    setModalFilter("");
+    window.setTimeout(() => {
+      document
+        .getElementById(missionCardDomId(key, deepLinkMissionId))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, [deepLinkMissionId, missionGroups, canApproveMission, pendingLoaded]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <strong className="font-semibold">Could not load vehicle requests.</strong> {loadError}
@@ -1163,8 +2072,13 @@ export default function VehicleRequestsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-zinc-500">
-            {requests.length} request{requests.length !== 1 ? "s" : ""}
-            {pendingCount > 0 && <span className="text-amber-600 font-semibold"> · {pendingCount} pending approval</span>}
+            {canApproveMission && pendingMissions.length > 0 && (
+              <span className="text-amber-700 font-semibold">
+                {pendingMissions.length} mission{pendingMissions.length !== 1 ? "s" : ""} awaiting your approval ·{" "}
+              </span>
+            )}
+            {requests.length} driver request{requests.length !== 1 ? "s" : ""}
+            {pendingCount > 0 && <span className="text-amber-600 font-semibold"> ({pendingCount} pending)</span>}
             {pool && <span> · {pool.availableCount} in vehicle pool</span>}
           </p>
         </div>
@@ -1189,7 +2103,7 @@ export default function VehicleRequestsPage() {
             </button>
           </div>
           <span data-tutorial="tutorial-vr-request-btn">
-            <Button onClick={() => { setShowForm(!showForm); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
+            <Button onClick={() => { setShowForm(!showForm); setEditMissionRequest(null); setView("requests"); }} size="lg" className="touch-manipulation min-h-[48px]">
               + New mission
             </Button>
           </span>
@@ -1203,10 +2117,21 @@ export default function VehicleRequestsPage() {
           userName={user?.name || ""}
           onComplete={(message) => {
             setShowForm(false);
+            setEditMissionRequest(null);
             setRequestNotice(message || null);
             loadData();
           }}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => {
+            setShowForm(false);
+            setEditMissionRequest(null);
+          }}
+          editMissionRequest={editMissionRequest}
+          myOpenRequestCount={missionGroups.my_requests.length}
+          onOpenMyRequests={() => openTileModal("my_requests")}
+          onMissionsChanged={() => {
+            void loadMyMissions();
+            void refetchPendingMissions();
+          }}
         />
       )}
       {requestNotice && !showForm && (
@@ -1226,536 +2151,10 @@ export default function VehicleRequestsPage() {
         </div>
       )}
 
-      {(() => {
-        const activeApproved = approvedMissionsFleet.filter(
-          (m) => !m.lifecycle_status || m.lifecycle_status === "active"
-        );
-        const waitingTrip = activeApproved.filter((m) => !String(m.trip_id || "").trim());
-        const readyToAllocate = activeApproved.filter((m) => {
-          const trip = String(m.trip_id || "").trim();
-          if (!trip) return false;
-          const vid = String(m.assigned_vehicle_id || "").trim();
-          if (!vid || vid.startsWith("unallocated_")) return true;
-          if (String(m.assigned_vehicle_code || "").toUpperCase() === "UNALLOCATED") return true;
-          return false;
-        });
-        // Approved-missions list: text filter + sort (departure default).
-        const mf = missionFilter.trim().toLowerCase();
-        const filteredMissions = mf
-          ? waitingTrip.filter((m) =>
-              [m.title, m.destination, m.created_by_name]
-                .filter(Boolean)
-                .some((v) => String(v).toLowerCase().includes(mf))
-            )
-          : waitingTrip;
-        const sortedMissions = [...filteredMissions].sort((a, b) => {
-          if (missionSort === "destination") {
-            return String(a.destination || "").localeCompare(String(b.destination || ""));
-          }
-          if (missionSort === "created") {
-            return String(b.created_at || "").localeCompare(String(a.created_at || ""));
-          }
-          return String(a.departure_date || "").localeCompare(String(b.departure_date || ""));
-        });
-        return (
-          <>
-            {waitingTrip.length > 0 && (
-              <Card className="border-amber-200 bg-amber-50/30" data-tutorial="tutorial-vr-create-trip">
-                <CardHeader className="pb-2">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 text-left"
-                    aria-expanded={waitingTripOpen}
-                    onClick={() => setWaitingTripOpen((v) => !v)}
-                  >
-                    <CardTitle className="text-base">
-                      Approved missions ({waitingTrip.length})
-                    </CardTitle>
-                    <span className="text-xs text-zinc-500 shrink-0">{waitingTripOpen ? "Hide ▲" : "Show ▼"}</span>
-                  </button>
-                  {waitingTripOpen && (
-                    <p className="text-sm text-zinc-600 font-normal">
-                      Mission is approved. The <strong>requestor or designated driver</strong> creates the planned trip on Trips.
-                      Fleet lead allocates a vehicle only after that trip exists — not from Approve on Request details.
-                      Missions with no trip {NO_TRIP_EXPIRE_AFTER_DAYS} days after approval are cleared; the requestor is
-                      reminded 7, 3 and 1 day before.
-                    </p>
-                  )}
-                </CardHeader>
-                {waitingTripOpen && (
-                <CardContent className="space-y-3">
-                  {/* Controls: list/tiles toggle + filter + sort */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-xs">
-                      {(["list", "tiles"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => {
-                            setMissionViewMode(mode);
-                            try { window.localStorage.setItem("missionViewMode", mode); } catch {}
-                          }}
-                          className={`rounded-md px-2.5 py-1 capitalize ${missionViewMode === mode ? "bg-zinc-900 text-white" : "text-zinc-600"}`}
-                        >
-                          {mode === "list" ? "List" : "Tiles"}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={missionFilter}
-                      onChange={(e) => setMissionFilter(e.target.value)}
-                      placeholder="Filter by destination, title, or requestor…"
-                      className="h-8 min-w-[200px] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-                    />
-                    <select
-                      value={missionSort}
-                      onChange={(e) => setMissionSort(e.target.value as typeof missionSort)}
-                      className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-700"
-                      aria-label="Sort missions"
-                    >
-                      <option value="departure">Sort: departure date</option>
-                      <option value="created">Sort: recently created</option>
-                      <option value="destination">Sort: destination A–Z</option>
-                    </select>
-                  </div>
-                  {sortedMissions.length === 0 && (
-                    <p className="text-sm text-zinc-500">No approved missions match{missionFilter ? ` “${missionFilter}”` : ""}.</p>
-                  )}
-                  <div className={missionViewMode === "tiles" ? "grid gap-3 sm:grid-cols-2" : "space-y-2"}>
-                  {sortedMissions.map((m) => {
-                    const expanded = expandedApprovedMissionId === m.id;
-                    return (
-                    <div
-                      key={m.id}
-                      className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm space-y-2"
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full flex-wrap justify-between gap-2 text-left"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedApprovedMissionId(expanded ? null : m.id)}
-                      >
-                        <div className="min-w-0">
-                          <span className="font-medium text-zinc-900">
-                            {(m.title || m.destination).slice(0, 80)}
-                          </span>
-                          <span className="text-zinc-500 ml-2 block sm:inline">
-                            {m.destination} · {m.departure_date}
-                            {m.return_date ? ` → ${m.return_date}` : ""}
-                            {m.created_by_name ? ` · by ${m.created_by_name}` : ""}
-                          </span>
-                        </div>
-                        <span className="flex items-center gap-1.5 shrink-0">
-                          {m.required_vehicle_class && (
-                            <Badge variant="secondary" className="text-[10px]">
-                              Class: {m.required_vehicle_class}
-                            </Badge>
-                          )}
-                          <span className="text-xs text-zinc-400">{expanded ? "Hide map ▲" : "Map ▼"}</span>
-                        </span>
-                      </button>
-                      {expanded && (
-                        <MissionRouteMap
-                          organizationId={organizationId}
-                          tripShape={m.trip_shape || "one_way"}
-                          height={180}
-                          points={missionRoutePoints(m)}
-                        />
-                      )}
-                      {noTripClearDate(m) && (
-                        <p className="text-xs text-amber-800">
-                          {String(noTripClearDate(m)) > new Date().toISOString().slice(0, 10)
-                            ? `Cleared on ${noTripClearDate(m)} if no trip is created by then.`
-                            : "Overdue: cleared by the daily check after a final notice to the requestor."}
-                        </p>
-                      )}
-                      <MissionNextOwnerBanner mission={m} />
-                    </div>
-                    );
-                  })}
-                  </div>
-                </CardContent>
-                )}
-              </Card>
-            )}
-
-            {canAllocateVehicle && readyToAllocate.length > 0 && (
-              <Card className="border-emerald-100 bg-emerald-50/20" data-tutorial="tutorial-vr-fleet-reserve">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Fleet lead: allocate vehicles</CardTitle>
-                  <p className="text-sm text-zinc-600 font-normal">
-                    These missions already have a planned trip. Pick a pool vehicle matching the dates and required class.
-                    If nothing is left for a departure date, report it. Management then chooses which mission defers or is cancelled.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {[...new Set(readyToAllocate.map((m) => String(m.departure_date || "").slice(0, 10)))]
-                    .sort()
-                    .reverse()
-                    .map((date) => {
-                      const flagged = shortfalls.find((s) => s.departure_date === date);
-                      const dayMissions = readyToAllocate.filter(
-                        (m) => String(m.departure_date || "").slice(0, 10) === date
-                      );
-                      return (
-                        <div key={date} className="space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-zinc-600">Departing {date}</p>
-                            {flagged ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-violet-800">
-                                  Shortage reported{flagged.flagged_by_name ? ` by ${flagged.flagged_by_name}` : ""}
-                                </span>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => void reportCapacityShortfall(date, "clear")}
-                                >
-                                  Withdraw report
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="text-violet-900 border-violet-200"
-                                onClick={() => void reportCapacityShortfall(date, "flag")}
-                              >
-                                No vehicle left for this date
-                              </Button>
-                            )}
-                          </div>
-                          {dayMissions.map((m) => (
-                    <div
-                      key={m.id}
-                      className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm space-y-1"
-                    >
-                      <div className="flex flex-wrap justify-between gap-2">
-                        <div className="min-w-0">
-                          <span className="font-medium text-zinc-900">
-                            {(m.title || m.destination).slice(0, 80)}
-                          </span>
-                          <span className="text-zinc-500 ml-2 block sm:inline">
-                            {m.destination} · {m.departure_date}
-                            {m.return_date ? ` → ${m.return_date}` : ""}
-                          </span>
-                          <div className="text-xs text-zinc-600 mt-1">
-                            <span className="font-medium">Route:</span> {missionRouteSummary(m)}
-                          </div>
-                          <div className="text-xs text-zinc-600">
-                            <span className="font-medium">Fuel:</span> {missionFuelSummary(m)}
-                            <span className="text-zinc-400"> (recalculated for the reserved vehicle)</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1 shrink-0">
-                          <Badge variant="secondary" className="text-[10px] shrink-0">
-                            {tripShapeLabel(m.trip_shape)}
-                          </Badge>
-                          {m.required_vehicle_class && (
-                            <Badge variant="secondary" className="text-[10px] shrink-0">
-                              Class: {m.required_vehicle_class}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <FleetMissionReserveRow
-                        mission={m}
-                        onReserved={() => {
-                          void loadData();
-                          void refetchApprovedMissionsFleet();
-                        }}
-                      />
-                    </div>
-                          ))}
-                        </div>
-                      );
-                    })}
-                </CardContent>
-              </Card>
-            )}
-
-            <MissionFuelFundingCard
-              missions={activeApproved}
-              organizationId={organizationId}
-              user={user ? { id: user.id, role: user.role } : null}
-              onChanged={() => void refetchApprovedMissionsFleet()}
-            />
-          </>
-        );
-      })()}
-
-      {missionPerms?.canArbitrateCapacity && shortfalls.length > 0 && (
-        <Card className="border-violet-200 bg-violet-50/30" data-tutorial="tutorial-vr-arbitration">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Management: capacity arbitration (departure day)</CardTitle>
-            <p className="text-sm text-zinc-600 font-normal">
-              Fleet reported no vehicle left to allocate on {shortfalls.map((s) => s.departure_date).join(", ")}.
-              Defer or cancel the missions that cannot go. Fleet lead cannot choose who loses a slot.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-end gap-2">
-              <div>
-                <label className="text-xs font-medium text-zinc-600 block mb-1">Departure date fleet reported</label>
-                <select
-                  value={arbitrationDateActive}
-                  onChange={(e) => setArbitrationDate(e.target.value)}
-                  className="h-10 rounded-lg border border-zinc-200 px-2 text-sm bg-white"
-                >
-                  {shortfalls.map((s) => (
-                    <option key={s.departure_date} value={s.departure_date}>
-                      {s.departure_date}
-                      {s.flagged_by_name ? ` — ${s.flagged_by_name}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {!shortfalls.some((s) => s.departure_date === arbitrationDateActive) ? (
-              <p className="text-sm text-zinc-600">Fleet has not reported a vehicle shortage for this date.</p>
-            ) : arbitrationRows.length === 0 ? (
-              <p className="text-sm text-zinc-600">No approved missions on this date.</p>
-            ) : (
-              <ul className="space-y-2">
-                {arbitrationRows.map((m) => {
-                  const arbActive = !m.lifecycle_status || m.lifecycle_status === "active";
-                  return (
-                  <li
-                    key={m.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0">
-                      <span className="font-medium text-zinc-900">{(m.title || m.destination).slice(0, 72)}</span>
-                      {!arbActive && (
-                        <Badge variant="warning" className="ml-2 text-[10px] align-middle">
-                          {String(m.lifecycle_status).replace(/_/g, " ")}
-                        </Badge>
-                      )}
-                      <span className="text-zinc-500 ml-2">
-                        {m.departure_date}
-                        {m.assigned_vehicle_code ? ` · ${m.assigned_vehicle_code}` : " · no vehicle"}
-                      </span>
-                      <div className="text-xs text-zinc-600 mt-1">
-                        {tripShapeLabel(m.trip_shape)} · {missionRouteSummary(m)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 shrink-0">
-                      {arbActive ? (
-                        <>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="text-amber-900 border-amber-200"
-                            onClick={() => void patchMissionArbitration(m.id, "defer")}
-                          >
-                            Defer
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="text-red-800 border-red-200"
-                            onClick={() => void patchMissionArbitration(m.id, "cancel_capacity")}
-                          >
-                            Cancel (capacity)
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                          onClick={() => void patchMissionArbitration(m.id, "reactivate")}
-                        >
-                          Reactivate
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {canApproveMission && pendingMissions.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50/40" data-tutorial="tutorial-vr-pending-approval">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Missions pending management approval</CardTitle>
-            <p className="text-sm text-zinc-600 font-normal">
-              Open a mission to review trip-plan details before approving or rejecting. Drivers can only request a vehicle after mission approval.
-              If it is still unapproved after 20 days, Fleet Hub emails a warning. After 30 days it is rejected automatically.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {pendingMissions.map((m) => (
-              <div
-                key={m.id}
-                id={`pending-mission-${m.id}`}
-                className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
-              >
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() =>
-                    setExpandedPendingMissionId((prev) => (prev === m.id ? null : m.id))
-                  }
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-zinc-900">
-                          {(m.title || m.destination).slice(0, 120)}
-                        </span>
-                        <span className="text-xs text-zinc-500">
-                          {expandedPendingMissionId === m.id ? "▲ Hide details" : "▼ View details"}
-                        </span>
-                      </div>
-                      <div className="text-zinc-500 mt-0.5">
-                        From <span className="font-medium text-zinc-700">{missionOriginLabel(m)}</span> · To <span className="font-medium text-zinc-700">{m.destination}</span> · {m.departure_date}
-                        {m.return_date ? ` → ${m.return_date}` : ""}
-                      </div>
-                      <div className="text-xs text-zinc-600 mt-1">
-                        <span className="font-medium">Route:</span> {missionRouteSummary(m)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 shrink-0">
-                      <Badge variant="secondary">{tripShapeLabel(m.trip_shape)}</Badge>
-                      {m.mission_profile && (
-                        <Badge variant="secondary" className="capitalize">
-                          {m.mission_profile}
-                        </Badge>
-                      )}
-                      {m.required_vehicle_class && (
-                        <Badge variant="secondary">
-                          {ASSET_CLASS_LABELS[m.required_vehicle_class as AssetClass] ??
-                            m.required_vehicle_class}
-                        </Badge>
-                      )}
-                      {(() => {
-                        const crew = typeof m.crew_size === "number" && m.crew_size > 0 ? m.crew_size : null;
-                        if (crew != null) {
-                          return (
-                            <Badge variant="secondary">
-                              {crew} pax
-                            </Badge>
-                          );
-                        }
-                        if (m.passengers) {
-                          return (
-                            <Badge variant="secondary">
-                              {m.passengers} pax
-                            </Badge>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  </div>
-                </button>
-                <div className="mt-1.5">
-                  <MissionPipelineStepper mission={m} />
-                </div>
-                <PendingMissionApprovalActions
-                  className="mt-2 flex flex-wrap gap-2 border-t border-amber-100 pt-2"
-                  missionId={m.id}
-                  missionLabel={m.title || m.destination || m.id}
-                  onApprove={(id) => patchMissionApproval(id, "approve")}
-                  onRevise={(id) => patchMissionApproval(id, "revise")}
-                  onReject={(id) => patchMissionApproval(id, "reject")}
-                />
-                {expandedPendingMissionId === m.id && (
-                  <PendingMissionDetailsBoundary missionTitle={m.title || m.destination || m.id}>
-                  <div className="mt-3 space-y-3 border-t border-amber-100 pt-3">
-                    <MissionRouteMap
-                      organizationId={organizationId}
-                      tripShape={m.trip_shape || "one_way"}
-                      height={220}
-                      points={missionRoutePoints(m)}
-                    />
-                    <MissionLifecycleTimeline mission={m} />
-                    {!!m.assets_being_moved && (
-                      <MissionManifestLinker
-                        mission={m}
-                        onChanged={() => {
-                          void refetchPendingMissions();
-                          void refetchApprovedMissionsFleet();
-                        }}
-                      />
-                    )}
-                    <TransportModeChangePanel
-                      mission={m}
-                      canApprove={canApproveMission}
-                      onChanged={() => {
-                        void refetchPendingMissions();
-                        void refetchApprovedMissionsFleet();
-                      }}
-                    />
-                    <dl className="grid gap-2 text-xs text-zinc-700 sm:grid-cols-2">
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Created by</dt>
-                        <dd className="text-zinc-900 mt-0.5">{m.created_by_name || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Created</dt>
-                        <dd className="text-zinc-900 mt-0.5">
-                          {m.created_at ? new Date(m.created_at).toLocaleString() : "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Mission type</dt>
-                        <dd className="text-zinc-900 mt-0.5">{m.mission_type || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Trip shape</dt>
-                        <dd className="text-zinc-900 mt-0.5">{tripShapeLabel(m.trip_shape)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Origin</dt>
-                        <dd className="text-zinc-900 mt-0.5">{missionOriginLabel(m)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-zinc-500 uppercase tracking-wide">Destination</dt>
-                        <dd className="text-zinc-900 mt-0.5">{m.destination || "—"}</dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-zinc-500 uppercase tracking-wide">Planned route</dt>
-                        <dd className="text-zinc-900 mt-0.5">{missionRouteSummary(m)}</dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-zinc-500 uppercase tracking-wide">Fuel budget</dt>
-                        <dd className="text-zinc-900 mt-0.5">{missionFuelSummary(m)}</dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-zinc-500 uppercase tracking-wide">Loadout / equipment</dt>
-                        <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">
-                          {m.loadout_summary || "—"}
-                        </dd>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <dt className="text-zinc-500 uppercase tracking-wide">Notes</dt>
-                        <dd className="text-zinc-900 mt-0.5 whitespace-pre-wrap">{m.notes || "—"}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                  </PendingMissionDetailsBoundary>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {isLoading ? (
-        <div className="text-zinc-500 text-center py-12">Loading…</div>
-      ) : view === "pool" ? (
-        pool ? (
+      {view === "pool" ? (
+        isLoading ? (
+          <div className="text-zinc-500 text-center py-12">Loading…</div>
+        ) : pool ? (
           <PoolView pool={pool} />
         ) : (
           <div className="text-zinc-500 text-center py-12">
@@ -1764,172 +2163,67 @@ export default function VehicleRequestsPage() {
               : "Vehicle pool is unavailable."}
           </div>
         )
-      ) : requests.length === 0 ? (
-        <div className="text-zinc-500 text-center py-12">No vehicle requests yet.</div>
       ) : (
-        <div className="space-y-4">
-          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
-            <span className="font-medium text-zinc-800">Summary</span>
-            <span className="mx-2 text-zinc-300">·</span>
-            {statusCounts.map(({ status, label, count }) => (
-              <span key={status} className="whitespace-nowrap mr-3">
-                {label} <strong className="text-zinc-900 tabular-nums">{count}</strong>
-              </span>
+        <>
+          <section
+            aria-label="Requests by status"
+            data-testid="request-tiles"
+            className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4"
+          >
+            {tileDefs.map((t) => (
+              <RequestTile
+                key={t.key}
+                tileKey={t.key}
+                label={t.label}
+                hint={t.hint}
+                count={t.count}
+                pendingCount={t.pending}
+                pendingLabel={t.pendingLabel}
+                tone={t.tone}
+                dataTutorial={t.dataTutorial}
+                onOpen={() => openTileModal(t.key)}
+              />
             ))}
-            {otherCount > 0 && (
-              <span className="whitespace-nowrap text-amber-800">
-                Other <strong className="tabular-nums">{otherCount}</strong>
-              </span>
-            )}
-          </div>
+          </section>
+          {isLoading && <p className="text-xs text-zinc-500">Loading requests…</p>}
+          <MissionFuelFundingCard
+            missions={activeApproved}
+            organizationId={organizationId}
+            user={user ? { id: user.id, role: user.role } : null}
+            onChanged={() => void refetchApprovedMissionsFleet()}
+          />
+        </>
+      )}
 
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs font-medium text-zinc-500 mr-1">Filter:</span>
-            <button
-              type="button"
-              onClick={() => setListStatusFilter(null)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-medium touch-manipulation",
-                listStatusFilter === null
-                  ? "border-zinc-900 bg-zinc-900 text-white"
-                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-              )}
-            >
-              All ({requests.length})
-            </button>
-            {STATUS_FILTERS.map(({ status, label }) => {
-              const n = countByStatus(requests, status);
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => setListStatusFilter((prev) => (prev === status ? null : status))}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-xs font-medium touch-manipulation",
-                    listStatusFilter === status
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-                  )}
-                >
-                  {label} ({n})
-                </button>
-              );
-            })}
-            {otherCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setListStatusFilter((prev) => (prev === "__other__" ? null : "__other__"))}
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium touch-manipulation",
-                  listStatusFilter === "__other__"
-                    ? "border-amber-700 bg-amber-700 text-white"
-                    : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                )}
-              >
-                Other ({otherCount})
-              </button>
-            )}
-          </div>
+      {openTile && openTileDef && (
+        <RequestsGroupModal
+          tileKey={openTile}
+          title={`${openTileDef.label} (${openTileDef.count})`}
+          subtitle={openTileDef.subtitle}
+          onClose={closeTileModal}
+          closeOnEscape={!detailRequest}
+        >
+          {renderTileBody(openTile)}
+        </RequestsGroupModal>
+      )}
 
-          {sortedListRequests.length === 0 ? (
-            <div className="text-zinc-500 text-center py-12">No requests in this filter.</div>
-          ) : (
-            <div className="rounded-lg border border-zinc-200 bg-white overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left min-w-[1000px]">
-                  <thead>
-                    <tr className="border-b border-zinc-200 bg-zinc-50/90 text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                      <th className="px-3 py-2.5 whitespace-nowrap">Created</th>
-                      <th className="px-3 py-2.5">Purpose</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Requester</th>
-                      <th className="px-3 py-2.5">Destination</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Depart</th>
-                      <th className="px-3 py-2.5 max-w-[140px]">Mission</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Vehicle</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedListRequests.map((req) => (
-                      <tr
-                        key={req.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setDetailRequest(req)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setDetailRequest(req);
-                          }
-                        }}
-                        className="border-b border-zinc-100 hover:bg-zinc-50/90 cursor-pointer transition-colors"
-                      >
-                        <td className="px-3 py-2.5 whitespace-nowrap text-zinc-500 tabular-nums">
-                          {new Date(req.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-3 py-2.5 font-medium text-zinc-900 max-w-[220px] truncate" title={req.purpose}>
-                          {req.purpose || "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap max-w-[140px] truncate" title={req.requested_by_name}>
-                          {req.requested_by_name}
-                        </td>
-                        <td className="px-3 py-2.5 text-zinc-600 max-w-[180px] truncate" title={req.destination}>
-                          {req.destination || "—"}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap text-zinc-600 tabular-nums">
-                          {req.departure_date || "—"}
-                        </td>
-                        <td className="px-3 py-2.5 text-zinc-600 max-w-[140px] truncate" title={req.mission_title || req.mission_destination || ""}>
-                          {req.mission_title?.trim()
-                            ? req.mission_title
-                            : req.mission_destination?.trim()
-                              ? req.mission_destination
-                              : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <Badge variant={(STATUS_COLORS[req.status] || "secondary") as "warning" | "success" | "destructive" | "secondary"} className="text-[11px]">
-                            {req.status}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5 text-zinc-700 whitespace-nowrap max-w-[160px] truncate">
-                          {req.assigned_vehicle_code ? (
-                            <span title={`${req.assigned_vehicle_make ?? ""} ${req.assigned_vehicle_model ?? ""}`}>
-                              {req.assigned_vehicle_code}
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="px-3 py-2 text-xs text-zinc-500 border-t border-zinc-100 bg-zinc-50/50">
-                Click a row to open details (read-only view with actions for approvers).
-              </p>
-            </div>
-          )}
-
-          {detailRequest && (
-            <RequestDetailModal
-              request={detailRequest}
-              organizationId={organizationId}
-              canFullEdit={canFullEdit}
-              canApproveMission={canApproveMission}
-              canAllocateVehicle={canAllocateVehicle}
-              currentUserEmail={user?.email?.trim() ?? ""}
-              pool={pool}
-              approverName={user?.name || ""}
-              onClose={() => setDetailRequest(null)}
-              onPatchSaved={(updated) => {
-                setDetailRequest(updated);
-                void loadData();
-                void refetchApprovedMissionsFleet();
-              }}
-            />
-          )}
-        </div>
+      {detailRequest && (
+        <RequestDetailModal
+          request={detailRequest}
+          organizationId={organizationId}
+          canFullEdit={canFullEdit}
+          canApproveMission={canApproveMission}
+          canAllocateVehicle={canAllocateVehicle}
+          currentUserEmail={user?.email?.trim() ?? ""}
+          pool={pool}
+          approverName={user?.name || ""}
+          onClose={() => setDetailRequest(null)}
+          onPatchSaved={(updated) => {
+            setDetailRequest(updated);
+            void loadData();
+            void refetchApprovedMissionsFleet();
+          }}
+        />
       )}
     </div>
   );
@@ -2451,12 +2745,22 @@ function RequestForm({
   userName,
   onComplete,
   onCancel,
+  editMissionRequest,
+  myOpenRequestCount = 0,
+  onOpenMyRequests,
+  onMissionsChanged,
 }: {
   organizationId: string;
   userId: string;
   userName: string;
   onComplete: (message?: string) => void;
   onCancel: () => void;
+  /** Set by the "My requests" modal's Edit button: load that mission into this form. */
+  editMissionRequest?: { id: string; nonce: number } | null;
+  myOpenRequestCount?: number;
+  onOpenMyRequests?: () => void;
+  /** Called after this form reloads the user's missions (save, submit, withdraw…). */
+  onMissionsChanged?: () => void;
 }) {
   const returnTo = useSearchParams().get("returnTo") || "";
   const [vrSubmitting, setVrSubmitting] = useState(false);
@@ -2514,6 +2818,11 @@ function RequestForm({
     fmQuizPath: string;
   } | null>(null);
   const missionFormRef = useRef<HTMLFormElement | null>(null);
+  const onMissionsChangedRef = useRef(onMissionsChanged);
+  useEffect(() => {
+    onMissionsChangedRef.current = onMissionsChanged;
+  }, [onMissionsChanged]);
+  const loadedMissionsOnceRef = useRef(false);
 
   const loadApprovedMissions = useCallback(() => {
     setMissionsLoading(true);
@@ -2526,11 +2835,13 @@ function RequestForm({
         );
         const raw = res.ok ? ((await res.json()) as PlannedMissionRow[]) : [];
         const rows = Array.isArray(raw) ? raw : [];
-        rows.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-        setMyMissions(rows);
+        setMyMissions(sortMissionsNewestFirst(rows));
         setApprovedMissions(
           rows.filter((m) => String(m.approval_status || "").toLowerCase() === "approved")
         );
+        // The page keeps its own copy for the tiles; refresh it after changes made here.
+        if (loadedMissionsOnceRef.current) onMissionsChangedRef.current?.();
+        loadedMissionsOnceRef.current = true;
       } catch {
         setMyMissions([]);
         setApprovedMissions([]);
@@ -2541,10 +2852,6 @@ function RequestForm({
   }, [organizationId]);
 
   const draftMissions = myMissions.filter((m) => String(m.approval_status || "").toLowerCase() === "draft");
-  const myActiveMissionRequests = myMissions.filter((m) => {
-    const s = String(m.approval_status || "").toLowerCase();
-    return s !== "draft";
-  });
 
   useEffect(() => {
     Promise.all([
@@ -2737,48 +3044,18 @@ function RequestForm({
     setMissionVehicleClass(String(m.required_vehicle_class || ""));
   }
 
-  async function withdrawMyMission(missionId: string): Promise<void> {
-    const ok = window.confirm(
-      "Withdraw this mission request?\n\nIt stays on record as withdrawn and leaves the approver queue. You can file a new mission later if plans change."
-    );
-    if (!ok) return;
-    const res = await fetch(`/api/missions/${missionId}`, {
-      method: "PATCH",
-      headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ action: "withdraw" }),
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      setMissionFormError(err.error || "Could not withdraw mission.");
-      return;
-    }
-    setMissionMessage("Mission withdrawn. It no longer waits for management approval.");
-    if (editingMissionDraftId === missionId) {
-      setEditingMissionDraftId(null);
-      missionFormRef.current?.reset();
-      setRoutePlan(emptyRoutePlan());
-    }
-    loadApprovedMissions();
-  }
-
-  async function resubmitMissionForApproval(missionId: string): Promise<void> {
-    const ok = window.confirm(
-      "Resubmit this mission for management approval now? Make sure required changes are complete."
-    );
-    if (!ok) return;
-    const res = await fetch(`/api/missions/${missionId}`, {
-      method: "PATCH",
-      headers: await jsonHeadersWithBearer(),
-      body: JSON.stringify({ action: "resubmit" }),
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      setMissionFormError(err.error || "Could not resubmit mission.");
-      return;
-    }
-    setMissionMessage("Mission resubmitted for management approval.");
-    loadApprovedMissions();
-  }
+  // Load a mission chosen from the "My requests" modal (Edit) into the form.
+  const handledEditNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!editMissionRequest || handledEditNonceRef.current === editMissionRequest.nonce) return;
+    const m = myMissions.find((row) => row.id === editMissionRequest.id);
+    if (!m || !missionFormRef.current) return;
+    handledEditNonceRef.current = editMissionRequest.nonce;
+    loadMissionDraftIntoForm(m);
+    missionFormRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    // loadMissionDraftIntoForm is recreated each render; the nonce guard keeps this one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMissionRequest, myMissions, sites]);
 
   async function submitDraftMissionNow(missionId: string): Promise<void> {
     const headers = await jsonHeadersWithBearer();
@@ -3274,88 +3551,22 @@ function RequestForm({
                 {missionMessage}
               </div>
             )}
-            <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-3 space-y-2" data-testid="my-mission-requests">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-medium text-zinc-900">My mission requests</div>
-                {missionsLoading && <span className="text-xs text-zinc-500">Loading…</span>}
+            {editingMissionDraftId && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900" data-testid="editing-mission-banner">
+                Editing an existing request ({editingMissionDraftId.slice(0, 8)}). Submitting updates it instead of filing a new one.
               </div>
-              <p className="text-xs text-zinc-600">
-                Submitted missions stay here with their approval status — you do not need to re-file if management has not decided yet.
-              </p>
-              {myActiveMissionRequests.length === 0 && !missionsLoading ? (
-                <p className="text-xs text-zinc-500 py-1">No submitted missions yet. Use the form below to create one.</p>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {myActiveMissionRequests.map((m) => {
-                    const stage = missionApprovalStage(m.approval_status);
-                    const approval = String(m.approval_status || "").toLowerCase();
-                    return (
-                      <div
-                        key={m.id}
-                        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="font-medium text-zinc-900 truncate">
-                              {(m.title?.trim() || m.destination).slice(0, 120)}
-                            </div>
-                            <div className="text-xs text-zinc-600 mt-0.5">
-                              {missionRouteSummary(m)} · {m.departure_date}
-                              {m.return_date ? ` → ${m.return_date}` : ""}
-                            </div>
-                            {m.created_at && (
-                              <div className="text-[11px] text-zinc-500 mt-0.5">
-                                Filed {new Date(m.created_at).toLocaleString()}
-                              </div>
-                            )}
-                          </div>
-                          <Badge variant={stage.tone}>{stage.label}</Badge>
-                        </div>
-                        {approval === "revision_requested" && m.rejection_reason && (
-                          <p className="mt-1 text-xs text-amber-900 whitespace-pre-wrap">
-                            <span className="font-medium">Feedback: </span>
-                            {m.rejection_reason}
-                          </p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {(approval === "pending" || approval === "revision_requested") && (
-                            <>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => loadMissionDraftIntoForm(m)}
-                              >
-                                {editingMissionDraftId === m.id ? "Editing in form" : "Edit"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="text-red-700 border-red-200"
-                                onClick={() => void withdrawMyMission(m.id)}
-                              >
-                                Withdraw
-                              </Button>
-                            </>
-                          )}
-                          {approval === "revision_requested" && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="bg-amber-700 hover:bg-amber-800 text-white"
-                              onClick={() => void resubmitMissionForApproval(m.id)}
-                            >
-                              Resubmit
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            )}
+            {onOpenMyRequests && myOpenRequestCount > 0 && (
+              <button
+                type="button"
+                onClick={onOpenMyRequests}
+                className="w-full rounded-lg border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-100"
+                data-testid="open-my-requests-from-form"
+              >
+                You already have {myOpenRequestCount} open mission request{myOpenRequestCount === 1 ? "" : "s"}. Check{" "}
+                <span className="font-medium underline">My requests</span> before filing another.
+              </button>
+            )}
             {draftMissions.length > 0 && (
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 space-y-2">
                 <div className="text-sm font-medium text-blue-900">Mission drafts</div>
