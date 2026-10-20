@@ -20,6 +20,21 @@ import {
   PassengerManifestPicker,
   type ManifestPassenger,
 } from "@/components/PassengerManifestPicker";
+import type { VehiclePrefillContext } from "@/lib/vehicle-check-context";
+import {
+  carryOverDefects,
+  decideCarriedDefect,
+  EMPTY_ITEM_STATE,
+  odometerHintText,
+  odometerWarning,
+  pendingCarriedDefects,
+  prefillHintText,
+  setItem,
+  shortDate,
+  type CarriedDefect,
+  type DvcItemState,
+  type PrefillSource,
+} from "@/lib/dvc-prefill";
 
 interface EligibleTrip {
   id: string;
@@ -45,13 +60,24 @@ interface MissionContext {
   returnDate: string | null;
   departed: boolean;
   lastOdometerKm: number | null;
+  plannedFuelLiters: number | null;
 }
 
 type PrefillKey = "vehicle" | "driver" | "routeFrom" | "routeTo" | "mileage" | "trip" | "direction";
 
-function FromMissionHint({ show, children }: { show: boolean; children?: React.ReactNode }): React.ReactElement | null {
-  return show ? <p className="text-[11px] text-emerald-700">{children ?? "from mission"}</p> : null;
+function PrefillHint({
+  source,
+  at,
+  children,
+}: {
+  source?: PrefillSource;
+  at?: string | null;
+  children?: React.ReactNode;
+}): React.ReactElement | null {
+  return source ? <p className="text-[11px] text-emerald-700">{children ?? prefillHintText(source, at)}</p> : null;
 }
+
+const PREFILLED_FIELD_CLASS = "border-emerald-300 bg-emerald-50/40";
 
 interface ApprovedDriverOption {
   id: string;
@@ -96,6 +122,7 @@ function ApprovedDriverCombobox({
   organizationId,
   nonCompliant = [],
   restricted = [],
+  prefilled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -105,6 +132,7 @@ function ApprovedDriverCombobox({
   organizationId: string;
   nonCompliant?: NonCompliantDriver[];
   restricted?: RestrictedDriver[];
+  prefilled?: boolean;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -149,7 +177,9 @@ function ApprovedDriverCombobox({
             else if (e.key === "ArrowDown") setOpen(true);
           }}
           placeholder="Pick an approved driver (or type to write in)"
-          className="h-10 w-full rounded-lg border border-zinc-200 bg-white pl-3 pr-9 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+          className={`h-10 w-full rounded-lg border pl-3 pr-9 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 ${
+            prefilled ? PREFILLED_FIELD_CLASS : "border-zinc-200 bg-white"
+          }`}
           autoComplete="off"
           role="combobox"
           aria-expanded={open}
@@ -320,9 +350,6 @@ interface Props {
   onCancel: () => void;
 }
 
-type PassFail = "pass" | "fail";
-type YesNo = 1 | 0;
-
 interface StatusItem {
   key: string;
   label: string;
@@ -375,12 +402,29 @@ const EQUIP_ITEMS: EquipItem[] = [
   { key: "equipToolInverter", label: "Inverter", group: "Basic Tools" },
 ];
 
+const ITEM_LABELS: Record<string, string> = Object.fromEntries(
+  [...STATUS_ITEMS, ...EQUIP_ITEMS].map((i) => [i.key, i.label])
+);
+
+function CarriedNote({ defect, at }: { defect?: CarriedDefect; at?: string | null }): React.ReactElement | null {
+  if (!defect) return null;
+  return (
+    <span className="block text-[11px] text-emerald-700">
+      {prefillHintText("last_check", at)}
+      {defect.decision === "pending" ? (
+        <span className="text-amber-700">: confirm still present or fixed</span>
+      ) : (
+        `: confirmed ${defect.decision === "present" ? "still present" : "fixed"}`
+      )}
+    </span>
+  );
+}
+
 export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, onCancel }: Props) {
   const { user } = useAuth();
   const [direction, setDirection] = useState<"departing" | "returning">("departing");
-  const [statusRatings, setStatusRatings] = useState<Record<string, PassFail>>({});
-  const [failureDescs, setFailureDescs] = useState<Record<string, string>>({});
-  const [equipChecks, setEquipChecks] = useState<Record<string, YesNo>>({});
+  const [items, setItems] = useState<DvcItemState>(EMPTY_ITEM_STATE);
+  const { statusRatings, failureDescs, equipChecks } = items;
   const [remarks, setRemarks] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -416,7 +460,10 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   const [routeTo, setRouteTo] = useState("");
   const [mileageInput, setMileageInput] = useState("");
   const [missionCtx, setMissionCtx] = useState<MissionContext | null>(null);
-  const [prefilled, setPrefilled] = useState<Partial<Record<PrefillKey, boolean>>>({});
+  const [vehicleCtx, setVehicleCtx] = useState<VehiclePrefillContext | null>(null);
+  const [prefilled, setPrefilled] = useState<Partial<Record<PrefillKey, PrefillSource>>>({});
+  // Source of truth for prefill markers between renders (two async prefill sources can land in one tick).
+  const prefilledRef = useRef<Partial<Record<PrefillKey, PrefillSource>>>({});
   const [ctxRequest, setCtxRequest] = useState<{ missionId: string; tripId: string } | null>(() => {
     if (typeof window === "undefined") return null;
     const sp = new URL(window.location.href).searchParams;
@@ -424,14 +471,26 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     const tripId = sp.get("tripId") ?? "";
     return missionId || tripId ? { missionId, tripId } : null;
   });
-  // Fields the user edited by hand; mission prefill never overwrites these.
+  // Fields the user edited by hand; prefill never overwrites these.
   const touchedRef = useRef<Set<PrefillKey>>(new Set());
-  const selectedVehicleIdRef = useRef(selectedVehicleId);
-  selectedVehicleIdRef.current = selectedVehicleId;
+  // Status / equipment items the user set by hand; defect carry-over leaves these alone.
+  const touchedItemsRef = useRef<Set<string>>(new Set());
+  const userNameRef = useRef(user?.name || "");
+  userNameRef.current = user?.name || "";
+
+  function markPrefilled(next: Partial<Record<PrefillKey, PrefillSource | undefined>>): void {
+    prefilledRef.current = { ...prefilledRef.current, ...next };
+    setPrefilled(prefilledRef.current);
+  }
 
   function touch(key: PrefillKey): void {
     touchedRef.current.add(key);
-    setPrefilled((p) => (p[key] ? { ...p, [key]: false } : p));
+    if (prefilledRef.current[key]) markPrefilled({ [key]: undefined });
+  }
+
+  function chooseItem(kind: "status" | "equipment", key: string, defective: boolean): void {
+    touchedItemsRef.current.add(key);
+    setItems((s) => setItem(s, kind, key, defective));
   }
 
   const selectedAssetClass = useMemo(() => {
@@ -518,38 +577,31 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         const c = (await res.json()) as MissionContext;
         if (cancelled) return;
         const touched = touchedRef.current;
-        const next: Partial<Record<PrefillKey, boolean>> = {};
-        if (!touched.has("trip")) next.trip = true;
+        const next: Partial<Record<PrefillKey, PrefillSource>> = {};
+        if (!touched.has("trip")) next.trip = "mission";
         setMissionCtx(c);
-        let vehicleMatches = true;
         if (c.vehicleId && !touched.has("vehicle")) {
           setSelectedVehicleId(c.vehicleId);
-          next.vehicle = true;
-        } else if (c.vehicleId && c.vehicleId !== selectedVehicleIdRef.current) {
-          vehicleMatches = false;
+          next.vehicle = "mission";
         }
         if (c.driverName && !touched.has("driver")) {
           autoFilledRef.current = true;
           setDriverName(c.driverName);
-          next.driver = true;
+          next.driver = "mission";
         }
         if (c.routeFrom && !touched.has("routeFrom")) {
           setRouteFrom(c.routeFrom);
-          next.routeFrom = true;
+          next.routeFrom = "mission";
         }
         if (c.routeTo && !touched.has("routeTo")) {
           setRouteTo(c.routeTo);
-          next.routeTo = true;
-        }
-        if (c.lastOdometerKm != null && vehicleMatches && !touched.has("mileage")) {
-          setMileageInput(String(c.lastOdometerKm));
-          next.mileage = true;
+          next.routeTo = "mission";
         }
         if (c.departed && !touched.has("direction")) {
           setDirection("returning");
-          next.direction = true;
+          next.direction = "mission";
         }
-        setPrefilled((p) => ({ ...p, ...next }));
+        markPrefilled(next);
       } catch {
         /* non-fatal: the form stays fully manual */
       }
@@ -558,6 +610,58 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
       cancelled = true;
     };
   }, [ctxRequest, organizationId]);
+
+  // Vehicle-level prefill (odometer, last-check driver, carried-over defects) on every vehicle change.
+  useEffect(() => {
+    let cancelled = false;
+    function apply(c: VehiclePrefillContext | null): void {
+      setVehicleCtx(c);
+      const touched = touchedRef.current;
+      const p = prefilledRef.current;
+      const next: Partial<Record<PrefillKey, PrefillSource | undefined>> = {};
+      if (!touched.has("mileage")) {
+        if (c?.lastOdometerKm != null) {
+          setMileageInput(String(c.lastOdometerKm));
+          next.mileage = "last_check";
+        } else if (p.mileage) {
+          setMileageInput("");
+          next.mileage = undefined;
+        }
+      }
+      // Mission driver and the logged-in user's own approved record both outrank the last check's driver.
+      if (!touched.has("driver") && p.driver !== "mission" && !autoFilledRef.current) {
+        const lastDriver = c?.lastCheck?.driverName;
+        if (lastDriver) {
+          setDriverName(lastDriver);
+          next.driver = "last_check";
+        } else if (p.driver === "last_check") {
+          setDriverName(userNameRef.current);
+          next.driver = undefined;
+        }
+      }
+      setItems((s) => carryOverDefects(s, c?.lastCheck?.defects ?? [], touchedItemsRef.current));
+      markPrefilled(next);
+    }
+    if (!selectedVehicleId) {
+      apply(null);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/vehicles/${encodeURIComponent(selectedVehicleId)}/vehicle-check-context?org=${encodeURIComponent(organizationId)}`,
+          { headers: await jsonHeadersWithBearer() }
+        );
+        const c = res.ok ? ((await res.json()) as VehiclePrefillContext) : null;
+        if (!cancelled) apply(c);
+      } catch {
+        if (!cancelled) apply(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedVehicleId, organizationId]);
 
   // Once the eligible list loads, select the entry belonging to the mission we prefilled from.
   useEffect(() => {
@@ -643,7 +747,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
   // Prefer the logged-in user's approved record when it becomes available.
   const autoFilledRef = useRef(false);
   useEffect(() => {
-    if (autoFilledRef.current) return;
+    if (autoFilledRef.current || touchedRef.current.has("driver")) return;
     if (!user?.email) return;
     const mine = driverOptions.find(
       (o) => o.email.toLowerCase() === user.email.toLowerCase()
@@ -651,6 +755,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     if (mine) {
       setDriverName(mine.displayName);
       autoFilledRef.current = true;
+      if (prefilledRef.current.driver === "last_check") markPrefilled({ driver: undefined });
     }
   }, [driverOptions, user?.email]);
 
@@ -677,20 +782,11 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
 
   const failedItems = Object.entries(statusRatings).filter(([, v]) => v === "fail");
   const hasFails = failedItems.length > 0;
-
-  function toggleStatus(key: string) {
-    setStatusRatings((prev) => ({
-      ...prev,
-      [key]: prev[key] === "fail" ? "pass" : "fail",
-    }));
-  }
-
-  function toggleEquip(key: string) {
-    setEquipChecks((prev) => ({
-      ...prev,
-      [key]: prev[key] === 0 ? 1 : 0,
-    }));
-  }
+  const carriedDefects = Object.values(items.carried);
+  const pendingDefects = pendingCarriedDefects(items);
+  const lastCheck = vehicleCtx?.lastCheck ?? null;
+  const mileageWarning = odometerWarning(mileageInput, vehicleCtx?.lastOdometerKm ?? null, !!prefilled.mileage);
+  const anyPrefill = Object.values(prefilled).some(Boolean) || carriedDefects.length > 0;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -706,6 +802,13 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
     const mileageKm = mileageRaw ? parseInt(mileageRaw, 10) : NaN;
     if (!Number.isFinite(mileageKm) || mileageKm < 0) {
       showFormError("Enter a valid odometer reading (km).");
+      return;
+    }
+
+    if (pendingDefects.length > 0) {
+      showFormError(
+        `Confirm the ${pendingDefects.length} defect${pendingDefects.length === 1 ? "" : "s"} carried over from the last check: still present or fixed.`
+      );
       return;
     }
 
@@ -844,6 +947,12 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
         <p className="text-sm text-zinc-500 font-normal">
           Complete before each vehicle deployment. Failed items need a description.
         </p>
+        {anyPrefill && (
+          <p className="text-xs text-emerald-800 font-normal">
+            Fields with a <span className="font-medium">green note</span> were filled in for you from the mission or
+            this vehicle&apos;s last check. Check each one against the vehicle and edit anything that&apos;s wrong.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
@@ -868,9 +977,9 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
             ))}
           </div>
 
-          <FromMissionHint show={!!prefilled.direction}>
+          <PrefillHint source={prefilled.direction}>
             Direction set to returning: this trip has already departed (from mission)
-          </FromMissionHint>
+          </PrefillHint>
 
           {/* Header fields */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -908,12 +1017,13 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 organizationId={organizationId}
                 nonCompliant={nonCompliantDrivers}
                 restricted={restrictedDrivers}
+                prefilled={!!prefilled.driver}
               />
-              <FromMissionHint show={!!prefilled.driver} />
+              <PrefillHint source={prefilled.driver} at={lastCheck?.createdAt} />
             </div>
             <Input label="Date" value={new Date().toLocaleDateString()} readOnly className="bg-zinc-50" />
           </div>
-          <FromMissionHint show={!!prefilled.vehicle}>Vehicle: from mission</FromMissionHint>
+          <PrefillHint source={prefilled.vehicle}>Vehicle: from mission</PrefillHint>
           <div className="space-y-0.5 text-xs text-zinc-600">
             <div>
               Inspector: <span className="font-medium text-zinc-800">{user?.name || user?.email || "—"}</span>
@@ -923,6 +1033,28 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 Mission: <span className="font-medium text-zinc-800">{missionCtx.title || "(untitled mission)"}</span>
                 {missionCtx.departureDate ? ` · departs ${missionCtx.departureDate.slice(0, 10)}` : ""}
                 {missionCtx.returnDate ? ` · returns ${missionCtx.returnDate.slice(0, 10)}` : ""}
+                {missionCtx.plannedFuelLiters != null
+                  ? ` · planned fuel ${Math.round(missionCtx.plannedFuelLiters)} L`
+                  : ""}
+              </div>
+            )}
+            {selectedVehicleId && vehicleCtx && (
+              <div>
+                Last check:{" "}
+                {lastCheck ? (
+                  <span className="font-medium text-zinc-800">
+                    {shortDate(lastCheck.createdAt || lastCheck.checkDate)} ({lastCheck.direction})
+                    {lastCheck.mileageKm != null ? ` · ${lastCheck.mileageKm.toLocaleString("en-US")} km` : ""}
+                    {` · fuel ${lastCheck.fuel === "fail" ? "flagged" : "OK"}`}
+                    {` · ${
+                      lastCheck.defects.length === 0
+                        ? "no defects reported"
+                        : `${lastCheck.defects.length} defect${lastCheck.defects.length === 1 ? "" : "s"} reported`
+                    }`}
+                  </span>
+                ) : (
+                  <span className="text-zinc-500">none on record for this vehicle</span>
+                )}
               </div>
             )}
           </div>
@@ -939,14 +1071,18 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   required
                   placeholder="Type current ODO"
                   value={mileageInput}
+                  className={prefilled.mileage ? PREFILLED_FIELD_CLASS : undefined}
                   onChange={(e) => {
                     touch("mileage");
                     setMileageInput(e.target.value);
                   }}
                 />
-                <FromMissionHint show={!!prefilled.mileage}>
-                  last recorded reading — confirm against the gauge
-                </FromMissionHint>
+                {vehicleCtx?.lastOdometerKm != null && (
+                  <PrefillHint source={prefilled.mileage}>
+                    {odometerHintText(vehicleCtx.lastOdometerKm, vehicleCtx.lastOdometerSource, vehicleCtx.lastOdometerAt)}
+                  </PrefillHint>
+                )}
+                {mileageWarning && <p className="text-[11px] text-amber-700">{mileageWarning}</p>}
                 <p className="text-xs text-zinc-500">
                   Enter the reading from the gauge, then take a photo of the odometer for verification.
                 </p>
@@ -1009,10 +1145,12 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   setRouteFrom(e.target.value);
                 }}
                 placeholder="Departure location"
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                className={`h-10 w-full rounded-lg border px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 ${
+                  prefilled.routeFrom ? PREFILLED_FIELD_CLASS : "border-zinc-200 bg-white"
+                }`}
                 autoComplete="off"
               />
-              <FromMissionHint show={!!prefilled.routeFrom} />
+              <PrefillHint source={prefilled.routeFrom} />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-zinc-700">Route to</label>
@@ -1025,10 +1163,12 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   setRouteTo(e.target.value);
                 }}
                 placeholder="Destination"
-                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                className={`h-10 w-full rounded-lg border px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 ${
+                  prefilled.routeTo ? PREFILLED_FIELD_CLASS : "border-zinc-200 bg-white"
+                }`}
                 autoComplete="off"
               />
-              <FromMissionHint show={!!prefilled.routeTo} />
+              <PrefillHint source={prefilled.routeTo} />
             </div>
             <datalist id="dvc-sites">
               {siteOptions.map((s) => (
@@ -1088,7 +1228,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                   })}
                 </select>
               )}
-              <FromMissionHint show={!!prefilled.trip && !!selectedTripId} />
+              <PrefillHint source={selectedTripId ? prefilled.trip : undefined} />
             </div>
           )}
 
@@ -1098,6 +1238,59 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                 value={passengerManifest}
                 onChange={setPassengerManifest}
               />
+            </div>
+          )}
+
+          {carriedDefects.length > 0 && lastCheck && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-amber-900">
+                  Defects reported on this vehicle&apos;s last check ({shortDate(lastCheck.createdAt || lastCheck.checkDate)})
+                </div>
+                <p className="text-xs text-amber-800">
+                  Confirm each one before submitting. Until you do, they are marked as failed / missing in the
+                  checklist below.
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {carriedDefects.map((d) => (
+                  <li
+                    key={d.key}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2"
+                  >
+                    <div className="text-sm">
+                      <span className="font-medium text-zinc-900">
+                        {ITEM_LABELS[d.key] ?? d.key}
+                        {d.kind === "equipment" ? ": missing" : ""}
+                      </span>
+                      {d.description && <span className="text-zinc-600">: {d.description}</span>}
+                    </div>
+                    <div className="flex gap-2">
+                      {(["present", "fixed"] as const).map((decision) => (
+                        <button
+                          key={decision}
+                          type="button"
+                          onClick={() => setItems((s) => decideCarriedDefect(s, d.key, decision))}
+                          className={`min-h-[40px] rounded-lg px-3 text-sm font-medium touch-manipulation ${
+                            d.decision === decision
+                              ? decision === "present"
+                                ? "bg-red-500 text-white"
+                                : "bg-emerald-500 text-white"
+                              : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                          }`}
+                        >
+                          {decision === "present" ? "Still present" : "Fixed"}
+                        </button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {lastCheck.remarks && (
+                <p className="text-xs text-zinc-700">
+                  Last check remarks: <span className="italic">{lastCheck.remarks}</span>
+                </p>
+              )}
             </div>
           )}
 
@@ -1117,11 +1310,19 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                     </div>
                   )}
                   <div className="px-4 py-2 flex items-center justify-between gap-3 border-t border-zinc-100">
-                    <span className="text-sm flex-1">{item.label}</span>
+                    <span className="text-sm flex-1">
+                      {item.label}
+                      <CarriedNote defect={items.carried[item.key]} at={lastCheck?.createdAt} />
+                      {item.key === "fluidsFuel" && lastCheck && !items.carried[item.key] && (
+                        <span className="block text-[11px] text-zinc-500">
+                          last check ({shortDate(lastCheck.createdAt)}): OK
+                        </span>
+                      )}
+                    </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => toggleStatus(item.key)}
+                        onClick={() => chooseItem("status", item.key, false)}
                         className={`min-h-[44px] min-w-[44px] rounded-lg text-base font-semibold transition-colors touch-manipulation ${
                           !isFail
                             ? "bg-emerald-500 text-white shadow-sm"
@@ -1132,7 +1333,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                       </button>
                       <button
                         type="button"
-                        onClick={() => toggleStatus(item.key)}
+                        onClick={() => chooseItem("status", item.key, true)}
                         className={`min-h-[44px] min-w-[44px] rounded-lg text-base font-semibold transition-colors touch-manipulation ${
                           isFail
                             ? "bg-red-500 text-white shadow-sm"
@@ -1150,7 +1351,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                         placeholder="Describe the failure…"
                         value={failureDescs[item.key] || ""}
                         onChange={(e) =>
-                          setFailureDescs((prev) => ({ ...prev, [item.key]: e.target.value }))
+                          setItems((s) => ({ ...s, failureDescs: { ...s.failureDescs, [item.key]: e.target.value } }))
                         }
                         className="h-10 w-full rounded-lg border border-red-200 px-3 text-sm"
                       />
@@ -1190,11 +1391,14 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                     </div>
                   )}
                   <div className="px-4 py-2 flex items-center justify-between gap-3 border-t border-zinc-100">
-                    <span className="text-sm flex-1">{item.label}</span>
+                    <span className="text-sm flex-1">
+                      {item.label}
+                      <CarriedNote defect={items.carried[item.key]} at={lastCheck?.createdAt} />
+                    </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => toggleEquip(item.key)}
+                        onClick={() => chooseItem("equipment", item.key, false)}
                         className={`min-h-[44px] px-4 rounded-lg text-sm font-medium transition-colors touch-manipulation ${
                           val === 1
                             ? "bg-emerald-500 text-white shadow-sm"
@@ -1205,7 +1409,7 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
                       </button>
                       <button
                         type="button"
-                        onClick={() => toggleEquip(item.key)}
+                        onClick={() => chooseItem("equipment", item.key, true)}
                         className={`min-h-[44px] px-4 rounded-lg text-sm font-medium transition-colors touch-manipulation ${
                           val === 0
                             ? "bg-amber-500 text-white shadow-sm"

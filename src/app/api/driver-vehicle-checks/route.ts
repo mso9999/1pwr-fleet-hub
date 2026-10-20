@@ -5,25 +5,8 @@ import { recordMutation } from "@/lib/record-mutation-log";
 import { auditActorFrom } from "@/lib/mutation-audit";
 import { evaluateTransmissionGate } from "@/lib/transmission-scope";
 import { resolveDepartingCheckAnchor } from "@/lib/eligible-for-departure";
+import { DVC_EQUIP_FIELDS as EQUIP_FIELDS, DVC_STATUS_FIELDS as STATUS_CHECK_FIELDS } from "@/lib/vehicle-check-context";
 import { v4 as uuidv4 } from "uuid";
-
-const STATUS_CHECK_FIELDS = [
-  "electrics_front_lights", "electrics_rear_lights", "electrics_indicators",
-  "electrics_brake_lights", "electrics_horn", "electrics_windows",
-  "electrics_central_locking", "electrics_wipers", "electrics_dashboard_gauges",
-  "electrics_ac_heating", "fluids_engine_oil", "fluids_engine_coolant",
-  "fluids_power_steering", "fluids_transmission", "fluids_fuel",
-  "drive_steering", "drive_brakes", "drive_tire_pressure",
-  "visual_spare_wheel_condition", "visual_doors",
-] as const;
-
-const EQUIP_FIELDS = [
-  "equip_jack", "equip_spare_wheel", "equip_triangle", "equip_jump_leads",
-  "equip_fire_extinguisher", "equip_phone_charger", "equip_first_aid_kit",
-  "equip_flashlight", "equip_tool_wheel_spanners", "equip_tool_multimeter",
-  "equip_tool_cable_cutters", "equip_tool_pliers", "equip_tool_tow_straps",
-  "equip_tool_inverter",
-] as const;
 
 function camelToSnake(s: string): string {
   return s.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);

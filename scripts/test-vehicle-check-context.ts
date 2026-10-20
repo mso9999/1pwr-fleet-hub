@@ -117,6 +117,88 @@ async function main(): Promise<void> {
   assert.equal(c3.vehicleId, "veh2");
   assert.equal(c3.driverName, "Mpho D.");
   assert.equal(c3.lastOdometerKm, null);
+  assert.equal(c3.plannedFuelLiters, null);
+
+  // Mission fuel budget is surfaced as info.
+  db.prepare("UPDATE missions SET fuel_liters = 42.5 WHERE id = 'm1'").run();
+  assert.equal(getVehicleCheckContext(db, { organizationId: "test_a", missionId: "m1" })?.plannedFuelLiters, 42.5);
+
+  // ---- Vehicle-level prefill: last check (driver, fuel, defects) + odometer ----
+  const { getVehiclePrefillContext, summarizeVehicleCheck } = await import("../src/lib/vehicle-check-context");
+
+  db.prepare(
+    `UPDATE driver_vehicle_checks
+        SET driver_name = 'Driver One', direction = 'returning', check_date = '2026-10-01',
+            drive_brakes = 'fail', fluids_fuel = 'fail', equip_jack = 0,
+            failure_descriptions = ?, remarks = 'Squeal on braking'
+      WHERE id = 'c_new'`
+  ).run(JSON.stringify({ driveBrakes: "Soft pedal", fluids_fuel: "Below quarter" }));
+  db.prepare("UPDATE driver_vehicle_checks SET drive_steering = 'fail' WHERE id = 'c_old'").run();
+
+  const v1 = getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: "veh1" });
+  assert.ok(v1);
+  assert.equal(v1.vehicleCode, "LS-01");
+  assert.equal(v1.lastOdometerKm, 52340);
+  assert.equal(v1.lastOdometerSource, "check");
+  assert.ok(v1.lastCheck);
+  assert.equal(v1.lastCheck.id, "c_new"); // older check's defects are not carried
+  assert.equal(v1.lastCheck.driverName, "Driver One");
+  assert.equal(v1.lastCheck.direction, "returning");
+  assert.equal(v1.lastCheck.fuel, "fail");
+  assert.equal(v1.lastCheck.remarks, "Squeal on braking");
+  assert.deepEqual(v1.lastCheck.defects, [
+    { kind: "status", key: "fluidsFuel", description: "Below quarter" }, // snake-case description key still found
+    { kind: "status", key: "driveBrakes", description: "Soft pedal" },
+    { kind: "equipment", key: "equipJack", description: "" },
+  ]);
+
+  // Scope: other org, placeholder and unknown vehicles -> null.
+  assert.equal(getVehiclePrefillContext(db, { organizationId: "test_b", vehicleId: "veh1" }), null);
+  assert.equal(getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: placeholder }), null);
+  assert.equal(getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: "nope" }), null);
+  assert.equal(getVehiclePrefillContext(db, { organizationId: "", vehicleId: "veh1" }), null);
+
+  // No check on record: lastCheck null; odometer comes from the trip log, then a higher in-trip reading.
+  const v2empty = getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: "veh2" });
+  assert.ok(v2empty);
+  assert.equal(v2empty.lastCheck, null);
+  assert.equal(v2empty.lastOdometerKm, null);
+  assert.equal(v2empty.lastOdometerSource, null);
+  db.prepare(
+    `INSERT INTO trips (id, organization_id, vehicle_id, driver_name, odo_start, odo_end, departure_location, destination, checkout_at, checkin_at)
+     VALUES ('t3', 'test_a', 'veh2', '', 8000, 8150, 'HQ', 'Site', '2026-10-02T06:00:00Z', '2026-10-02T18:00:00Z')`
+  ).run();
+  let v2 = getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: "veh2" });
+  assert.equal(v2?.lastOdometerKm, 8150);
+  assert.equal(v2?.lastOdometerSource, "trip");
+  db.prepare(
+    `INSERT INTO trip_odometer_readings (id, trip_id, organization_id, odo_km, recorded_at)
+     VALUES ('r1', 't3', 'test_a', 8210, '2026-10-03T09:00:00Z')`
+  ).run();
+  v2 = getVehiclePrefillContext(db, { organizationId: "test_a", vehicleId: "veh2" });
+  assert.equal(v2?.lastOdometerKm, 8210);
+  assert.equal(v2?.lastOdometerSource, "trip_reading");
+  assert.equal(v2?.lastOdometerAt, "2026-10-03T09:00:00Z");
+  // Mission context uses the same vehicle-level odometer.
+  assert.equal(getVehicleCheckContext(db, { organizationId: "test_a", missionId: "m3" })?.lastOdometerKm, 8210);
+
+  // Seconded vehicle: visible to the borrower, and the owner's last check travels with it.
+  db.prepare("UPDATE vehicles SET seconded_to_org = 'test_b' WHERE id = 'veh1'").run();
+  const seconded = getVehiclePrefillContext(db, { organizationId: "test_b", vehicleId: "veh1" });
+  assert.equal(seconded?.lastCheck?.id, "c_new");
+  db.prepare("UPDATE vehicles SET seconded_to_org = NULL WHERE id = 'veh1'").run();
+
+  // Summary of a clean row: no defects, fuel OK, blank fields -> null.
+  const clean = summarizeVehicleCheck({ id: "x", fluids_fuel: "pass", mileage_km: 0, driver_name: "", equip_jack: 1 });
+  assert.deepEqual(clean.defects, []);
+  assert.equal(clean.fuel, "pass");
+  assert.equal(clean.mileageKm, null);
+  assert.equal(clean.driverName, null);
+  assert.equal(clean.direction, "departing");
+  // Malformed failure_descriptions JSON does not throw.
+  assert.deepEqual(summarizeVehicleCheck({ id: "y", visual_doors: "fail", failure_descriptions: "{oops" }).defects, [
+    { kind: "status", key: "visualDoors", description: "" },
+  ]);
 
   console.log("vehicle check context tests passed");
 }
