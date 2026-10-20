@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "vehicle-check-prefill-last-check",
+    title: "Vehicle checks start from the vehicle's last check",
+    summary:
+      "Pick a vehicle and the check fills in its last odometer reading, driver and the defects reported last time. Confirm each defect as still present or fixed.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-10-20",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- In **Vehicle checks**, picking a vehicle fills in the **odometer** with its last recorded reading. Check it against the gauge and type the real reading. You still need the odometer photo.\n- If no mission names a driver, the **driver** is you when you are on the approved list, otherwise the driver from the last check.\n- Items that **failed or were missing on the last check**, including fuel, are listed at the top with their notes. Tap **Still present** or **Fixed** for each one. You cannot submit until every one is confirmed.\n- Starting from a mission still fills in the vehicle, driver and route, and now shows the mission's planned fuel.\n- Anything filled in for you has a green note saying where it came from. You can change every field.",
+      },
+    ],
+  },
+  {
     slug: "vehicle-request-already-open",
     title: "A mission with a vehicle request asks before you file another",
     summary:
