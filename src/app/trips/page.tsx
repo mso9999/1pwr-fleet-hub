@@ -15,6 +15,15 @@ import { TripOdometerLog } from "@/components/TripOdometerLog";
 import { MISSION_PROFILE } from "@/lib/trip-readiness";
 import { TripCheckoutForm } from "./checkout-form";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
+import {
+  EhsCompliantDriverPickerField,
+  type DesignatedOperatorSelection,
+} from "@/components/EhsCompliantDriverPickerField";
+import {
+  PassengerManifestPicker,
+  type ManifestPassenger,
+  manifestDisplayNames,
+} from "@/components/PassengerManifestPicker";
 
 interface TripRow {
   id: string;
@@ -26,6 +35,7 @@ interface TripRow {
   vehicle_code: string | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
+  driver_id?: string;
   driver_name: string;
   odo_start: number | null;
   odo_end: number | null;
@@ -183,8 +193,14 @@ function TripsPageContent(): React.ReactElement {
     e.preventDefault();
     setIsSaving(true);
     const fd = new FormData(e.currentTarget);
+    const driverName = String(fd.get("driverName") || "").trim();
+    if (!driverName) {
+      setIsSaving(false);
+      return;
+    }
     const body: Record<string, unknown> = {
-      driverName: fd.get("driverName"),
+      driverId: String(fd.get("driverId") || "").trim(),
+      driverName,
       odoStart: Number(fd.get("odoStart")) || 0,
       odoEnd: fd.get("odoEnd") ? Number(fd.get("odoEnd")) : null,
       departureLocation: fd.get("departureLocation"),
@@ -699,6 +715,116 @@ function DepartureForm({
   );
 }
 
+function TripEditForm({
+  trip,
+  organizationId,
+  sites,
+  missionTypes,
+  isSaving,
+  onSave,
+  onCancelEdit,
+}: {
+  trip: TripRow;
+  organizationId: string;
+  sites: RefItem[];
+  missionTypes: RefItem[];
+  isSaving: boolean;
+  onSave: (e: React.FormEvent<HTMLFormElement>) => void;
+  onCancelEdit: () => void;
+}): React.ReactElement {
+  const [editDriver, setEditDriver] = useState<DesignatedOperatorSelection | null>(() =>
+    trip.driver_name
+      ? { id: String(trip.driver_id || ""), displayName: trip.driver_name, email: "" }
+      : null
+  );
+  const [editPassengers, setEditPassengers] = useState<ManifestPassenger[]>([]);
+
+  return (
+    <form onSubmit={onSave} className="space-y-4">
+      <input type="hidden" name="driverId" value={editDriver?.id || ""} />
+      <input type="hidden" name="driverName" value={editDriver?.displayName || ""} />
+      <input
+        type="hidden"
+        name="passengers"
+        value={
+          editPassengers.length > 0
+            ? manifestDisplayNames(editPassengers)
+            : trip.passengers || ""
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="sm:col-span-2 lg:col-span-3">
+          <EhsCompliantDriverPickerField
+            organizationId={organizationId}
+            value={editDriver}
+            onChange={setEditDriver}
+            required
+            label="Driver (EHS register)"
+            helperText="Search and select from the EHS approved-drivers register. Free-text names are not accepted."
+          />
+        </div>
+        <Input name="odoStart" label="ODO Start (km)" type="number" defaultValue={trip.odo_start?.toString() ?? ""} />
+        <Input name="odoEnd" label="ODO End (km)" type="number" defaultValue={trip.odo_end?.toString() || ""} />
+        <Select name="departureLocation" label="Departure" defaultValue={trip.departure_location}>
+          {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+        </Select>
+        <Select name="destination" label="Destination" defaultValue={trip.destination}>
+          {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+        </Select>
+        <Select name="arrivalLocation" label="Arrived At" defaultValue={trip.arrival_location || ""}>
+          <option value="">—</option>
+          {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+        </Select>
+        <Select name="missionType" label="Mission Type" defaultValue={trip.mission_type}>
+          {missionTypes.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+        </Select>
+        <Select name="missionProfile" label="Trip kind" defaultValue={trip.mission_profile || MISSION_PROFILE.LOCAL}>
+          <option value={MISSION_PROFILE.LOCAL}>Local / in-town</option>
+          <option value={MISSION_PROFILE.FIELD}>Field deployment</option>
+        </Select>
+        <Select name="tripShape" label="Trip shape" defaultValue={trip.trip_shape || "one_way"}>
+          <option value="one_way">One-way</option>
+          <option value="round_trip">Round trip</option>
+          <option value="multi_stop">Multi-stop</option>
+        </Select>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <PassengerManifestPicker
+            value={editPassengers}
+            onChange={setEditPassengers}
+            showTravelMode={false}
+            label="People on this trip"
+            helperText={
+              trip.passengers
+                ? `Currently recorded: ${trip.passengers}. Select from the HR directory to replace those names.`
+                : "Search and select from the HR directory. Free-text names are not accepted."
+            }
+            emptyHint="Select people from the HR directory, or leave empty to keep the current list."
+            modalTitle="Select people from HR directory"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-zinc-700">Load Out</label>
+          <textarea name="loadOut" defaultValue={trip.load_out} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-zinc-700">Load In</label>
+          <textarea name="loadIn" defaultValue={trip.load_in} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-zinc-700">Issues Observed</label>
+          <textarea name="issuesObserved" defaultValue={trip.issues_observed} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={isSaving || !editDriver?.displayName}>
+          {isSaving ? "Saving..." : "Save Changes"}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onCancelEdit}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
+
 function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving, sites, missionTypes, onToggle, onEdit, onCancelEdit, onSave, onDelete }: {
   trip: TripRow;
   organizationId: string;
@@ -741,52 +867,16 @@ function TripHistoryRow({ trip, organizationId, isExpanded, isEditing, isSaving,
           <td colSpan={8} className="p-0">
             <div className="border-t border-blue-100 bg-blue-50/20 p-4 space-y-4">
               {isEditing ? (
-                <form onSubmit={onSave} className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <Input name="driverName" label="Driver Name" defaultValue={trip.driver_name} />
-                    <Input name="odoStart" label="ODO Start (km)" type="number" defaultValue={trip.odo_start?.toString() ?? ""} />
-                    <Input name="odoEnd" label="ODO End (km)" type="number" defaultValue={trip.odo_end?.toString() || ""} />
-                    <Select name="departureLocation" label="Departure" defaultValue={trip.departure_location}>
-                      {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
-                    </Select>
-                    <Select name="destination" label="Destination" defaultValue={trip.destination}>
-                      {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
-                    </Select>
-                    <Select name="arrivalLocation" label="Arrived At" defaultValue={trip.arrival_location || ""}>
-                      <option value="">—</option>
-                      {sites.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
-                    </Select>
-                    <Select name="missionType" label="Mission Type" defaultValue={trip.mission_type}>
-                      {missionTypes.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
-                    </Select>
-                    <Select name="missionProfile" label="Trip kind" defaultValue={trip.mission_profile || MISSION_PROFILE.LOCAL}>
-                      <option value={MISSION_PROFILE.LOCAL}>Local / in-town</option>
-                      <option value={MISSION_PROFILE.FIELD}>Field deployment</option>
-                    </Select>
-                    <Select name="tripShape" label="Trip shape" defaultValue={trip.trip_shape || "one_way"}>
-                      <option value="one_way">One-way</option>
-                      <option value="round_trip">Round trip</option>
-                      <option value="multi_stop">Multi-stop</option>
-                    </Select>
-                    <Input name="passengers" label="Passengers" defaultValue={trip.passengers} />
-                    <div>
-                      <label className="text-sm font-medium text-zinc-700">Load Out</label>
-                      <textarea name="loadOut" defaultValue={trip.load_out} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-zinc-700">Load In</label>
-                      <textarea name="loadIn" defaultValue={trip.load_in} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-zinc-700">Issues Observed</label>
-                      <textarea name="issuesObserved" defaultValue={trip.issues_observed} rows={2} className="mt-1.5 flex w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950" />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? "Saving..." : "Save Changes"}</Button>
-                    <Button type="button" variant="outline" size="sm" onClick={onCancelEdit}>Cancel</Button>
-                  </div>
-                </form>
+                <TripEditForm
+                  key={`trip-edit-${trip.id}`}
+                  trip={trip}
+                  organizationId={organizationId}
+                  sites={sites}
+                  missionTypes={missionTypes}
+                  isSaving={isSaving}
+                  onSave={onSave}
+                  onCancelEdit={onCancelEdit}
+                />
               ) : (
                 <>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">

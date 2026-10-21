@@ -1097,6 +1097,15 @@ export function DriverVehicleCheckForm({ vehicles, organizationId, onComplete, o
               <PassengerManifestPicker
                 value={passengerManifest}
                 onChange={setPassengerManifest}
+                label="Passenger manifest"
+                helperText="Select 1PWR employees traveling on this vehicle from the HR directory. Passengers are referenced by HR employee ID — no free text — so HR can link timecards to this field deployment. Leave empty if there are no passengers."
+                emptyHint="No passengers added yet. The driver is captured separately above; list only additional personnel riding this vehicle. Leave empty if there are no passengers."
+                modalTitle="Select passengers from HR directory"
+                addButtonLabel={
+                  passengerManifest.length > 0
+                    ? `Edit manifest (${passengerManifest.length})`
+                    : "Add passengers from HR directory"
+                }
               />
             </div>
           )}

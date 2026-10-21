@@ -31,6 +31,12 @@ import {
   EhsCompliantDriverPickerField,
   type DesignatedOperatorSelection,
 } from "@/components/EhsCompliantDriverPickerField";
+import {
+  PassengerManifestPicker,
+  parsePersonnelManifest,
+  manifestDisplayNames,
+  type ManifestPassenger,
+} from "@/components/PassengerManifestPicker";
 import { FuelBudgetPanel, type FuelStopDraft } from "@/components/FuelBudgetPanel";
 import { MissionRouteEditor, type MissionRouteValue } from "@/components/MissionRouteEditor";
 import { MissionRouteMap } from "@/components/MissionRouteMap";
@@ -2780,6 +2786,7 @@ function RequestForm({
   const [fuelDisposition, setFuelDisposition] = useState<FuelDisposition>("");
   const [fuelSubmitFields, setFuelSubmitFields] = useState<Record<string, unknown>>({});
   const [missionVehicleClass, setMissionVehicleClass] = useState("");
+  const [personnelManifest, setPersonnelManifest] = useState<ManifestPassenger[]>([]);
   const { canOverride, canOverrideDriver } = useOverrideCapability(organizationId);
   const managerOverrideReady =
     canOverride && overrideEnabled && overrideReason.trim().length >= 8;
@@ -3035,8 +3042,7 @@ function RequestForm({
     setValue("cmTitle", String(m.title || ""));
     setValue("cmDepartureDate", String(m.departure_date || ""));
     setValue("cmReturnDate", String(m.return_date || ""));
-    setValue("cmCrewSize", String(m.crew_size ?? 1));
-    setValue("cmPassengers", String(m.passengers || ""));
+    setPersonnelManifest(parsePersonnelManifest(m.personnel_manifest));
     setValue("cmLoadout", String(m.loadout_summary || ""));
     setValue("cmNotes", String(m.notes || ""));
     setValue("cmMissionProfile", String(m.mission_profile || "local"));
@@ -3112,11 +3118,11 @@ function RequestForm({
       setMissionFormError("Select the vehicle type / asset class required for this mission.");
       return;
     }
-    const crewParsed = parseInt(String(fd.get("cmCrewSize") || ""), 10);
-    if (!Number.isFinite(crewParsed) || crewParsed < 1) {
-      setMissionFormError("Crew size is required and must be a whole number of at least 1.");
+    if (personnelManifest.length < 1) {
+      setMissionFormError("Select at least one person from the HR directory for this mission.");
       return;
     }
+    const crewParsed = personnelManifest.length;
     const waypointStops = routePlan.waypoints
       .map((s) => ({
         location: (s.siteCode || s.label).trim(),
@@ -3158,8 +3164,9 @@ function RequestForm({
         destinationLng: routePlan.destination.lng,
         departureDate,
         returnDate: String(fd.get("cmReturnDate") || ""),
-        passengers: String(fd.get("cmPassengers") || ""),
+        passengers: manifestDisplayNames(personnelManifest),
         crewSize: crewParsed,
+        personnelManifest,
         loadoutSummary: String(fd.get("cmLoadout") || ""),
         missionType: "other",
         notes: String(fd.get("cmNotes") || ""),
@@ -3249,6 +3256,7 @@ function RequestForm({
         form.reset();
         setMissionVehicleClass("");
         setFuelSubmitFields({});
+        setPersonnelManifest([]);
         setRoutePlan(emptyRoutePlan());
         setEditingMissionDraftId(null);
         loadApprovedMissions();
@@ -3438,11 +3446,27 @@ function RequestForm({
               <Input name="cmDepartureDate" label="Departure date *" type="date" required />
               <Input name="cmReturnDate" label="Return date" type="date" />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input name="cmCrewSize" label="Crew size *" type="number" min={1} step={1} required placeholder="Number of people on this mission" />
-              <Input name="cmPassengers" label="Passenger names / notes" placeholder="Optional — names or notes" />
-              <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
-            </div>
+            <PassengerManifestPicker
+              value={personnelManifest}
+              onChange={setPersonnelManifest}
+              required
+              showTravelMode={false}
+              label="People on this mission"
+              helperText="Search and select everyone travelling on this mission from the HR directory. Free-text names are not accepted. Crew size is the number selected."
+              emptyHint="Select at least one person from the HR directory."
+              modalTitle="Select people from HR directory"
+              addButtonLabel={
+                personnelManifest.length > 0
+                  ? `Edit people (${personnelManifest.length})`
+                  : "Add people from HR directory"
+              }
+            />
+            {personnelManifest.length > 0 && (
+              <p className="text-xs text-zinc-600">
+                Crew size: <span className="font-medium text-zinc-900">{personnelManifest.length}</span>
+              </p>
+            )}
+            <Input name="cmLoadout" label="Loadout / equipment" placeholder="Cargo summary for the mission" />
             <label className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-sm">
               <input
                 type="checkbox"

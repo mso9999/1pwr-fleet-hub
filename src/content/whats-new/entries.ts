@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "roster-picker-for-names",
+    title: "Names on missions and trips come from the roster",
+    summary:
+      "People on a mission and the driver and passengers on a trip are selected from searchable directories. Free-text names are no longer accepted.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-10-21",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "What changed",
+        bodyMd:
+          "- When you create a **mission**, pick everyone travelling from the HR directory. Search by name, email, or employee ID. Crew size is the number you select.\n- When you create a **trip**, pick the **driver** from the EHS approved-drivers register, and pick the people on the trip from the HR directory. The list is pre-filled from the mission when available.\n- Free-text name fields are gone. Names are always linked to a roster record.",
+      },
+    ],
+  },
+  {
     slug: "vehicle-request-already-open",
     title: "A mission with a vehicle request asks before you file another",
     summary:

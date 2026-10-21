@@ -39,23 +39,82 @@ interface Props {
   onChange: (next: ManifestPassenger[]) => void;
   /** Defaults to the user's organization country code if not provided. */
   defaultCountry?: string;
+  label?: string;
+  helperText?: string;
+  emptyHint?: string;
+  /** Modal heading. */
+  modalTitle?: string;
+  /** Show straggler / travel-mode controls (DVC departing). Default true. */
+  showTravelMode?: boolean;
+  required?: boolean;
+  /** Button label when the list is empty. */
+  addButtonLabel?: string;
 }
 
 /**
- * Passenger manifest picker for the driver vehicle checklist.
+ * Select people from the live HR employee directory (server-side fetch via
+ * /api/hr-directory/manifest-options) in a searchable modal. People are
+ * referenced by canonical HR `employee_id` — never free text.
  *
- * Passengers are selected from the live HR employee directory (server-side
- * fetch via /api/hr-directory/manifest-options) via a modal dialog with
- * search and pagination. Passengers are referenced by canonical HR
- * `employee_id` — never free text.
- *
- * Filter dropdowns (country, department) are populated dynamically from
- * /api/hr-directory/manifest-options/meta. The directory is fetched once per
- * filter combination and cached in-component for the picker's lifetime.
+ * Used on the driver vehicle checklist, mission create/edit, and trip
+ * checkout/edit. Filter dropdowns (country, department) come from
+ * /api/hr-directory/manifest-options/meta.
  */
 const PAGE_SIZE = 10;
 
-export function PassengerManifestPicker({ value, onChange, defaultCountry }: Props): React.ReactElement {
+/** Parse a mission/trip `personnel_manifest` JSON string (or array) into picker rows. */
+export function parsePersonnelManifest(raw: unknown): ManifestPassenger[] {
+  let arr: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      arr = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+  const out: ManifestPassenger[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== "object") continue;
+    const p = item as Record<string, unknown>;
+    const employeeId = String(p.employee_id || "").trim();
+    const name = String(p.name || "").trim();
+    if (!employeeId || !name) continue;
+    const rawMode = String(p.travel_mode ?? "on_vehicle").toLowerCase();
+    const travelMode: PassengerTravelMode =
+      rawMode === "straggler_public_transport" ? "straggler_public_transport" : "on_vehicle";
+    const notes = typeof p.notes === "string" ? p.notes.trim().slice(0, 200) : "";
+    out.push({
+      employee_id: employeeId,
+      name,
+      department: p.department != null ? String(p.department) : null,
+      country: p.country != null ? String(p.country) : null,
+      travel_mode: travelMode,
+      ...(notes ? { notes } : {}),
+    });
+  }
+  return out;
+}
+
+/** Comma-separated display names for legacy `passengers` text columns. */
+export function manifestDisplayNames(list: ManifestPassenger[]): string {
+  return list.map((p) => p.name).filter(Boolean).join(", ");
+}
+
+export function PassengerManifestPicker({
+  value,
+  onChange,
+  defaultCountry,
+  label = "Passenger manifest",
+  helperText = "Select 1PWR employees from the HR directory. People are referenced by HR employee ID — no free text.",
+  emptyHint = "No one added yet. Open the directory to search and select.",
+  modalTitle = "Select people from HR directory",
+  showTravelMode = true,
+  required = false,
+  addButtonLabel,
+}: Props): React.ReactElement {
   const { user } = useAuth();
   const [countries, setCountries] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
@@ -193,15 +252,18 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
     setPage(0);
   }
 
+  const buttonLabel =
+    addButtonLabel ||
+    (value.length > 0 ? `Edit selection (${value.length})` : "Add people from HR directory");
+
   return (
     <div className="space-y-3">
       <div>
-        <label className="text-sm font-medium text-zinc-700">Passenger manifest</label>
-        <p className="text-xs text-zinc-500 mt-0.5">
-          Select 1PWR employees traveling on this vehicle from the HR directory. Passengers are
-          referenced by HR employee ID — no free text — so HR can link timecards to this field
-          deployment. Leave empty if there are no passengers.
-        </p>
+        <label className="text-sm font-medium text-zinc-700">
+          {label}
+          {required ? " *" : ""}
+        </label>
+        {helperText ? <p className="text-xs text-zinc-500 mt-0.5">{helperText}</p> : null}
       </div>
 
       <button
@@ -210,7 +272,7 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
         className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
       >
         <UserPlus className="h-4 w-4" />
-        {value.length > 0 ? `Edit manifest (${value.length})` : "Add passengers from HR directory"}
+        {buttonLabel}
       </button>
 
       {error && <p className="text-[11px] text-red-700">{error}</p>}
@@ -241,49 +303,48 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
                   </span>
                   <button
                     type="button"
-                    aria-label={`Remove ${p.name} from manifest`}
+                    aria-label={`Remove ${p.name} from list`}
                     onClick={() => removePassenger(p.employee_id)}
                     className="ml-auto text-zinc-400 hover:text-red-600"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <label className="text-[10px] font-medium uppercase text-zinc-500">
-                    Travel mode
-                  </label>
-                  <select
-                    value={p.travel_mode ?? "on_vehicle"}
-                    onChange={(e) =>
-                      setTravelMode(p.employee_id, e.target.value as PassengerTravelMode)
-                    }
-                    className="h-7 rounded border border-zinc-200 bg-white px-1.5 text-[11px]"
-                  >
-                    <option value="on_vehicle">On company vehicle</option>
-                    <option value="straggler_public_transport">
-                      Straggler — public transport
-                    </option>
-                  </select>
-                  {isStraggler && (
-                    <input
-                      type="text"
-                      value={p.notes ?? ""}
-                      onChange={(e) => setNotes(p.employee_id, e.target.value)}
-                      placeholder="Note: e.g. missed HQ departure; took public taxi to site"
-                      className="h-7 min-w-[12rem] flex-1 rounded border border-amber-300 bg-white px-2 text-[11px]"
-                      maxLength={200}
-                    />
-                  )}
-                </div>
+                {showTravelMode && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <label className="text-[10px] font-medium uppercase text-zinc-500">
+                      Travel mode
+                    </label>
+                    <select
+                      value={p.travel_mode ?? "on_vehicle"}
+                      onChange={(e) =>
+                        setTravelMode(p.employee_id, e.target.value as PassengerTravelMode)
+                      }
+                      className="h-7 rounded border border-zinc-200 bg-white px-1.5 text-[11px]"
+                    >
+                      <option value="on_vehicle">On company vehicle</option>
+                      <option value="straggler_public_transport">
+                        Straggler — public transport
+                      </option>
+                    </select>
+                    {isStraggler && (
+                      <input
+                        type="text"
+                        value={p.notes ?? ""}
+                        onChange={(e) => setNotes(p.employee_id, e.target.value)}
+                        placeholder="Note: e.g. missed HQ departure; took public taxi to site"
+                        className="h-7 min-w-[12rem] flex-1 rounded border border-amber-300 bg-white px-2 text-[11px]"
+                        maxLength={200}
+                      />
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
         </ul>
       ) : (
-        <p className="text-[11px] text-zinc-500">
-          No passengers added yet. The driver is captured separately above; list only additional
-          personnel riding this vehicle. Leave empty if there are no passengers.
-        </p>
+        <p className="text-[11px] text-zinc-500">{emptyHint}</p>
       )}
 
       {modalOpen && (
@@ -296,7 +357,7 @@ export function PassengerManifestPicker({ value, onChange, defaultCountry }: Pro
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3">
-              <h2 className="text-base font-semibold text-zinc-900">Select passengers from HR directory</h2>
+              <h2 className="text-base font-semibold text-zinc-900">{modalTitle}</h2>
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}

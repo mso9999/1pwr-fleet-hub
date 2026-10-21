@@ -15,6 +15,16 @@ import {
   routeStopsEqual,
 } from "@/lib/trip-route";
 import { isMultiStopRolloutEnabled } from "@/lib/feature-flags";
+import {
+  EhsCompliantDriverPickerField,
+  type DesignatedOperatorSelection,
+} from "@/components/EhsCompliantDriverPickerField";
+import {
+  PassengerManifestPicker,
+  parsePersonnelManifest,
+  manifestDisplayNames,
+  type ManifestPassenger,
+} from "@/components/PassengerManifestPicker";
 
 interface RefItem {
   code: string;
@@ -35,6 +45,7 @@ interface MissionForTrip {
   title: string;
   approval_status?: string;
   passengers: string;
+  personnel_manifest?: string;
   loadout_summary: string;
   stops?: Array<{
     stop_order: number;
@@ -75,6 +86,7 @@ function buildMissionPatch(
     missionProfile: string;
     missionType: string;
     passengers: string;
+    personnelManifest: ManifestPassenger[];
     loadoutSummary: string;
   }
 ): Record<string, unknown> | null {
@@ -86,7 +98,15 @@ function buildMissionPatch(
   const omp = (orig.mission_profile || MISSION_PROFILE.LOCAL) === MISSION_PROFILE.FIELD ? MISSION_PROFILE.FIELD : MISSION_PROFILE.LOCAL;
   if (mp !== omp) p.missionProfile = mp;
   if (ed.missionType.trim() !== (orig.mission_type || "").trim()) p.missionType = ed.missionType.trim();
-  if (ed.passengers.trim() !== (orig.passengers || "").trim()) p.passengers = ed.passengers.trim();
+  const passengerNames = manifestDisplayNames(ed.personnelManifest) || ed.passengers.trim();
+  if (passengerNames !== (orig.passengers || "").trim()) p.passengers = passengerNames;
+  const origManifest = parsePersonnelManifest(orig.personnel_manifest);
+  const origIds = origManifest.map((x) => x.employee_id).join(",");
+  const nextIds = ed.personnelManifest.map((x) => x.employee_id).join(",");
+  if (origIds !== nextIds) {
+    p.personnelManifest = ed.personnelManifest;
+    p.crewSize = Math.max(1, ed.personnelManifest.length);
+  }
   if (ed.loadoutSummary.trim() !== (orig.loadout_summary || "").trim()) p.loadoutSummary = ed.loadoutSummary.trim();
   return Object.keys(p).length > 0 ? p : null;
 }
@@ -124,6 +144,7 @@ export function TripCheckoutForm({
     missionProfile: MissionProfile;
     missionType: string;
     passengers: string;
+    personnelManifest: ManifestPassenger[];
     loadoutSummary: string;
   }>({
     destination: "",
@@ -132,10 +153,13 @@ export function TripCheckoutForm({
     missionProfile: MISSION_PROFILE.LOCAL,
     missionType: "other",
     passengers: "",
+    personnelManifest: [],
     loadoutSummary: "",
   });
   const [canMissionManage, setCanMissionManage] = useState(false);
   const [serverFleetLead, setServerFleetLead] = useState<boolean | null>(null);
+  const [tripDriver, setTripDriver] = useState<DesignatedOperatorSelection | null>(null);
+  const [tripPassengers, setTripPassengers] = useState<ManifestPassenger[]>([]);
 
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
@@ -229,6 +253,7 @@ export function TripCheckoutForm({
       return;
     }
     setMissionSnapshot({ ...selectedMission });
+    const missionPeople = parsePersonnelManifest(selectedMission.personnel_manifest);
     setMissionEdits({
       destination: selectedMission.destination || "",
       returnDate: selectedMission.return_date || "",
@@ -239,8 +264,10 @@ export function TripCheckoutForm({
           : MISSION_PROFILE.LOCAL,
       missionType: selectedMission.mission_type || "other",
       passengers: selectedMission.passengers || "",
+      personnelManifest: missionPeople,
       loadoutSummary: selectedMission.loadout_summary || "",
     });
+    setTripPassengers(missionPeople);
     const orderedStops = [...(selectedMission.stops || [])].sort(
       (a, b) => (a.stop_order || 0) - (b.stop_order || 0)
     );
@@ -390,19 +417,32 @@ export function TripCheckoutForm({
       }
     }
 
+    if (!tripDriver?.id) {
+      setCheckoutError("Select the driver from the EHS approved-drivers register.");
+      setIsSubmitting(false);
+      return;
+    }
+    const peopleForTrip =
+      adjustMission && canMissionManage ? missionEdits.personnelManifest : tripPassengers;
+    if (peopleForTrip.length < 1) {
+      setCheckoutError("Select at least one person from the HR directory for this trip.");
+      setIsSubmitting(false);
+      return;
+    }
+
     const fd = new FormData(form);
     const dest =
       adjustMission && canMissionManage ? missionEdits.destination.trim() : selectedMission.destination;
     const mType =
       adjustMission && canMissionManage ? missionEdits.missionType.trim() : selectedMission.mission_type;
-    const passengersTrip =
-      adjustMission && canMissionManage ? missionEdits.passengers.trim() : fd.get("passengers") || selectedMission.passengers;
+    const passengersTrip = manifestDisplayNames(peopleForTrip);
 
     const body: Record<string, unknown> = {
       organizationId,
       missionId: selectedMission.id,
       vehicleId: isNonCompanyMission ? "" : selectedMission.assigned_vehicle_id,
-      driverName: fd.get("driverName"),
+      driverId: tripDriver.id,
+      driverName: tripDriver.displayName,
       odoStart: isNonCompanyMission ? null : Number(fd.get("odoStart")),
       departureLocation: fd.get("departureLocation"),
       destination: dest,
@@ -474,14 +514,16 @@ export function TripCheckoutForm({
       draftId: activeDraftId ?? undefined,
       organizationId,
       missionId: selectedMissionId || "",
-      driverName: fd.get("driverName") || "",
+      driverId: tripDriver?.id || "",
+      driverName: tripDriver?.displayName || "",
       odoStart: fd.get("odoStart") || "",
       departureLocation: fd.get("departureLocation") || "",
       destination: selectedMission?.destination || "",
       missionType: fd.get("missionType") || selectedMission?.mission_type || "other",
       tripShape: normalizeTripShape(selectedMission?.trip_shape),
       missionProfile: selectedMission?.mission_profile || MISSION_PROFILE.LOCAL,
-      passengers: fd.get("passengers") || "",
+      passengers: manifestDisplayNames(tripPassengers),
+      personnelManifest: tripPassengers,
       loadOut: fd.get("loadOut") || "",
       stops: isMultiStop ? normalizeRouteStops(stops) : [],
       routeChangeReason,
@@ -531,12 +573,15 @@ export function TripCheckoutForm({
       const el = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
       if (el) el.value = value;
     };
-    setValue("driverName", String(payload.driverName || ""));
     setValue("odoStart", String(payload.odoStart || ""));
     setValue("departureLocation", String(payload.departureLocation || ""));
     setValue("missionType", String(payload.missionType || "other"));
-    setValue("passengers", String(payload.passengers || ""));
     setValue("loadOut", String(payload.loadOut || ""));
+    const driverId = String(payload.driverId || "").trim();
+    const driverName = String(payload.driverName || "").trim();
+    setTripDriver(driverId && driverName ? { id: driverId, displayName: driverName, email: "" } : null);
+    const draftedPeople = parsePersonnelManifest(payload.personnelManifest);
+    setTripPassengers(draftedPeople);
     setDraftNotice("Trip draft loaded. Continue editing and click Create trip when ready.");
   }
 
@@ -690,11 +735,24 @@ export function TripCheckoutForm({
                         </option>
                       ))}
                     </Select>
-                    <Input
-                      label="Passengers (mission)"
-                      value={missionEdits.passengers}
-                      onChange={(e) => setMissionEdits((s) => ({ ...s, passengers: e.target.value }))}
-                    />
+                    <div className="sm:col-span-2">
+                      <PassengerManifestPicker
+                        value={missionEdits.personnelManifest}
+                        onChange={(next) =>
+                          setMissionEdits((s) => ({
+                            ...s,
+                            personnelManifest: next,
+                            passengers: manifestDisplayNames(next),
+                          }))
+                        }
+                        required
+                        showTravelMode={false}
+                        label="People on this mission"
+                        helperText="Search and select from the HR directory. Free-text names are not accepted."
+                        emptyHint="Select at least one person from the HR directory."
+                        modalTitle="Select people from HR directory"
+                      />
+                    </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm font-medium text-zinc-700">Loadout summary (mission)</label>
                       <textarea
@@ -709,7 +767,16 @@ export function TripCheckoutForm({
               </div>
             )}
 
-            <Input name="driverName" label="Driver name *" required placeholder="Your name" />
+            <div className="sm:col-span-2">
+              <EhsCompliantDriverPickerField
+                organizationId={organizationId}
+                value={tripDriver}
+                onChange={setTripDriver}
+                required
+                label="Driver (EHS register)"
+                helperText="Search and select the driver from the EHS approved-drivers register. Free-text names are not accepted."
+              />
+            </div>
             {isNonCompanyMission ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 <span className="font-medium capitalize">{missionTransportMode.replace("_", " ")}</span> mission —
@@ -749,7 +816,20 @@ export function TripCheckoutForm({
                 </option>
               ))}
             </Select>
-            <Input name="passengers" label="Passengers (trip)" placeholder="Names" />
+            {!(adjustMission && canMissionManage) && (
+              <div className="sm:col-span-2">
+                <PassengerManifestPicker
+                  value={tripPassengers}
+                  onChange={setTripPassengers}
+                  required
+                  showTravelMode={false}
+                  label="People on this trip"
+                  helperText="Pre-filled from the mission when available. Search and select from the HR directory — free-text names are not accepted."
+                  emptyHint="Select at least one person from the HR directory."
+                  modalTitle="Select people from HR directory"
+                />
+              </div>
+            )}
             <div className="sm:col-span-2">
               <label className="text-sm font-medium text-zinc-700">Load out (items leaving)</label>
               <textarea

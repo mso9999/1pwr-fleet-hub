@@ -249,15 +249,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Enforce a numeric crew size — the mission is the canonical source of "how many people"
   // for downstream consumers (e.g. PR field-camp provisioning). Free-text passengers is
   // retained as optional names/notes only.
-  const crewSizeRaw = body.crewSize === undefined ? body.crew_size : body.crewSize;
-  const crewParsed = parseInt(String(crewSizeRaw ?? ""), 10);
-  if (!Number.isFinite(crewParsed) || crewParsed < 1) {
+  const personnelManifestRaw = Array.isArray(body.personnelManifest) ? body.personnelManifest : [];
+  const namedPeople = personnelManifestRaw.filter(
+    (p: unknown): p is { employee_id: string; name: string; department?: string | null; country?: string | null; travel_mode?: string; notes?: string } => {
+      if (!p || typeof p !== "object") return false;
+      const row = p as { employee_id?: string; name?: string };
+      return Boolean(String(row.employee_id || "").trim() && String(row.name || "").trim());
+    }
+  );
+  if (namedPeople.length < 1) {
     return NextResponse.json(
-      { error: "Crew size is required and must be a whole number of at least 1." },
+      {
+        error:
+          "Select at least one person from the HR directory for this mission. Free-text passenger names are not accepted.",
+        field: "personnelManifest",
+      },
       { status: 400 }
     );
   }
-  const personnelManifest = Array.isArray(body.personnelManifest) ? body.personnelManifest : [];
+  const crewSizeRaw = body.crewSize === undefined ? body.crew_size : body.crewSize;
+  const crewParsedRaw = parseInt(String(crewSizeRaw ?? ""), 10);
+  const crewParsed =
+    Number.isFinite(crewParsedRaw) && crewParsedRaw >= namedPeople.length
+      ? crewParsedRaw
+      : namedPeople.length;
 
   // Scenario B: public-transport missions. The team travels by public
   // transport instead of a 1PWR vehicle (e.g. no vehicles available).
@@ -354,9 +369,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     departureDate: String(body.departureDate || ""),
     returnDate: String(body.returnDate || ""),
     missionType: String(body.missionType || "other"),
-    passengers: String(body.passengers || ""),
+    passengers:
+      String(body.passengers || "").trim() ||
+      namedPeople.map((p: { name: string }) => String(p.name || "").trim()).filter(Boolean).join(", "),
     crewSize: crewParsed,
-    personnelManifest,
+    personnelManifest: namedPeople,
     loadoutSummary: String(body.loadoutSummary || ""),
     notes: String(body.notes || ""),
     createdById: user.id,
@@ -391,7 +408,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       trip_shape: row.trip_shape,
       required_vehicle_class: row.required_vehicle_class,
       crew_size: row.crew_size,
-      personnel_manifest_count: Array.isArray(personnelManifest) ? personnelManifest.length : 0,
+      personnel_manifest_count: namedPeople.length,
       stop_count: stops.length,
     },
   });

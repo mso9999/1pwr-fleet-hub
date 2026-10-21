@@ -317,6 +317,9 @@ export const guideEn: GuideContent = {
             " (purpose, priority); the vehicle class usually comes from the mission. Line approval of that request remains separate from mission approval where that flow is still used.",
           ],
           [
+            "People on a mission are selected from the HR directory (searchable picker), not typed freehand. Crew size is the number selected. On trip create, the driver is selected from the EHS approved-drivers register, and the people on the trip from the HR directory (pre-filled from the mission when available).",
+          ],
+          [
             "One mission normally has one vehicle request. If the mission you pick already has one, the form shows it and asks you to resume and fix it, cancel it and submit yours instead, or confirm a separate request with a reason. You can edit your own request until fleet allocates a vehicle.",
           ],
           [

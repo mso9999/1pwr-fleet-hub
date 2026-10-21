@@ -304,8 +304,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       : Number(body.odoStart);
   const defaultApprovalStatus = "auto-approved";
 
+  const driverName = String(body.driverName || "").trim();
+  if (!driverName) {
+    return NextResponse.json(
+      {
+        error:
+          "Select the driver from the EHS approved-drivers register. Free-text driver names are not accepted.",
+        field: "driverName",
+      },
+      { status: 400 }
+    );
+  }
+  const passengersText = String(body.passengers || "").trim();
+  if (!passengersText) {
+    return NextResponse.json(
+      {
+        error:
+          "Select at least one person from the HR directory for this trip. Free-text passenger names are not accepted.",
+        field: "passengers",
+      },
+      { status: 400 }
+    );
+  }
+
   // Transmission derate (EHS): the departing checklist carries the driver
-  // identity (checkout itself collects a free-text name). An automatic-only
+  // identity. An automatic-only
   // driver may not depart in a manual or unrecorded-transmission vehicle;
   // the pairing is snapshotted onto the trip for the audit trail.
   let driverTransmissionScope = "";
@@ -348,14 +371,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     organizationId,
     effectiveVehicleId,
     body.driverId || "",
-    body.driverName || "",
+    driverName,
     odoStart,
     body.departureLocation,
     body.destination,
     body.missionType || "other",
     resolvedMissionProfile,
     resolvedTripShape,
-    body.passengers || "",
+    passengersText,
     body.loadOut || "",
     body.loadIn || "",
     now,
@@ -394,7 +417,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   db.prepare(
     "INSERT INTO status_log (entity_type, entity_id, old_status, new_status, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run("trip", id, null, "planned", body.driverName || "", now);
+  ).run("trip", id, null, "planned", driverName, now);
 
   recordMutation(db, {
     entityType: "trip",
@@ -405,7 +428,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     after: {
       missionId: missionIdRaw,
       vehicleId: effectiveVehicleId,
-      driverName: body.driverName || "",
+      driverName,
       destination: body.destination || "",
       departureLocation: body.departureLocation || "",
       allocationStatus: isNonCompanyMission || hasVehicle ? "allocated" : "pending_fleet",
