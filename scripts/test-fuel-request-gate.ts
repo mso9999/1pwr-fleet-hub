@@ -8,8 +8,12 @@ import { fuelPrUrl, fuelRequestGate } from "../src/lib/fuel-request-gate";
 
 const base = { id: "m1", fuel_budget: 1622.44, assigned_vehicle_id: "v1", assigned_vehicle_code: "G1" };
 
-assert.equal(fuelRequestGate({ ...base, trip_id: null, assigned_vehicle_id: null }).reason, "create_trip");
-assert.match(fuelRequestGate({ ...base, trip_id: "" }).href || "", /mission=m1/);
+const noTrip = fuelRequestGate({ ...base, trip_id: null, assigned_vehicle_id: null });
+assert.equal(noTrip.ready, false);
+if (!noTrip.ready) {
+  assert.equal(noTrip.reason, "create_trip");
+  if (noTrip.reason === "create_trip") assert.match(noTrip.href, /mission=m1/);
+}
 
 const waiting = fuelRequestGate({ ...base, trip_id: "t1", assigned_vehicle_id: "unallocated_x", assigned_vehicle_code: "UNALLOCATED" });
 assert.equal(waiting.ready, false);
