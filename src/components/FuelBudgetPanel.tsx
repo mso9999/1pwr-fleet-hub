@@ -451,7 +451,7 @@ export function FuelBudgetPanel({
               checked={disposition === "pr_requested"}
               onChange={() => onDispositionChange("pr_requested")}
             />
-            <span>Own fuel PR. Once the mission is approved, use Raise fuel PR on Vehicle requests. It opens the PR system pre-filled.</span>
+            <span>Own fuel request. After approval, create the trip and wait for the vehicle. Then raise the request from Vehicle requests or from the trip. It opens the PR system with this budget, and the request points at the trip.</span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
