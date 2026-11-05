@@ -150,8 +150,9 @@ export function MissionFuelFundingCard({
         {open && (
           <p className="text-sm text-zinc-600 font-normal">
             Create the trip, then fleet assigns the vehicle. The fuel request comes after that, so the amount uses
-            that vehicle and the request in the PR system points at the trip. A deployment budget is the other way
-            to cover the same fuel. Linked requests show here. Status is checked hourly, or press Check PR status.
+            that vehicle and the request in the PR system points at the trip. A deployment budget is filed against
+            this mission, and is the other way to cover the same fuel. Linked requests show here. Status is checked
+            hourly, or press Check PR status.
           </p>
         )}
       </CardHeader>

@@ -460,7 +460,7 @@ export function FuelBudgetPanel({
               checked={disposition === "in_deployment_budget"}
               onChange={() => onDispositionChange("in_deployment_budget")}
             />
-            <span>Part of the deployment budget. Once approved, Open deployment budget pre-fills the PR-system wizard with this fuel.</span>
+            <span>Part of the deployment budget. Once approved, Open deployment budget pre-fills the PR-system wizard from this mission. The budget cannot be filed without it.</span>
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
