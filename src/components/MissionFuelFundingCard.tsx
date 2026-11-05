@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { jsonHeadersWithBearer } from "@/lib/client-bearer";
 import { canActOnMissionFuel } from "@/lib/fleet-roles";
+import { fuelPrUrl, fuelRequestGate, PR_APP_BASE_URL } from "@/lib/fuel-request-gate";
 
-export const PR_APP_BASE_URL = "https://pr.1pwrafrica.com";
+export { PR_APP_BASE_URL };
 
 export interface MissionPrLink {
   pr_id: string;
@@ -35,6 +36,9 @@ export interface FuelFundingMission {
   fuel_budget?: number | null;
   fuel_currency?: string | null;
   fuel_disposition?: string | null;
+  trip_id?: string | null;
+  assigned_vehicle_id?: string | null;
+  assigned_vehicle_code?: string | null;
   pr_links?: MissionPrLink[];
 }
 
@@ -52,11 +56,6 @@ function prStatusVariant(status: string): "success" | "warning" | "destructive" 
     return "warning";
   }
   return "secondary";
-}
-
-export function fuelPrUrl(m: Pick<FuelFundingMission, "id" | "organization_id">, organizationId: string): string {
-  const org = m.organization_id || organizationId;
-  return `${PR_APP_BASE_URL}/fuel-pr?mission=${encodeURIComponent(m.id)}&org=${encodeURIComponent(org)}`;
 }
 
 export function deploymentBudgetUrl(
@@ -145,14 +144,14 @@ export function MissionFuelFundingCard({
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
-          <CardTitle className="text-base">Fuel funding for approved missions ({visible.length})</CardTitle>
+          <CardTitle className="text-base">Fuel for approved missions ({visible.length})</CardTitle>
           <span className="text-xs text-zinc-500 shrink-0">{open ? "Hide ▲" : "Show ▼"}</span>
         </button>
         {open && (
           <p className="text-sm text-zinc-600 font-normal">
-            Raise a fuel PR in the PR system, or put fuel in the deployment budget. Both open pre-filled from the
-            mission. Linked PRs show here once they are filed. Status is checked hourly, or press Check PR status.
-            Missions that have already returned are not listed.
+            Create the trip, then fleet assigns the vehicle. The fuel request comes after that, so the amount uses
+            that vehicle and the request in the PR system points at the trip. A deployment budget is the other way
+            to cover the same fuel. Linked requests show here. Status is checked hourly, or press Check PR status.
           </p>
         )}
       </CardHeader>
@@ -167,6 +166,8 @@ export function MissionFuelFundingCard({
               : null;
           const disposition = String(m.fuel_disposition || "");
           const busy = busyId === m.id;
+          const gate = fuelRequestGate(m);
+          const org = m.organization_id || organizationId;
           return (
             <div key={m.id} className="rounded-lg border border-sky-100 bg-white px-3 py-2 text-sm space-y-2">
               <div className="flex flex-wrap justify-between gap-2">
@@ -228,19 +229,44 @@ export function MissionFuelFundingCard({
                 </ul>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                {disposition !== "in_deployment_budget" &&
-                  (budget ? (
-                    <a href={fuelPrUrl(m, organizationId)} target="_blank" rel="noopener noreferrer">
-                      <Button type="button" size="sm">
-                        {links.some((l) => l.kind === "fuel") ? "Raise another fuel PR" : "Raise fuel PR"}
-                      </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {disposition !== "in_deployment_budget" && !gate.ready && gate.reason === "create_trip" && (
+                  <a href={gate.href}>
+                    <Button type="button" size="sm">Create the trip</Button>
+                  </a>
+                )}
+                {disposition !== "in_deployment_budget" && !gate.ready && gate.reason === "assign_vehicle" && (
+                  <span className="text-xs text-zinc-600">
+                    Waiting for fleet to assign the vehicle.{" "}
+                    <a className="text-sky-800 underline" href={`/trips?trip=${encodeURIComponent(gate.tripId)}`}>
+                      Open the trip
                     </a>
-                  ) : (
-                    <Button type="button" size="sm" disabled title="Calculate the fuel budget on the mission first">
-                      Raise fuel PR
+                  </span>
+                )}
+                {disposition !== "in_deployment_budget" && !gate.ready && gate.reason === "no_budget" && (
+                  <span className="text-xs text-zinc-600">
+                    The fuel budget is not calculated yet. Open the mission and run the calculator.{" "}
+                    <a className="text-sky-800 underline" href={`/trips?trip=${encodeURIComponent(gate.tripId)}`}>
+                      Open the trip
+                    </a>
+                  </span>
+                )}
+                {disposition !== "in_deployment_budget" && gate.ready && (
+                  <a
+                    href={fuelPrUrl({ missionId: m.id, tripId: gate.tripId, organizationId: org })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button type="button" size="sm">
+                      {links.some((l) => l.kind === "fuel") ? "Raise another fuel request" : "Raise fuel request"}
                     </Button>
-                  ))}
+                  </a>
+                )}
+                {gate.ready && (
+                  <a className="text-xs text-sky-800 underline" href={`/trips?trip=${encodeURIComponent(gate.tripId)}`}>
+                    Open the trip
+                  </a>
+                )}
                 {disposition !== "pr_requested" && (
                   <a href={deploymentBudgetUrl(m, organizationId)} target="_blank" rel="noopener noreferrer">
                     <Button type="button" size="sm" variant="outline">

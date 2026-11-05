@@ -13,6 +13,8 @@ import { MediaUpload } from "@/components/MediaUpload";
 import { LoadoutManifestsSection } from "@/components/LoadoutManifestsSection";
 import { TripOdometerLog } from "@/components/TripOdometerLog";
 import { MISSION_PROFILE } from "@/lib/trip-readiness";
+import { canActOnMissionFuel } from "@/lib/fleet-roles";
+import { fuelPrUrl, fuelRequestGate } from "@/lib/fuel-request-gate";
 import { TripCheckoutForm } from "./checkout-form";
 import { useTutorial } from "@/components/tutorial/tutorial-context";
 import {
@@ -31,6 +33,11 @@ interface TripRow {
   mission_title?: string | null;
   mission_approval_status?: string | null;
   mission_lifecycle_status?: string | null;
+  mission_organization_id?: string | null;
+  mission_created_by_id?: string | null;
+  mission_fuel_budget?: number | null;
+  mission_fuel_currency?: string | null;
+  mission_fuel_disposition?: string | null;
   vehicle_id: string | null;
   vehicle_code: string | null;
   vehicle_make: string | null;
@@ -83,6 +90,66 @@ function isPendingFleetAllocation(trip: TripRow): boolean {
   return (
     String(trip.vehicle_code || "").toUpperCase() === "UNALLOCATED" ||
     String(trip.vehicle_id || "").startsWith("unallocated_")
+  );
+}
+
+function TripFuelLine({
+  trip,
+  organizationId,
+  user,
+}: {
+  trip: TripRow;
+  organizationId: string;
+  user: { id: string; role?: string } | null;
+}): React.ReactElement | null {
+  if (!trip.mission_id) return null;
+  if (String(trip.mission_fuel_disposition || "") === "in_deployment_budget") return null;
+  if (
+    !canActOnMissionFuel({
+      role: user?.role || "",
+      isCreator: String(trip.mission_created_by_id || "") === String(user?.id || ""),
+    })
+  ) {
+    return null;
+  }
+  const gate = fuelRequestGate({
+    id: trip.mission_id,
+    trip_id: trip.id,
+    assigned_vehicle_id: isPendingFleetAllocation(trip) ? null : trip.vehicle_id,
+    assigned_vehicle_code: trip.vehicle_code,
+    fuel_budget: trip.mission_fuel_budget,
+  });
+  const money =
+    trip.mission_fuel_budget != null && Number(trip.mission_fuel_budget) > 0
+      ? `${Number(trip.mission_fuel_budget).toLocaleString()} ${trip.mission_fuel_currency || ""}`.trim()
+      : null;
+  if (!gate.ready && gate.reason === "assign_vehicle") {
+    return (
+      <p className="mt-2 text-xs text-zinc-600">
+        Fuel request waits until a vehicle is assigned{money ? ` (estimate ${money})` : ""}.
+      </p>
+    );
+  }
+  if (!gate.ready && gate.reason === "no_budget") {
+    return <p className="mt-2 text-xs text-zinc-600">Fuel budget is not calculated on the mission yet.</p>;
+  }
+  if (!gate.ready) return null;
+  return (
+    <p className="mt-2 text-xs text-zinc-700">
+      Fuel budget {money}.{" "}
+      <a
+        className="font-medium text-sky-800 underline"
+        href={fuelPrUrl({
+          missionId: trip.mission_id,
+          tripId: trip.id,
+          organizationId: trip.mission_organization_id || organizationId,
+        })}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Raise fuel request
+      </a>
+    </p>
   );
 }
 
@@ -422,6 +489,11 @@ function TripsPageContent(): React.ReactElement {
                         {trip.planned_departure_date ? ` · Planned: ${trip.planned_departure_date}` : ""}
                         {trip.source !== "manual" && <Badge variant="secondary" className="ml-2 text-[10px]">{trip.source}</Badge>}
                       </div>
+                      <TripFuelLine
+                        trip={trip}
+                        organizationId={organizationId}
+                        user={user ? { id: user.id, role: user.role } : null}
+                      />
                       {(() => {
                         const discrepancy = parseDepartureDiscrepancy(trip.departure_discrepancy);
                         if (!discrepancy) return null;

@@ -58,6 +58,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
            m.title AS mission_title,
            m.approval_status AS mission_approval_status,
            m.lifecycle_status AS mission_lifecycle_status,
+           m.organization_id AS mission_organization_id,
+           m.created_by_id AS mission_created_by_id,
+           m.fuel_budget AS mission_fuel_budget,
+           m.fuel_currency AS mission_fuel_currency,
+           m.fuel_disposition AS mission_fuel_disposition,
            (SELECT MAX(dvc.created_at)
               FROM driver_vehicle_checks dvc
              WHERE dvc.trip_id = t.id

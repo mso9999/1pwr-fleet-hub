@@ -51,6 +51,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    slug: "fuel-request-follows-the-trip",
+    title: "Fuel requests follow the trip",
+    summary:
+      "Raise the fuel request after the trip exists and a vehicle is assigned. The request in the PR system points at that trip.",
+    category: "reconfigure",
+    audience: "all",
+    effectiveAt: "2026-11-05",
+    appVersion: "0.4.10",
+    pages: [
+      {
+        title: "The sequence",
+        bodyMd:
+          "1. On the mission, the fuel calculator prices the route.\n2. After approval, **create the trip**.\n3. Fleet **assigns the vehicle**. The budget is recalculated for that vehicle.\n4. **Raise fuel request** on Vehicle requests, or on the trip. It opens the PR system with the budget filled in.\n\nThe purchase request stores the trip, and the PR page links back to it. Until the trip and the vehicle exist, the button is Create the trip, or a note that fleet still has to assign the vehicle.",
+      },
+    ],
+  },
+  {
     slug: "roster-picker-for-names",
     title: "Names on missions and trips come from the roster",
     summary:
